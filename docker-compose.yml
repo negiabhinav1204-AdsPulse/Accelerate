@@ -1,0 +1,41 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: accelerate_postgres
+    environment:
+      POSTGRES_DB: accelerate
+      POSTGRES_USER: accelerate_user
+      POSTGRES_PASSWORD: accelerate_pass_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accelerate_user -d accelerate"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: accelerate_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: accelerate_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@accelerate.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
