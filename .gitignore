@@ -1,0 +1,49 @@
+# Environment & Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.gradle/
+build/
+target/
+
+# Next.js
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/
+
+# Build artifacts
+dist/
+*.jar
+*.class
+
+# Terraform state (contains secrets)
+*.tfstate
+*.tfstate.backup
+.terraform/
