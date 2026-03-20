@@ -48,12 +48,10 @@ function getPlatformTokenConfig(
         clientSecret: process.env.META_APP_SECRET ?? ''
       };
     case 'bing':
-      // Token endpoint uses /common tenant — works regardless of which
-      // authorize tenant was used, as the access code grants cross-tenant
       return {
-        tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+        tokenUrl: `https://login.microsoftonline.com/${process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7'}/oauth2/v2.0/token`,
         redirectUri: `${baseUrl}/oauth/msads/callback`,
-        clientId: process.env.BING_CLIENT_ID ?? '',
+        clientId: process.env.BING_CLIENT_ID ?? '24acd153-281a-4766-898d-fa19bf538ce9',
         clientSecret: process.env.BING_CLIENT_SECRET ?? ''
       };
   }
@@ -487,11 +485,14 @@ export async function GET(
       response.cookies.delete('connector_oauth_state');
       return response;
     } else if (upsertedIds.length === 0) {
-      // No accounts found — surface the actual error so it shows in the UI toast
-      const errorCode = bingFetchError
-        ? encodeURIComponent(bingFetchError.slice(0, 200))
-        : 'no_accounts_found';
-      return redirectWithError(baseUrl, returnTo, errorCode, request);
+      // No accounts found — log the full error, redirect with a simple code for the toast
+      console.error(`[connector/${platform}] No accounts fetched:`, bingFetchError ?? 'unknown');
+      const noAccountsUrl = new URL(`${baseUrl}${returnTo}`);
+      noAccountsUrl.searchParams.set('connector_error', 'no_accounts_found');
+      noAccountsUrl.searchParams.set('platform', platformLower);
+      const noAccountsResp = NextResponse.redirect(noAccountsUrl.toString());
+      noAccountsResp.cookies.delete('connector_oauth_state');
+      return noAccountsResp;
     } else {
       // Multiple accounts — redirect to connectors with ?select=[platform]
       // The ConnectorsClient will open an account picker dialog
