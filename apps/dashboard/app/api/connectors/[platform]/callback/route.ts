@@ -30,7 +30,8 @@ type TokenConfig = {
 
 function getPlatformTokenConfig(
   platform: Platform,
-  baseUrl: string
+  baseUrl: string,
+  isInmobi?: boolean
 ): TokenConfig {
   switch (platform) {
     case 'google':
@@ -52,13 +53,21 @@ function getPlatformTokenConfig(
         clientId: process.env.META_APP_ID ?? '',
         clientSecret: process.env.META_APP_SECRET ?? ''
       };
-    case 'bing':
+    case 'bing': {
+      // InMobi users go through tenant-specific adminconsent → the code they get
+      // must be exchanged against the same InMobi tenant endpoint.
+      // External users use the common endpoint.
+      const bingTenantId = process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7';
+      const tokenHost = isInmobi
+        ? `https://login.microsoftonline.com/${bingTenantId}/oauth2/v2.0/token`
+        : 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
       return {
-        tokenUrl: `https://login.microsoftonline.com/${process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7'}/oauth2/v2.0/token`,
+        tokenUrl: tokenHost,
         redirectUri: `${baseUrl}/oauth/msads/callback`,
         clientId: process.env.BING_CLIENT_ID ?? '24acd153-281a-4766-898d-fa19bf538ce9',
         clientSecret: process.env.BING_CLIENT_SECRET ?? ''
       };
+    }
   }
 }
 
@@ -77,14 +86,15 @@ async function fetchGoogleAccounts(
   accessToken: string
 ): Promise<AdAccount[]> {
   try {
+    const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? '';
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      'developer-token': process.env.GOOGLE_DEVELOPER_TOKEN ?? ''
+    };
+    if (loginCustomerId) headers['login-customer-id'] = loginCustomerId;
     const res = await fetch(
       'https://googleads.googleapis.com/v17/customers:listAccessibleCustomers',
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'developer-token': process.env.GOOGLE_DEVELOPER_TOKEN ?? ''
-        }
-      }
+      { headers }
     );
     const body = await res.text();
     console.log('[google] listAccessibleCustomers status:', res.status);
@@ -321,7 +331,7 @@ export async function GET(
     return redirectWithError(baseUrl, '/onboarding', 'oauth_user_mismatch', request);
   }
 
-  const config = getPlatformTokenConfig(platform as Platform, baseUrl);
+  const config = getPlatformTokenConfig(platform as Platform, baseUrl, statePayload.isInmobi);
 
   // Exchange code for tokens — redirect_uri must exactly match what was sent in authorize
   let tokens: TokenResponse;
