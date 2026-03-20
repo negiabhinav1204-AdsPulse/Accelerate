@@ -1,22 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthOrganizationContext } from '@workspace/auth/context';
+import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 
 import { runPlatformSync } from '~/lib/data-pipeline/sync';
 
-// GET /api/connectors/[platform]/accounts
+// GET /api/connectors/[platform]/accounts?org=<orgSlug>
 // Returns all non-archived accounts for the org+platform
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ platform: string }> }
 ): Promise<NextResponse> {
-  const ctx = await getAuthOrganizationContext();
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { platform } = await params;
+  const orgSlug = request.nextUrl.searchParams.get('org');
+  if (!orgSlug) {
+    return NextResponse.json({ error: 'org query param required' }, { status: 400 });
+  }
+
+  const org = await prisma.organization.findFirst({
+    where: {
+      slug: orgSlug,
+      memberships: { some: { userId: session.user.id } }
+    },
+    select: { id: true }
+  });
+
+  if (!org) {
+    return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+  }
 
   const accounts = await prisma.connectedAdAccount.findMany({
     where: {
-      organizationId: ctx.organization.id,
+      organizationId: org.id,
       platform: platform.toLowerCase(),
       archivedAt: null
     },
@@ -35,39 +55,49 @@ export async function GET(
 }
 
 // PATCH /api/connectors/[platform]/accounts
-// Body: { accountId: string }
-// Admin only — sets isDefault=true on accountId, false on all others for same org+platform
+// Body: { accountId: string, org: string }
+// Sets isDefault=true on accountId, false on all others for same org+platform
 // Triggers runPlatformSync for the new default
 // Returns { ok: true }
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ platform: string }> }
 ): Promise<NextResponse> {
-  const ctx = await getAuthOrganizationContext();
-  const { platform } = await params;
-
-  const membership = ctx.session.user.memberships.find(
-    (m) => m.organizationId === ctx.organization.id
-  );
-  const isAdmin = !!membership && (membership.isOwner || membership.role === 'ADMIN');
-  if (!isAdmin) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { accountId?: string };
+  const { platform } = await params;
+
+  let body: { accountId?: string; org?: string };
   try {
-    body = (await request.json()) as { accountId?: string };
+    body = (await request.json()) as { accountId?: string; org?: string };
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { accountId } = body;
+  const { accountId, org: orgSlug } = body;
   if (!accountId) {
     return NextResponse.json({ error: 'accountId is required' }, { status: 400 });
   }
+  if (!orgSlug) {
+    return NextResponse.json({ error: 'org is required' }, { status: 400 });
+  }
+
+  const org = await prisma.organization.findFirst({
+    where: {
+      slug: orgSlug,
+      memberships: { some: { userId: session.user.id } }
+    },
+    select: { id: true }
+  });
+  if (!org) {
+    return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+  }
 
   const platformLower = platform.toLowerCase();
-  const orgId = ctx.organization.id;
+  const orgId = org.id;
 
   // Verify the target account exists and belongs to this org+platform
   const targetAccount = await prisma.connectedAdAccount.findFirst({

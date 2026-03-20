@@ -177,7 +177,7 @@ function AccountPickerDialog({
   React.useEffect(() => {
     if (!open) return;
     setFetching(true);
-    void fetch(`/api/connectors/${platform}/accounts`)
+    void fetch(`/api/connectors/${platform}/accounts?org=${orgSlug}`)
       .then((r) => r.json())
       .then((data) => {
         const list = data as AdAccount[];
@@ -196,7 +196,7 @@ function AccountPickerDialog({
       const res = await fetch(`/api/connectors/${platform}/accounts`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: selectedId })
+        body: JSON.stringify({ accountId: selectedId, org: orgSlug })
       });
       if (!res.ok) throw new Error();
       toast.success(`${platformLabel} connected successfully`);
