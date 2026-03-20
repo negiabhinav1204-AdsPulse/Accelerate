@@ -1,0 +1,7 @@
+{
+  "name": "accelerate-public-api",
+  "framework": "nextjs",
+  "buildCommand": "pnpm turbo run build --filter=public-api",
+  "outputDirectory": "apps/public-api/.next",
+  "installCommand": "pnpm install --frozen-lockfile"
+}

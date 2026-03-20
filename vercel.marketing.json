@@ -1,0 +1,7 @@
+{
+  "name": "accelerate-marketing",
+  "framework": "nextjs",
+  "buildCommand": "pnpm turbo run build --filter=marketing",
+  "outputDirectory": "apps/marketing/.next",
+  "installCommand": "pnpm install --frozen-lockfile"
+}
