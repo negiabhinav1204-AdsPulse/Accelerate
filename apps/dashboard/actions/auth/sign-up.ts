@@ -3,7 +3,6 @@
 import { redirect } from 'next/navigation';
 import { returnValidationErrors } from 'next-safe-action';
 
-import { hashPassword } from '@workspace/auth/password';
 import { createOtpTokens } from '@workspace/auth/verification';
 import { prisma } from '@workspace/database/client';
 import { sendVerifyEmailAddressEmail } from '@workspace/email/send-verify-email-address-email';
@@ -28,7 +27,6 @@ export const signUp = actionClient
       });
     }
 
-    const hashedPassword = await hashPassword(parsedInput.password);
     const fullName = `${parsedInput.firstName} ${parsedInput.lastName}`.trim();
 
     await prisma.user.create({
@@ -39,7 +37,6 @@ export const signUp = actionClient
         phoneCode: parsedInput.phoneCode,
         phone: parsedInput.phone,
         email: normalizedEmail,
-        password: hashedPassword,
         businessUrl: parsedInput.businessUrl,
         locale: 'en-US',
         completedOnboarding: false,

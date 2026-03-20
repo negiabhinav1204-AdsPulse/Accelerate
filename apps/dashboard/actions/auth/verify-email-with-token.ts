@@ -1,13 +1,12 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { isAfter } from 'date-fns';
+import { addHours, isAfter } from 'date-fns';
 
+import { PASSWORD_RESET_EXPIRY_HOURS } from '@workspace/auth/constants';
 import { verifyEmail } from '@workspace/auth/verification';
-import { APP_NAME } from '@workspace/common/app';
 import { NotFoundError } from '@workspace/common/errors';
 import { prisma } from '@workspace/database/client';
-import { sendWelcomeEmail } from '@workspace/email/send-welcome-email';
 import { routes } from '@workspace/routes';
 
 import { actionClient } from '~/actions/safe-action';
@@ -35,9 +34,6 @@ export const verifyEmailWithToken = actionClient
     if (!user) {
       throw new NotFoundError('User not found.');
     }
-    if (user.emailVerified) {
-      return redirect(routes.dashboard.auth.verifyEmail.Success);
-    }
 
     if (isAfter(new Date(), verificationToken.expires)) {
       return redirect(
@@ -45,14 +41,19 @@ export const verifyEmailWithToken = actionClient
       );
     }
 
-    await verifyEmail(verificationToken.identifier);
+    if (!user.emailVerified) {
+      await verifyEmail(verificationToken.identifier);
+    }
 
-    await sendWelcomeEmail({
-      appName: APP_NAME,
-      name: user.name,
-      recipient: user.email!,
-      getStartedLink: routes.dashboard.organizations.Index
+    const expiry = addHours(new Date(), PASSWORD_RESET_EXPIRY_HOURS);
+    const passwordRequest = await prisma.resetPasswordRequest.create({
+      data: {
+        email: user.email!,
+        expires: expiry
+      }
     });
 
-    return redirect(routes.dashboard.auth.verifyEmail.Success);
+    return redirect(
+      `${routes.dashboard.auth.resetPassword.Request}/${passwordRequest.id}`
+    );
   });

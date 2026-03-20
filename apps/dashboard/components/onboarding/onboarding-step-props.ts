@@ -4,6 +4,7 @@ export type OnboardingMetadata = {
     name?: string;
     phone?: string;
     email: string;
+    businessUrl?: string | null;
   };
   organization?: {
     logo?: string;

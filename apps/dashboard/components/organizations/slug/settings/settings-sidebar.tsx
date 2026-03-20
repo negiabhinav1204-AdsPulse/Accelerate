@@ -33,7 +33,7 @@ export function SettingsSidebar(): React.JSX.Element {
             >
               <Link
                 href={replaceOrgSlug(
-                  routes.dashboard.organizations.slug.Home,
+                  routes.dashboard.organizations.slug.AcceleraAi,
                   activeOrganization.slug
                 )}
                 className="h-10"

@@ -88,7 +88,7 @@ export const acceptInvitation = authActionClient
 
     return redirect(
       replaceOrgSlug(
-        routes.dashboard.organizations.slug.Home,
+        routes.dashboard.organizations.slug.AcceleraAi,
         organization.slug
       )
     );

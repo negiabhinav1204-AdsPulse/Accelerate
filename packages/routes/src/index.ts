@@ -59,10 +59,16 @@ export const routes = {
       Index: `${baseUrl.Dashboard}/organizations`,
       slug: {
         AcceleraAi: `${baseUrl.Dashboard}/organizations/[slug]/accelera-ai`,
+        Campaigns: `${baseUrl.Dashboard}/organizations/[slug]/campaigns`,
         ChoosePlan: `${baseUrl.Dashboard}/organizations/[slug]/choose-plan`,
+        ConnectorAccounts: `${baseUrl.Dashboard}/organizations/[slug]/connectors/[platform]/accounts`,
+        Connectors: `${baseUrl.Dashboard}/organizations/[slug]/connectors`,
         Contacts: `${baseUrl.Dashboard}/organizations/[slug]/contacts`,
+        CreateCampaign: `${baseUrl.Dashboard}/organizations/[slug]/create-campaign`,
+        Dashboard: `${baseUrl.Dashboard}/organizations/[slug]/dashboard`,
         Home: `${baseUrl.Dashboard}/organizations/[slug]/home`,
         Index: `${baseUrl.Dashboard}/organizations/[slug]`,
+        Reporting: `${baseUrl.Dashboard}/organizations/[slug]/reporting`,
         settings: {
           account: {
             Index: `${baseUrl.Dashboard}/organizations/[slug]/settings/account`,

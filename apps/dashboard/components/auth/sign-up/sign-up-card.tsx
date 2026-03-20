@@ -6,7 +6,6 @@ import {
   AlertCircleIcon,
   ChevronDownIcon,
   GlobeIcon,
-  LockIcon,
   MailIcon,
   PhoneIcon,
   SearchIcon,
@@ -34,12 +33,10 @@ import {
   FormMessage,
   FormProvider
 } from '@workspace/ui/components/form';
-import { InputPassword } from '@workspace/ui/components/input-password';
 import { InputWithAdornments } from '@workspace/ui/components/input-with-adornments';
 import { cn } from '@workspace/ui/lib/utils';
 
 import { signUp } from '~/actions/auth/sign-up';
-import { PasswordFormMessage } from '~/components/auth/password-form-message';
 import { useZodForm } from '~/hooks/use-zod-form';
 import { signUpSchema, type SignUpSchema } from '~/schemas/auth/sign-up-schema';
 
@@ -172,11 +169,9 @@ export function SignUpCard({
       phone: '',
       email: '',
       businessUrl: '',
-      termsAccepted: undefined,
-      password: ''
+      termsAccepted: undefined
     }
   });
-  const password = methods.watch('password');
   const termsAccepted = methods.watch('termsAccepted');
 
   const onSubmit: SubmitHandler<SignUpSchema> = async (values) => {
@@ -355,32 +350,6 @@ export function SignUpCard({
                 </FormItem>
               )}
             />
-
-            {/* Password */}
-            <div className="flex flex-col">
-              <FormField
-                control={methods.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Password*</FormLabel>
-                    <FormControl>
-                      <InputPassword
-                        maxLength={72}
-                        autoCapitalize="off"
-                        autoComplete="new-password"
-                        disabled={methods.formState.isSubmitting}
-                        startAdornment={
-                          <LockIcon className="size-4 shrink-0" />
-                        }
-                        {...field}
-                      />
-                    </FormControl>
-                    <PasswordFormMessage password={password} />
-                  </FormItem>
-                )}
-              />
-            </div>
 
             {/* Terms & Conditions */}
             <FormField

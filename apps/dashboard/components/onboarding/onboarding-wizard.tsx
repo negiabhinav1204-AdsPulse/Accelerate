@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { type SubmitHandler } from 'react-hook-form';
 
@@ -97,9 +98,24 @@ export function OnboardingWizard({
 }: OnboardingWizardProps): React.JSX.Element {
   const router = useRouter();
   const { theme } = useTheme();
+
+  // Always start with the first step so server and client render identically (no hydration mismatch).
+  // After mount we check the URL for OAuth return params and jump to the Connectors step if needed.
   const [currentStep, setCurrentStep] = React.useState<OnboardingStep>(
     activeSteps[0]
   );
+
+  React.useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (
+      (p.has('connected') || p.has('connector_error')) &&
+      activeSteps.includes(OnboardingStep.Connectors)
+    ) {
+      setCurrentStep(OnboardingStep.Connectors);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const methods = useZodForm({
     schema: completeOnboardingSchema,
     mode: 'all',
@@ -144,13 +160,13 @@ export function OnboardingWizard({
               metadata?.invitations?.map((invitation) => invitation.id) ?? []
           }
         : undefined,
-      // Accelerate custom steps (pre-filled with mock Brand Agent data)
+      // Accelerate custom steps (pre-filled with Brand Agent data — mock until agent service is live)
       businessStep: activeSteps.includes(OnboardingStep.Business)
         ? {
-            businessName: 'Acme Corp',
+            businessName: '',
             contactEmail: metadata?.user?.email ?? '',
-            location: 'Mumbai, India',
-            category: 'Technology / SaaS'
+            location: '',
+            category: ''
           }
         : undefined,
       connectorsStep: activeSteps.includes(OnboardingStep.Connectors)
@@ -160,6 +176,37 @@ export function OnboardingWizard({
         : undefined
     }
   });
+
+  // Restore saved form state when returning from an OAuth connector round-trip
+  React.useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const returningFromOAuth = p.has('connected') || p.has('connector_error');
+    if (!returningFromOAuth) return;
+    try {
+      const raw = sessionStorage.getItem('onboarding_oauth_draft');
+      if (!raw) return;
+      const draft = JSON.parse(raw) as {
+        businessStep?: CompleteOnboardingSchema['businessStep'];
+        connectedPlatforms?: string[];
+      };
+      if (draft.businessStep) {
+        methods.setValue('businessStep', draft.businessStep, {
+          shouldValidate: true
+        });
+      }
+      if (draft.connectedPlatforms && draft.connectedPlatforms.length > 0) {
+        methods.setValue(
+          'connectorsStep.connectedPlatforms',
+          draft.connectedPlatforms,
+          { shouldValidate: true }
+        );
+      }
+      sessionStorage.removeItem('onboarding_oauth_draft');
+    } catch {
+      // ignore
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const Component = components[currentStep];
   const currentStepIndex = activeSteps.indexOf(currentStep);
   const isLastStep = currentStepIndex === activeSteps.length - 1;
@@ -221,13 +268,15 @@ export function OnboardingWizard({
         )}
         {...other}
       >
-        <Component
-          metadata={metadata}
-          canNext={isCurrentStepValid && !methods.formState.isSubmitting}
-          loading={methods.formState.isSubmitting}
-          isLastStep={isLastStep}
-          handleNext={handleNext}
-        />
+        <Suspense>
+          <Component
+            metadata={metadata}
+            canNext={isCurrentStepValid && !methods.formState.isSubmitting}
+            loading={methods.formState.isSubmitting}
+            isLastStep={isLastStep}
+            handleNext={handleNext}
+          />
+        </Suspense>
       </form>
     </FormProvider>
   );

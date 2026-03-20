@@ -11,7 +11,6 @@ import { SidebarInset } from '@workspace/ui/components/sidebar';
 
 import { SidebarRenderer } from '~/components/organizations/slug/sidebar-renderer';
 import { getProfile } from '~/data/account/get-profile';
-import { getFavorites } from '~/data/favorites/get-favorites';
 import { getOrganizations } from '~/data/organization/get-organizations';
 import { createTitle } from '~/lib/formatters';
 import { Providers } from './providers';
@@ -38,10 +37,9 @@ export default async function OrganizationLayout(
       )
     );
   }
-  const [cookieStore, organizations, favorites, profile] = await Promise.all([
+  const [cookieStore, organizations, profile] = await Promise.all([
     cookies(),
     getOrganizations(),
-    getFavorites(),
     getProfile()
   ]);
   return (
@@ -55,7 +53,6 @@ export default async function OrganizationLayout(
       >
         <SidebarRenderer
           organizations={organizations}
-          favorites={favorites}
           profile={profile}
         />
         {/* Set max-width so full-width tables can overflow horizontally correctly */}

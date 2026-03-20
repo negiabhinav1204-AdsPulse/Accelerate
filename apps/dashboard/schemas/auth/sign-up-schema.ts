@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import { passwordValidator } from '@workspace/auth/password';
-
 export const signUpSchema = z.object({
   firstName: z
     .string({
@@ -69,17 +67,7 @@ export const signUpSchema = z.object({
     ),
   termsAccepted: z.literal(true, {
     errorMap: () => ({ message: 'You must accept the Terms & Conditions.' })
-  }),
-  password: z
-    .string({
-      required_error: 'Password is required.',
-      invalid_type_error: 'Password must be a string.'
-    })
-    .min(1, 'Password is required.')
-    .max(72, 'Maximum 72 characters allowed.')
-    .refine((arg) => passwordValidator.validate(arg).success, {
-      message: 'Password does not meet requirements.'
-    })
+  })
 });
 
 export type SignUpSchema = z.infer<typeof signUpSchema>;

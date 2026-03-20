@@ -79,6 +79,14 @@ enum WebhookTrigger {
   CONTACT_DELETED @map("contactDeleted")
 }
 
+enum CampaignStatus {
+  DRAFT      @map("draft")
+  REVIEWING  @map("reviewing")
+  PAUSED     @map("paused")
+  LIVE       @map("live")
+  ENDED      @map("ended")
+}
+
 // ---- Models ---- //
 
 model Account {
@@ -381,6 +389,9 @@ model Organization {
   billingState        String?              @db.VarChar(255)
   apiKeys             ApiKey[]
   businessHours       WorkHours[]
+  adPlatformReports   AdPlatformReport[]
+  campaigns           Campaign[]
+  chatSessions        ChatSession[]
   connectedAdAccounts ConnectedAdAccount[]
   contacts            Contact[]
   feedback            Feedback[]
@@ -394,19 +405,71 @@ model Organization {
 }
 
 model ConnectedAdAccount {
-  id             String       @id @default(uuid()) @db.Uuid
-  organizationId String       @db.Uuid
-  platform       String       @db.VarChar(50)
-  accountId      String       @db.VarChar(255)
-  accountName    String       @db.VarChar(255)
-  isDefault      Boolean      @default(false)
-  accessToken    String?      @db.Text
-  refreshToken   String?      @db.Text
-  status         String       @default("connected") @db.VarChar(50)
-  connectedAt    DateTime     @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id              String             @id @default(uuid()) @db.Uuid
+  organizationId  String             @db.Uuid
+  platform        String             @db.VarChar(50)
+  accountId       String             @db.VarChar(255)
+  accountName     String             @db.VarChar(255)
+  isDefault       Boolean            @default(false)
+  accessToken     String?            @db.Text
+  refreshToken    String?            @db.Text
+  status          String             @default("connected") @db.VarChar(50)
+  lastSyncAt      DateTime?
+  connectedAt     DateTime           @default(now())
+  archivedAt      DateTime?
+  currency        String?            @db.VarChar(10)
+  timezone        String?            @db.VarChar(100)
+  accountType     String?            @db.VarChar(100)
+  accountMetadata Json?
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reports         AdPlatformReport[]
 
   @@index([organizationId])
+}
+
+model AdPlatformReport {
+  id                 String             @id @default(uuid()) @db.Uuid
+  organizationId     String             @db.Uuid
+  connectedAccountId String             @db.Uuid
+  platform           String             @db.VarChar(50)
+  reportType         String             @db.VarChar(100)
+  dateRange          String             @db.VarChar(20)
+  data               Json
+  fetchedAt          DateTime           @default(now())
+  archivedAt         DateTime?
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectedAccount   ConnectedAdAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([connectedAccountId])
+  @@index([platform, reportType])
+}
+
+model ChatSession {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @db.Uuid
+  userId         String        @db.Uuid
+  title          String?       @db.VarChar(255)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages       ChatMessage[]
+
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model ChatMessage {
+  id        String      @id @default(uuid()) @db.Uuid
+  sessionId String      @db.Uuid
+  role      String      @db.VarChar(20)
+  content   String      @db.Text
+  toolData  Json?
+  createdAt DateTime    @default(now())
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
 }
 
 model OrganizationLogo {
@@ -503,6 +566,7 @@ model User {
   accounts                     Account[]
   authenticatorApp             AuthenticatorApp?
   changeEmailRequests          ChangeEmailRequest[]
+  chatSessions                 ChatSession[]
   comments                     ContactComment[]
   favorites                    Favorite[]
   feedback                     Feedback[]
@@ -562,4 +626,83 @@ model WorkTimeSlot {
   workHours   WorkHours @relation(fields: [workHoursId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([workHoursId], map: "IX_WorkTimeSlot_workHoursId")
+}
+
+model Campaign {
+  id                String           @id @default(uuid()) @db.Uuid
+  organizationId    String           @db.Uuid
+  createdBy         String           @db.Uuid
+  name              String           @db.VarChar(255)
+  sourceUrl         String?          @db.VarChar(2048)
+  objective         String           @db.VarChar(100)
+  status            CampaignStatus   @default(DRAFT)
+  totalBudget       Decimal          @default(0) @db.Decimal(12, 2)
+  currency          String           @default("USD") @db.VarChar(10)
+  startDate         DateTime?
+  endDate           DateTime?
+  targetAudience    Json?
+  agentOutputs      Json?
+  mediaPlan         Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  platformCampaigns PlatformCampaign[]
+
+  @@index([organizationId])
+  @@index([createdBy])
+}
+
+model PlatformCampaign {
+  id                 String    @id @default(uuid()) @db.Uuid
+  campaignId         String    @db.Uuid
+  platform           String    @db.VarChar(50)
+  adTypes            String[]
+  budget             Decimal   @default(0) @db.Decimal(12, 2)
+  currency           String    @default("USD") @db.VarChar(10)
+  status             String    @default("draft") @db.VarChar(50)
+  platformCampaignId String?   @db.VarChar(255)
+  settings           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  campaign           Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  adGroups           AdGroup[]
+
+  @@index([campaignId])
+}
+
+model AdGroup {
+  id                 String           @id @default(uuid()) @db.Uuid
+  platformCampaignId String           @db.Uuid
+  name               String           @db.VarChar(255)
+  adType             String           @db.VarChar(100)
+  targeting          Json?
+  bidStrategy        String?          @db.VarChar(100)
+  status             String           @default("draft") @db.VarChar(50)
+  platformAdGroupId  String?          @db.VarChar(255)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  platformCampaign   PlatformCampaign @relation(fields: [platformCampaignId], references: [id], onDelete: Cascade)
+  ads                Ad[]
+
+  @@index([platformCampaignId])
+}
+
+model Ad {
+  id             String    @id @default(uuid()) @db.Uuid
+  adGroupId      String    @db.Uuid
+  adType         String    @db.VarChar(100)
+  headlines      String[]
+  descriptions   String[]
+  imageUrls      String[]
+  videoUrl       String?   @db.VarChar(2048)
+  ctaText        String?   @db.VarChar(100)
+  destinationUrl String?   @db.VarChar(2048)
+  status         String    @default("draft") @db.VarChar(50)
+  platformAdId   String?   @db.VarChar(255)
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  adGroup        AdGroup   @relation(fields: [adGroupId], references: [id], onDelete: Cascade)
+
+  @@index([adGroupId])
 }

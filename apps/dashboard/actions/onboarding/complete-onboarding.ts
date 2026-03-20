@@ -1,6 +1,7 @@
 'use server';
 
 import { createHash } from 'crypto';
+import { cookies } from 'next/headers';
 import { revalidateTag } from 'next/cache';
 import { v4 } from 'uuid';
 
@@ -9,6 +10,7 @@ import {
   createInvitation,
   sendInvitationRequest
 } from '@workspace/auth/invitations';
+import { symmetricDecrypt } from '@workspace/auth/encryption';
 import { BillingProvider } from '@workspace/billing/provider';
 import { adjustSeats } from '@workspace/billing/seats';
 import { decodeBase64Image, resizeImage } from '@workspace/common/image';
@@ -94,6 +96,9 @@ export const completeOnboarding = authActionClient
       await prisma.$transaction(transactions);
     }
 
+    // Persist any OAuth connector tokens collected during onboarding
+    await saveConnectorTokens(organizationId);
+
     revalidateTag(Caching.createUserTag(UserCacheKey.PersonalDetails, userId));
     revalidateTag(Caching.createUserTag(UserCacheKey.Preferences, userId));
     revalidateTag(Caching.createUserTag(UserCacheKey.Organizations, userId));
@@ -171,14 +176,14 @@ export const completeOnboarding = authActionClient
       parsedInput.organizationStep?.slug
     ) {
       redirect = replaceOrgSlug(
-        routes.dashboard.organizations.slug.Home,
+        routes.dashboard.organizations.slug.AcceleraAi,
         parsedInput.organizationStep.slug
       );
     }
     // Has only one organization
     else if (memberships.length === 1) {
       redirect = replaceOrgSlug(
-        routes.dashboard.organizations.slug.Home,
+        routes.dashboard.organizations.slug.AcceleraAi,
         memberships[0].organization.slug
       );
     }
@@ -436,6 +441,60 @@ async function handleAccelerateBusinessStep(
       data: { completedOnboarding: true }
     })
   );
+}
+
+const CONNECTOR_PLATFORMS = ['google', 'meta', 'bing'] as const;
+
+async function saveConnectorTokens(organizationId: string): Promise<void> {
+  const cookieStore = await cookies();
+  const authSecret = process.env.AUTH_SECRET!;
+
+  for (const platform of CONNECTOR_PLATFORMS) {
+    const cookieName = `pending_connector_${platform}`;
+    const encrypted = cookieStore.get(cookieName)?.value;
+    if (!encrypted) continue;
+
+    try {
+      const data = JSON.parse(symmetricDecrypt(encrypted, authSecret)) as {
+        platform: string;
+        accessToken: string;
+        refreshToken: string | null;
+        accounts: { id: string; name: string }[];
+      };
+
+      const existing = await prisma.connectedAdAccount.findFirst({
+        where: { organizationId, platform: data.platform.toUpperCase() },
+        select: { id: true }
+      });
+
+      const primary = data.accounts[0] ?? {
+        id: 'pending',
+        name: 'Pending account selection'
+      };
+      const accountData = {
+        platform: data.platform.toUpperCase(),
+        accountId: primary.id,
+        accountName: primary.name,
+        isDefault: data.accounts.length > 0,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken ?? undefined,
+        status: data.accounts.length > 0 ? 'connected' : 'pending_account_selection'
+      };
+
+      if (existing) {
+        await prisma.connectedAdAccount.update({
+          where: { id: existing.id },
+          data: accountData
+        });
+      } else {
+        await prisma.connectedAdAccount.create({
+          data: { organizationId, ...accountData }
+        });
+      }
+    } catch (e) {
+      console.error(`[connectors] Failed to save ${platform} connector:`, e);
+    }
+  }
 }
 
 function createDefaultBusinessHours() {

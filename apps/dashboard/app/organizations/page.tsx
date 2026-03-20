@@ -1,9 +1,11 @@
 import * as React from 'react';
 import { type Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
+import { getAuthContext } from '@workspace/auth/context';
 import { APP_NAME } from '@workspace/common/app';
-import { routes } from '@workspace/routes';
+import { replaceOrgSlug, routes } from '@workspace/routes';
 import { Logo } from '@workspace/ui/components/logo';
 import { ThemeSwitcher } from '@workspace/ui/components/theme-switcher';
 
@@ -17,7 +19,23 @@ export const metadata: Metadata = {
 };
 
 export default async function OrganizationsPage(): Promise<React.JSX.Element> {
+  const ctx = await getAuthContext();
+  if (!ctx.session.user.completedOnboarding) {
+    return redirect(routes.dashboard.onboarding.Index);
+  }
+
   const organizations = await getOrganizations();
+
+  // Single org: go straight in — no need to show the selection screen
+  if (organizations.length === 1) {
+    return redirect(
+      replaceOrgSlug(
+        routes.dashboard.organizations.slug.AcceleraAi,
+        organizations[0].slug
+      )
+    );
+  }
+
   return (
     <div className="relative min-h-screen bg-background">
       <div className="fixed inset-x-0 top-0 z-10 mx-auto flex min-w-80 items-center justify-center bg-background p-4">

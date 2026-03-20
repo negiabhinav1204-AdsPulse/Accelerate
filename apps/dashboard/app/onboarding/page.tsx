@@ -48,7 +48,12 @@ export default async function OnboardingFullPage(): Promise<React.JSX.Element> {
           OnboardingStep.Business,
           OnboardingStep.Connectors
         ]}
-        metadata={{ user: ctx.session.user }}
+        metadata={{
+          user: {
+            ...ctx.session.user,
+            businessUrl: ctx.session.user.businessUrl ?? undefined
+          }
+        }}
       />
     </div>
   );

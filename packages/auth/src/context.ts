@@ -75,6 +75,7 @@ const dedupedGetUserInfo = cache(async function (userId: string) {
     where: { id: userId },
     select: {
       completedOnboarding: true,
+      businessUrl: true,
       memberships: {
         select: {
           organizationId: true,

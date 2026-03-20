@@ -98,7 +98,7 @@ export function OrganizationList({
                 <Link
                   key={organization.id}
                   href={replaceOrgSlug(
-                    routes.dashboard.organizations.slug.Home,
+                    routes.dashboard.organizations.slug.AcceleraAi,
                     organization.slug
                   )}
                   className="group relative flex flex-col rounded-lg border transition-all hover:bg-secondary/20 hover:shadow active:bg-secondary/50 active:shadow-lg dark:shadow-primary/20"

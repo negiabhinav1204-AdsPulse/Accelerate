@@ -116,9 +116,9 @@ export function OrganizationSwitcher({
                     asChild
                     className="cursor-pointer gap-2 p-2"
                   >
-                    <Link
+                    <a
                       href={replaceOrgSlug(
-                        routes.dashboard.organizations.slug.Home,
+                        routes.dashboard.organizations.slug.AcceleraAi,
                         organization.slug
                       )}
                       onClick={handleCloseSidebar}
@@ -138,7 +138,7 @@ export function OrganizationSwitcher({
                           <CheckIcon className="text-current size-3 shrink-0" />
                         </div>
                       )}
-                    </Link>
+                    </a>
                   </DropdownMenuItem>
                 ))}
               </ScrollArea>

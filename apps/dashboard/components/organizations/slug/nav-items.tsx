@@ -1,14 +1,17 @@
 import {
   BellIcon,
+  BotIcon,
   CodeIcon,
   CreditCardIcon,
-  HomeIcon,
+  LayoutDashboardIcon,
   LockKeyholeIcon,
-  SettingsIcon,
+  MegaphoneIcon,
+  PlusCircleIcon,
+  PlugIcon,
+  BarChart3Icon,
   StoreIcon,
   UserIcon,
-  UserPlus2Icon,
-  UsersIcon
+  UserPlus2Icon
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -25,22 +28,34 @@ type NavItem = {
 export function createMainNavItems(slug: string): NavItem[] {
   return [
     {
-      title: 'Home',
-      href: replaceOrgSlug(routes.dashboard.organizations.slug.Home, slug),
-      icon: HomeIcon
+      title: 'Accelera AI',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.AcceleraAi, slug),
+      icon: BotIcon
     },
     {
-      title: 'Contacts',
-      href: replaceOrgSlug(routes.dashboard.organizations.slug.Contacts, slug),
-      icon: UsersIcon
+      title: 'Dashboard',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Dashboard, slug),
+      icon: LayoutDashboardIcon
     },
     {
-      title: 'Settings',
-      href: replaceOrgSlug(
-        routes.dashboard.organizations.slug.settings.Index,
-        slug
-      ),
-      icon: SettingsIcon
+      title: 'Campaigns',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Campaigns, slug),
+      icon: MegaphoneIcon
+    },
+    {
+      title: 'Reporting',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Reporting, slug),
+      icon: BarChart3Icon
+    },
+    {
+      title: 'Connectors',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Connectors, slug),
+      icon: PlugIcon
+    },
+    {
+      title: 'Create Campaign',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.CreateCampaign, slug),
+      icon: PlusCircleIcon
     }
   ];
 }

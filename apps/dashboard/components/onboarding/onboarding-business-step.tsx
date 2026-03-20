@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { BuildingIcon, MailIcon, MapPinIcon, TagIcon } from 'lucide-react';
+import { BuildingIcon, GlobeIcon, MailIcon, MapPinIcon, TagIcon } from 'lucide-react';
 import { useFormContext } from 'react-hook-form';
 
 import { Button } from '@workspace/ui/components/button';
@@ -55,14 +55,6 @@ const CATEGORIES = [
   'Consumer Goods / FMCG'
 ];
 
-// Mock data from Brand Agent
-const MOCK_AGENT_DATA = {
-  businessName: 'Acme Corp',
-  contactEmail: '',
-  location: 'Mumbai, India',
-  category: 'Technology / SaaS'
-};
-
 export function OnboardingBusinessStep({
   metadata,
   canNext,
@@ -71,25 +63,6 @@ export function OnboardingBusinessStep({
   handleNext
 }: OnboardingStepProps): React.JSX.Element {
   const methods = useFormContext<CompleteOnboardingSchema>();
-  const [saved, setSaved] = React.useState(false);
-
-  // Pre-fill with mock agent data on mount
-  React.useEffect(() => {
-    const current = methods.getValues('businessStep');
-    if (!current?.businessName) {
-      methods.setValue('businessStep', {
-        businessName: MOCK_AGENT_DATA.businessName,
-        contactEmail:
-          metadata?.user?.email ?? MOCK_AGENT_DATA.contactEmail,
-        location: MOCK_AGENT_DATA.location,
-        category: MOCK_AGENT_DATA.category
-      });
-    }
-  }, [methods, metadata]);
-
-  const handleSave = () => {
-    setSaved(true);
-  };
 
   return (
     <div className="space-y-6 pb-8">
@@ -102,42 +75,45 @@ export function OnboardingBusinessStep({
         </h2>
         <p className="text-sm text-muted-foreground">
           We&apos;ve auto-prefilled some details from your website. Review and
-          confirm.
+          confirm before continuing.
         </p>
       </div>
 
-      {/* Org card */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* Logo placeholder */}
-            <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center text-muted-foreground">
-              <BuildingIcon className="size-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-foreground">New Business</h3>
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                  ✏ Auto-filled
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Review and edit your details below
-              </p>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shrink-0">
+            <BuildingIcon className="size-6" />
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-xs"
-            onClick={handleSave}
-          >
-            {saved ? '✓ Saved' : 'Save'}
-          </Button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-foreground">Your Organisation</h3>
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                ✦ Auto-filled
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              All fields are editable except your Business URL
+            </p>
+          </div>
         </div>
 
         <div className="space-y-4">
+          {/* Business URL — read-only */}
+          {metadata?.user?.businessUrl && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">
+                Business URL
+              </label>
+              <div className="flex h-10 items-center gap-2 rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+                <GlobeIcon className="size-4 shrink-0" />
+                <span className="truncate">{metadata.user.businessUrl}</span>
+                <span className="ml-auto text-[10px] rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                  Locked
+                </span>
+              </div>
+            </div>
+          )}
+
           <FormField
             control={methods.control}
             name="businessStep.businessName"
@@ -199,10 +175,7 @@ export function OnboardingBusinessStep({
                     >
                       <option value="">Select location...</option>
                       {LOCATIONS.map((loc) => (
-                        <option
-                          key={loc}
-                          value={loc}
-                        >
+                        <option key={loc} value={loc}>
                           {loc}
                         </option>
                       ))}
@@ -231,10 +204,7 @@ export function OnboardingBusinessStep({
                     >
                       <option value="">Select category...</option>
                       {CATEGORIES.map((cat) => (
-                        <option
-                          key={cat}
-                          value={cat}
-                        >
+                        <option key={cat} value={cat}>
                           {cat}
                         </option>
                       ))}
@@ -248,22 +218,10 @@ export function OnboardingBusinessStep({
         </div>
       </div>
 
-      {/* Add another business */}
-      <button
-        type="button"
-        className="text-sm text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
-        onClick={() => {
-          /* future: add more businesses */
-        }}
-      >
-        + Add another business
-      </button>
-
-      {/* CTA */}
       <Button
         type="button"
         className="w-full"
-        disabled={!saved || loading}
+        disabled={!canNext || loading}
         loading={loading}
         onClick={handleNext}
       >

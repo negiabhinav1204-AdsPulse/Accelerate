@@ -21,6 +21,6 @@ export default async function UnmatchedRouteRedirectToOrgHomePage(
   const params = await paramsCache.parse(props.params);
 
   return redirect(
-    replaceOrgSlug(routes.dashboard.organizations.slug.Home, params.slug)
+    replaceOrgSlug(routes.dashboard.organizations.slug.AcceleraAi, params.slug)
   );
 }

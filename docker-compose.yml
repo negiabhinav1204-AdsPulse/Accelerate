@@ -29,7 +29,7 @@ services:
     image: dpage/pgadmin4:latest
     container_name: accelerate_pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@accelerate.local
+      PGADMIN_DEFAULT_EMAIL: admin@accelerate.com
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"

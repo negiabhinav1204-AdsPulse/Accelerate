@@ -20,11 +20,16 @@ export const metadata: Metadata = {
 export default async function AcceleraAiPage(): Promise<React.JSX.Element> {
   const ctx = await getAuthOrganizationContext();
 
-  // Fetch firstName for the greeting
-  const userDetails = await prisma.user.findUnique({
-    where: { id: ctx.session.user.id },
-    select: { firstName: true, name: true }
-  });
+  const [userDetails, connectedAccounts] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: { firstName: true, name: true }
+    }),
+    prisma.connectedAdAccount.findMany({
+      where: { organizationId: ctx.organization.id, status: 'connected' },
+      select: { id: true, platform: true, accountName: true }
+    })
+  ]);
 
   const firstName =
     userDetails?.firstName ||
@@ -42,8 +47,13 @@ export default async function AcceleraAiPage(): Promise<React.JSX.Element> {
           </div>
         </PagePrimaryBar>
       </PageHeader>
-      <PageBody>
-        <AcceleraAiHome firstName={firstName} />
+      <PageBody disableScroll>
+        <AcceleraAiHome
+          firstName={firstName}
+          organizationId={ctx.organization.id}
+          orgSlug={ctx.organization.slug}
+          connectedAccounts={connectedAccounts}
+        />
       </PageBody>
     </Page>
   );
