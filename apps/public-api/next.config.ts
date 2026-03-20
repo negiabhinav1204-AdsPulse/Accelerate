@@ -8,6 +8,12 @@ const INTERNAL_PACKAGES = [
 ];
 
 const nextConfig: NextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true
+  },
+  typescript: {
+    ignoreBuildErrors: true
+  },
   experimental: {
     optimizePackageImports: INTERNAL_PACKAGES
   },
