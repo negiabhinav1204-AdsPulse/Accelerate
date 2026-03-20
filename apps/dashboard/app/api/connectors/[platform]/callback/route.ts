@@ -86,15 +86,17 @@ async function fetchGoogleAccounts(
         }
       }
     );
+    const body = await res.text();
+    console.log('[google] listAccessibleCustomers status:', res.status);
+    console.log('[google] listAccessibleCustomers body:', body.slice(0, 600));
     if (!res.ok) return [];
-    const data = (await res.json()) as {
-      resourceNames?: string[];
-    };
+    const data = JSON.parse(body) as { resourceNames?: string[] };
     return (data.resourceNames ?? []).map((name) => {
       const id = name.replace('customers/', '');
       return { id, name: `Google Ads Account ${id}` };
     });
-  } catch {
+  } catch (e) {
+    console.error('[google] fetchGoogleAccounts error:', e);
     return [];
   }
 }
@@ -347,6 +349,7 @@ export async function GET(
       );
     }
     tokens = (await res.json()) as TokenResponse;
+    console.log(`[connector/${platform}] Token exchange OK, has_refresh_token:`, !!tokens.refresh_token);
   } catch (e) {
     console.error(`[connector/${platform}] Token exchange error:`, e);
     return redirectWithError(
