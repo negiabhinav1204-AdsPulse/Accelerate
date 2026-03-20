@@ -43,12 +43,7 @@ function getPlatformTokenConfig(
     case 'meta':
       return {
         tokenUrl: 'https://graph.facebook.com/v23.0/oauth/access_token',
-        // Must exactly match the redirect_uri sent in the authorize step.
-        // In dev we send baseUrl (root) because Meta blocks localhost subpaths.
-        redirectUri:
-          process.env.NODE_ENV === 'production'
-            ? `${baseUrl}/oauth/meta/callback`
-            : baseUrl,
+        redirectUri: `${baseUrl}/oauth/meta/callback`,
         clientId: process.env.META_APP_ID ?? '',
         clientSecret: process.env.META_APP_SECRET ?? ''
       };
