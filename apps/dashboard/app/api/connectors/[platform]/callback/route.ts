@@ -116,8 +116,6 @@ async function fetchMetaAccounts(
 const BING_SOAP_ENDPOINT =
   'https://clientcenter.api.bingads.microsoft.com/Api/CustomerManagement/v13/CustomerManagementService.svc';
 
-// Microsoft's documented envelope format: xmlns:i at Envelope level,
-// header uses default namespace (no prefix), i:nil references the top-level i: declaration.
 function bingSoap(accessToken: string, action: string, bodyInner: string): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
@@ -133,35 +131,66 @@ function bingSoap(accessToken: string, action: string, bodyInner: string): strin
 </s:Envelope>`;
 }
 
-async function fetchBingAccounts(
-  accessToken: string
-): Promise<AdAccount[]> {
-  // Step 1: GetUser (no UserId) — Bing Ads resolves the caller from the
-  // access token and returns their Bing Ads UserId.
+// Extract text between a tag, ignoring any namespace prefix (e.g. <e1:Id> or <Id>)
+function xmlTag(xml: string, tag: string): string | null {
+  const m = xml.match(new RegExp(`<(?:[\\w]+:)?${tag}[^>]*>([^<]*)<\\/(?:[\\w]+:)?${tag}>`));
+  return m ? m[1]! : null;
+}
+
+// Extract all blocks wrapped in a given tag
+function xmlBlocks(xml: string, tag: string): string[] {
+  const blocks: string[] = [];
+  const re = new RegExp(`<(?:[\\w]+:)?${tag}[\\s\\S]*?<\\/(?:[\\w]+:)?${tag}>`, 'g');
+  for (const m of xml.matchAll(re)) blocks.push(m[0]!);
+  return blocks;
+}
+
+// Extract SOAP fault message for surfacing to UI
+function soapFaultMessage(xml: string): string {
+  return (
+    xmlTag(xml, 'faultstring') ??
+    xmlTag(xml, 'Message') ??
+    xmlTag(xml, 'ErrorCode') ??
+    'Unknown SOAP error'
+  );
+}
+
+type BingFetchResult = { accounts: AdAccount[]; error: string | null };
+
+async function fetchBingAccounts(accessToken: string): Promise<BingFetchResult> {
+  // ── Step 1: GetUser → resolve Bing Ads UserId from the access token ────────
   let bingUserId: string | null = null;
+  let getUserError: string | null = null;
+
   try {
     const userRes = await fetch(BING_SOAP_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: 'GetUser' },
       body: bingSoap(accessToken, 'GetUser', '<UserId i:nil="true"/>')
     });
-
     const userXml = await userRes.text();
+    console.log('[bing] GetUser status:', userRes.status);
+    console.log('[bing] GetUser body:', userXml.slice(0, 600));
+
     if (!userRes.ok) {
-      console.error('[bing] GetUser HTTP', userRes.status, userXml);
+      getUserError = `GetUser ${userRes.status}: ${soapFaultMessage(userXml)}`;
     } else {
-      // Response: <GetUserResponse><User><Id>12345</Id>...
-      const match = userXml.match(/<Id>(\d+)<\/Id>/);
-      if (match) bingUserId = match[1]!;
-      console.log('[bing] GetUser bingUserId:', bingUserId);
+      // Handle both <Id> and <e1:Id> namespace variants
+      bingUserId = xmlTag(userXml, 'Id');
     }
   } catch (e) {
-    console.error('[bing] GetUser error:', e);
+    getUserError = `GetUser network error: ${String(e)}`;
   }
 
-  if (!bingUserId) return [];
+  if (!bingUserId) {
+    const err = getUserError ?? 'GetUser returned no UserId';
+    console.error('[bing]', err);
+    return { accounts: [], error: err };
+  }
 
-  // Step 2: SearchAccounts filtered by UserId
+  console.log('[bing] UserId:', bingUserId);
+
+  // ── Step 2: SearchAccounts by UserId ───────────────────────────────────────
   try {
     const searchBody = `
 <Predicates>
@@ -182,22 +211,23 @@ async function fetchBingAccounts(
       headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: 'SearchAccounts' },
       body: bingSoap(accessToken, 'SearchAccounts', searchBody)
     });
-
     const xml = await accountsRes.text();
+    console.log('[bing] SearchAccounts status:', accountsRes.status);
+    console.log('[bing] SearchAccounts body:', xml.slice(0, 800));
+
     if (!accountsRes.ok) {
-      console.error('[bing] SearchAccounts HTTP', accountsRes.status, xml);
-      return [];
+      return { accounts: [], error: `SearchAccounts ${accountsRes.status}: ${soapFaultMessage(xml)}` };
     }
-    console.log('[bing] SearchAccounts response:', xml.slice(0, 800));
-    // Each account is wrapped in <AdvertiserAccount>; Id and Name are direct children
+
     const accounts: AdAccount[] = [];
-    for (const m of xml.matchAll(/<AdvertiserAccount>[\s\S]*?<Id>(\d+)<\/Id>[\s\S]*?<Name>(.*?)<\/Name>[\s\S]*?<\/AdvertiserAccount>/g)) {
-      accounts.push({ id: m[1]!, name: m[2]! });
+    for (const block of xmlBlocks(xml, 'AdvertiserAccount')) {
+      const id = xmlTag(block, 'Id');
+      const name = xmlTag(block, 'Name');
+      if (id && name) accounts.push({ id, name });
     }
-    return accounts;
+    return { accounts, error: accounts.length === 0 ? 'SearchAccounts returned 0 accounts' : null };
   } catch (e) {
-    console.error('[bing] SearchAccounts error:', e);
-    return [];
+    return { accounts: [], error: `SearchAccounts network error: ${String(e)}` };
   }
 }
 
@@ -326,12 +356,15 @@ export async function GET(
 
   // Fetch ad accounts from the platform
   let accounts: AdAccount[] = [];
+  let bingFetchError: string | null = null;
   if (platform === 'google') {
     accounts = await fetchGoogleAccounts(tokens.access_token);
   } else if (platform === 'meta') {
     accounts = await fetchMetaAccounts(tokens.access_token);
   } else if (platform === 'bing') {
-    accounts = await fetchBingAccounts(tokens.access_token);
+    const result = await fetchBingAccounts(tokens.access_token);
+    accounts = result.accounts;
+    bingFetchError = result.error;
   }
 
   const returnTo = statePayload.returnTo;
@@ -453,6 +486,12 @@ export async function GET(
       const response = NextResponse.redirect(successUrl.toString());
       response.cookies.delete('connector_oauth_state');
       return response;
+    } else if (upsertedIds.length === 0) {
+      // No accounts found — surface the actual error so it shows in the UI toast
+      const errorCode = bingFetchError
+        ? encodeURIComponent(bingFetchError.slice(0, 200))
+        : 'no_accounts_found';
+      return redirectWithError(baseUrl, returnTo, errorCode, request);
     } else {
       // Multiple accounts — redirect to connectors with ?select=[platform]
       // The ConnectorsClient will open an account picker dialog
