@@ -107,7 +107,13 @@ export async function GET(
         new URL(`${baseUrl}${returnTo}?connector_error=credentials_missing&platform=${platform}`)
       );
     }
-    const redirectUri = `${baseUrl}/oauth/meta/callback`;
+    // In dev, Meta only allows http://localhost:3000/ as a redirect URI (live apps
+    // block adding subpaths). Middleware at / detects ?code=&state= and forwards
+    // to /oauth/meta/callback. In production use the full registered path.
+    const redirectUri =
+      process.env.NODE_ENV === 'production'
+        ? `${baseUrl}/oauth/meta/callback`
+        : baseUrl;
     // Meta only accepts: client_id, redirect_uri, state, scope, response_type
     // Do NOT send access_type or prompt — Meta rejects/ignores them and can cause errors
     const params = new URLSearchParams({
