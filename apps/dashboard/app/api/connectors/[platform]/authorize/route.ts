@@ -63,6 +63,8 @@ export async function GET(
   const returnTo = request.nextUrl.searchParams.get('return') ?? '/onboarding';
   const orgSlug = request.nextUrl.searchParams.get('org') ?? '';
 
+  const isInmobiUser = userEmail.endsWith('@inmobi.com');
+
   // State carries context back through the OAuth round-trip
   const statePayload = JSON.stringify({
     nonce: crypto.randomBytes(16).toString('hex'),
@@ -70,7 +72,8 @@ export async function GET(
     userId: session.user.id,
     email: userEmail,
     returnTo,
-    orgSlug
+    orgSlug,
+    isInmobi: isInmobiUser
   });
   const encryptedState = symmetricEncrypt(statePayload, process.env.AUTH_SECRET!);
 
@@ -117,7 +120,7 @@ export async function GET(
     authUrlString = `https://www.facebook.com/v23.0/dialog/oauth?${params.toString()}`;
   } else {
     // Bing / Microsoft Ads
-    clientId = process.env.BING_CLIENT_ID ?? '';
+    clientId = process.env.BING_CLIENT_ID ?? '24acd153-281a-4766-898d-fa19bf538ce9';
     if (!clientId) {
       return NextResponse.redirect(
         new URL(`${baseUrl}${returnTo}?connector_error=credentials_missing&platform=${platform}`)
@@ -125,35 +128,30 @@ export async function GET(
     }
     const redirectUri = `${baseUrl}/oauth/msads/callback`;
 
-    const isInmobiUser = userEmail.endsWith('@inmobi.com');
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    let tenantId: string;
-    let scope: string;
-
-    if (isInmobiUser && isProduction) {
-      // Production InMobi flow — requires admin consent to have been pre-granted
-      // in the InMobi Azure AD tenant by an IT admin
-      tenantId = process.env.BING_TENANT_ID ?? '72f988bf-86f1-41af-91ab-2d7cd011db47';
-      scope = `api://${process.env.BING_PERMISSION_SCOPE ?? 'dev.accelerate.inmobi.com'}/msads.manage offline_access`;
+    if (isInmobiUser) {
+      // InMobi users: admin consent flow using the InMobi Azure AD tenant.
+      // Microsoft returns admin_consent=True to the callback (no code).
+      // The callback then initiates a second OAuth authorize step to get user tokens.
+      const tenantId = process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7';
+      const adminConsentParams = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        state: encryptedState
+      });
+      authUrlString = `https://login.microsoftonline.com/${tenantId}/adminconsent?${adminConsentParams.toString()}`;
     } else {
-      // Standard Microsoft Ads flow — works without admin consent
-      // Used in local dev (to avoid needing IT admin approval) and for all
-      // non-InMobi users in all environments
-      tenantId = 'common';
-      scope = 'https://ads.microsoft.com/msads.manage offline_access';
+      // External users: standard Microsoft common OAuth flow
+      const bingParams = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        response_mode: 'query',
+        scope: 'https://ads.microsoft.com/msads.manage offline_access',
+        state: encryptedState,
+        prompt: 'consent' // critical for 90-day refresh tokens
+      });
+      authUrlString = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${bingParams.toString()}`;
     }
-
-    const bingParams = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      response_mode: 'query',
-      scope,
-      state: encryptedState,
-      prompt: 'consent' // critical for 90-day refresh tokens
-    });
-    authUrlString = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${bingParams.toString()}`;
   }
 
   const response = NextResponse.redirect(authUrlString);

@@ -108,6 +108,12 @@ export async function POST(request: NextRequest): Promise<Response> {
       // Save campaign as DRAFT after streaming completes
       if (mediaPlan) {
         try {
+          // Generate ACCE-ID
+          const acceCount = await prisma.campaign.count({
+            where: { organizationId, source: 'accelerate' }
+          });
+          const acceId = `ACCE-${String(acceCount + 1).padStart(2, '0')}`;
+
           const campaign = await prisma.campaign.create({
             data: {
               organizationId,
@@ -116,6 +122,8 @@ export async function POST(request: NextRequest): Promise<Response> {
               sourceUrl: url,
               objective: mediaPlan.objective,
               status: 'DRAFT',
+              source: 'accelerate',
+              acceId,
               totalBudget: mediaPlan.totalBudget,
               currency: mediaPlan.currency,
               startDate: mediaPlan.startDate ? new Date(mediaPlan.startDate) : null,

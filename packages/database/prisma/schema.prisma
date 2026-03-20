@@ -85,6 +85,7 @@ enum CampaignStatus {
   PAUSED     @map("paused")
   LIVE       @map("live")
   ENDED      @map("ended")
+  FAILED     @map("failed")
 }
 
 // ---- Models ---- //
@@ -629,27 +630,33 @@ model WorkTimeSlot {
 }
 
 model Campaign {
-  id                String           @id @default(uuid()) @db.Uuid
-  organizationId    String           @db.Uuid
-  createdBy         String           @db.Uuid
-  name              String           @db.VarChar(255)
-  sourceUrl         String?          @db.VarChar(2048)
-  objective         String           @db.VarChar(100)
-  status            CampaignStatus   @default(DRAFT)
-  totalBudget       Decimal          @default(0) @db.Decimal(12, 2)
-  currency          String           @default("USD") @db.VarChar(10)
-  startDate         DateTime?
-  endDate           DateTime?
-  targetAudience    Json?
-  agentOutputs      Json?
-  mediaPlan         Json?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  platformCampaigns PlatformCampaign[]
+  id                 String             @id @default(uuid()) @db.Uuid
+  organizationId     String             @db.Uuid
+  createdBy          String             @db.Uuid
+  name               String             @db.VarChar(255)
+  sourceUrl          String?            @db.VarChar(2048)
+  objective          String             @db.VarChar(100)
+  status             CampaignStatus     @default(DRAFT)
+  source             String             @default("accelerate") @db.VarChar(50)
+  acceId             String?            @unique @db.VarChar(20)
+  externalCampaignId String?            @db.VarChar(255)
+  archivedAt         DateTime?
+  totalBudget        Decimal            @default(0) @db.Decimal(12, 2)
+  currency           String             @default("USD") @db.VarChar(10)
+  startDate          DateTime?
+  endDate            DateTime?
+  targetAudience     Json?
+  agentOutputs       Json?
+  mediaPlan          Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  platformCampaigns  PlatformCampaign[]
 
   @@index([organizationId])
   @@index([createdBy])
+  @@index([source])
+  @@index([archivedAt])
 }
 
 model PlatformCampaign {

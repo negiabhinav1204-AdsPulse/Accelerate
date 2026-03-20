@@ -113,37 +113,90 @@ async function fetchMetaAccounts(
   }
 }
 
+const BING_SOAP_ENDPOINT =
+  'https://clientcenter.api.bingads.microsoft.com/Api/CustomerManagement/v13/CustomerManagementService.svc';
+
+// Microsoft's documented envelope format: xmlns:i at Envelope level,
+// header uses default namespace (no prefix), i:nil references the top-level i: declaration.
+function bingSoap(accessToken: string, action: string, bodyInner: string): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Header xmlns="https://bingads.microsoft.com/Customer/v13">
+    <AuthenticationToken>${accessToken}</AuthenticationToken>
+    <DeveloperToken>${process.env.BING_DEVELOPER_TOKEN ?? ''}</DeveloperToken>
+  </s:Header>
+  <s:Body>
+    <${action}Request xmlns="https://bingads.microsoft.com/Customer/v13">
+      ${bodyInner}
+    </${action}Request>
+  </s:Body>
+</s:Envelope>`;
+}
+
 async function fetchBingAccounts(
   accessToken: string
 ): Promise<AdAccount[]> {
+  // Step 1: GetUser (no UserId) — Bing Ads resolves the caller from the
+  // access token and returns their Bing Ads UserId.
+  let bingUserId: string | null = null;
   try {
-    const body = `<?xml version="1.0" encoding="utf-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Header>
-    <h:AuthenticationToken xmlns:h="https://bingads.microsoft.com/Customer/v13">${accessToken}</h:AuthenticationToken>
-    <h:DeveloperToken xmlns:h="https://bingads.microsoft.com/Customer/v13">${process.env.BING_DEVELOPER_TOKEN}</h:DeveloperToken>
-  </s:Header>
-  <s:Body>
-    <GetAccountsInfoRequest xmlns="https://bingads.microsoft.com/Customer/v13" />
-  </s:Body>
-</s:Envelope>`;
+    const userRes = await fetch(BING_SOAP_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: 'GetUser' },
+      body: bingSoap(accessToken, 'GetUser', '<UserId i:nil="true"/>')
+    });
 
-    const res = await fetch(
-      'https://clientcenter.api.bingads.microsoft.com/Api/CustomerManagement/v13/CustomerManagementService.svc',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/xml; charset=utf-8',
-          SOAPAction: 'GetAccountsInfo'
-        },
-        body
-      }
-    );
-    if (!res.ok) return [];
-    const text = await res.text();
-    const matches = [...text.matchAll(/<Id>(\d+)<\/Id>.*?<Name>(.*?)<\/Name>/gs)];
-    return matches.map((m) => ({ id: m[1], name: m[2] }));
-  } catch {
+    const userXml = await userRes.text();
+    if (!userRes.ok) {
+      console.error('[bing] GetUser HTTP', userRes.status, userXml);
+    } else {
+      // Response: <GetUserResponse><User><Id>12345</Id>...
+      const match = userXml.match(/<Id>(\d+)<\/Id>/);
+      if (match) bingUserId = match[1]!;
+      console.log('[bing] GetUser bingUserId:', bingUserId);
+    }
+  } catch (e) {
+    console.error('[bing] GetUser error:', e);
+  }
+
+  if (!bingUserId) return [];
+
+  // Step 2: SearchAccounts filtered by UserId
+  try {
+    const searchBody = `
+<Predicates>
+  <Predicate>
+    <Field>UserId</Field>
+    <Operator>Equals</Operator>
+    <Value>${bingUserId}</Value>
+  </Predicate>
+</Predicates>
+<Ordering i:nil="true"/>
+<PageInfo>
+  <Index>0</Index>
+  <Size>100</Size>
+</PageInfo>`;
+
+    const accountsRes = await fetch(BING_SOAP_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: 'SearchAccounts' },
+      body: bingSoap(accessToken, 'SearchAccounts', searchBody)
+    });
+
+    const xml = await accountsRes.text();
+    if (!accountsRes.ok) {
+      console.error('[bing] SearchAccounts HTTP', accountsRes.status, xml);
+      return [];
+    }
+    console.log('[bing] SearchAccounts response:', xml.slice(0, 800));
+    // Each account is wrapped in <AdvertiserAccount>; Id and Name are direct children
+    const accounts: AdAccount[] = [];
+    for (const m of xml.matchAll(/<AdvertiserAccount>[\s\S]*?<Id>(\d+)<\/Id>[\s\S]*?<Name>(.*?)<\/Name>[\s\S]*?<\/AdvertiserAccount>/g)) {
+      accounts.push({ id: m[1]!, name: m[2]! });
+    }
+    return accounts;
+  } catch (e) {
+    console.error('[bing] SearchAccounts error:', e);
     return [];
   }
 }
@@ -167,9 +220,46 @@ export async function GET(
   const code = request.nextUrl.searchParams.get('code');
   const stateParam = request.nextUrl.searchParams.get('state');
   const storedState = request.cookies.get('connector_oauth_state')?.value;
+  const oauthError = request.nextUrl.searchParams.get('error');
 
-  if (!code || !stateParam || !storedState) {
-    return redirectWithError(baseUrl, '/onboarding', 'oauth_missing_params', request);
+  // ── Bing InMobi admin consent callback ──────────────────────────────────────
+  // Microsoft returns admin_consent=True (no code) after an admin grants
+  // tenant-level consent via the /adminconsent endpoint.
+  // We validate state, then redirect to the InMobi tenant's /authorize endpoint
+  // to complete the OAuth flow and get actual user tokens.
+  if (platform === 'bing' && request.nextUrl.searchParams.get('admin_consent') === 'True') {
+    if (!stateParam || !storedState || stateParam !== storedState) {
+      return redirectWithError(baseUrl, '/onboarding', 'oauth_state_mismatch', request);
+    }
+    const tenantId = process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7';
+    const bingClientId = process.env.BING_CLIENT_ID ?? '24acd153-281a-4766-898d-fa19bf538ce9';
+    const redirectUri = `${baseUrl}/oauth/msads/callback`;
+    const authorizeParams = new URLSearchParams({
+      client_id: bingClientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      response_mode: 'query',
+      scope: 'https://ads.microsoft.com/msads.manage offline_access',
+      state: stateParam,
+      prompt: 'select_account'
+    });
+    // State cookie stays alive for the second OAuth step
+    return NextResponse.redirect(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${authorizeParams.toString()}`
+    );
+  }
+
+  // If the provider returned an error (e.g. user cancelled), try to decode the state
+  // to redirect back to the correct page (connectors or onboarding) rather than /onboarding
+  if (oauthError || !code || !stateParam || !storedState) {
+    let returnTo = '/onboarding';
+    if (stateParam) {
+      try {
+        const decoded = JSON.parse(symmetricDecrypt(stateParam, process.env.AUTH_SECRET!)) as { returnTo?: string };
+        if (decoded.returnTo) returnTo = decoded.returnTo;
+      } catch { /* ignore — fall back to /onboarding */ }
+    }
+    return redirectWithError(baseUrl, returnTo, oauthError ?? 'oauth_missing_params', request);
   }
 
   // Validate state matches cookie
@@ -182,6 +272,7 @@ export async function GET(
     userId: string;
     returnTo: string;
     orgSlug: string;
+    isInmobi?: boolean;
   };
   try {
     statePayload = JSON.parse(
