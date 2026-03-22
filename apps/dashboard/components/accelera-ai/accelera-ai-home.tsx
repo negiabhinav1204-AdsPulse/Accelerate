@@ -16,7 +16,9 @@ import { Button } from '@workspace/ui/components/button';
 import { cn } from '@workspace/ui/lib/utils';
 
 import { AgentProgressPanel } from '../campaign/agent-progress-panel';
-import { MediaPlanCard } from '../campaign/media-plan-card';
+import { CampaignEditPanel } from '../campaign/campaign-edit-panel';
+import { CampaignPreviewPanel } from '../campaign/campaign-preview-panel';
+import type { EditScope } from '../campaign/campaign-preview-panel';
 import type { AgentName, AgentState, MediaPlan, SSEEvent } from '../campaign/types';
 import { ChatCampaignTable } from './chat-campaign-table';
 import { ChatConnectPrompt } from './chat-connect-prompt';
@@ -157,6 +159,13 @@ export function AcceleraAiHome({
   const abortRef = React.useRef<AbortController | null>(null);
   const campaignAbortRef = React.useRef<AbortController | null>(null);
 
+  const [activeCampaign, setActiveCampaign] = React.useState<{
+    agents: AgentState[];
+    mediaPlan: MediaPlan | null;
+    phase: 'analyzing' | 'preview' | 'editing';
+    editScope: EditScope | null;
+  } | null>(null);
+
   // Load most recent session on mount
   React.useEffect(() => {
     void (async () => {
@@ -197,6 +206,7 @@ export function AcceleraAiHome({
     async (url: string, userText: string) => {
       if (loading) return;
       setLoading(true);
+      setActiveCampaign({ agents: INITIAL_AGENTS.map((a) => ({ ...a })), mediaPlan: null, phase: 'analyzing', editScope: null });
 
       const campaignMsgId = crypto.randomUUID();
       setMessages((prev) => [
@@ -216,6 +226,7 @@ export function AcceleraAiHome({
           ...prev,
           agents: prev.agents.map((a) => (a.name === name ? { ...a, ...update } : a))
         }));
+        setActiveCampaign((prev) => prev ? { ...prev, agents: prev.agents.map((a) => (a.name === name ? { ...a, ...update } : a)) } : prev);
       };
 
       try {
@@ -267,9 +278,11 @@ export function AcceleraAiHome({
                   break;
                 case 'media_plan':
                   updateCampaignMsg((prev) => ({ ...prev, mediaPlan: event.plan, done: true }));
+                  setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: event.plan, phase: 'preview' } : prev);
                   break;
                 case 'error':
                   updateCampaignMsg((prev) => ({ ...prev, done: true }));
+                  setActiveCampaign((prev) => prev ? { ...prev, phase: 'preview' } : prev);
                   setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', parts: [{ type: 'text', text: `Campaign analysis failed: ${event.message}` }] } as ChatMessage]);
                   break;
               }
@@ -508,136 +521,176 @@ export function AcceleraAiHome({
 
   const isEmpty = messages.length === 0 && !historyLoading;
 
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Message thread — min-h-0 required so flex item can shrink below content height */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {historyLoading ? (
-          <div className="flex flex-col gap-4 px-4 py-6 max-w-3xl mx-auto w-full">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className={`flex gap-3 ${i % 2 === 0 ? 'justify-end' : 'justify-start'}`}>
-                <div className={`h-12 rounded-xl animate-pulse bg-muted ${i % 2 === 0 ? 'w-48' : 'w-64'}`} />
-              </div>
-            ))}
-          </div>
-        ) : isEmpty ? (
-          <EmptyState
-            firstName={firstName}
-            onQuickAction={(prompt) => void sendMessage(prompt)}
-          />
-        ) : (
-          <div className="flex flex-col gap-6 px-4 py-6 max-w-3xl mx-auto w-full">
-            {messages.map((message) =>
-              message.role === 'campaign' ? (
-                <CampaignInlineBubble key={message.id} message={message as CampaignMessageData} />
-              ) : (
-                <MessageBubble
-                  key={message.id}
-                  message={message as ChatMessage}
-                  orgSlug={orgSlug}
-                />
-              )
-            )}
-            <div ref={bottomRef} />
-          </div>
-        )}
-      </div>
+  // Campaign edit panel overlays everything
+  if (activeCampaign?.phase === 'editing' && activeCampaign.mediaPlan) {
+    return (
+      <CampaignEditPanel
+        mediaPlan={activeCampaign.mediaPlan}
+        initialScope={activeCampaign.editScope ?? undefined}
+        onSave={(updated) => {
+          setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: updated, phase: 'preview', editScope: null } : prev);
+        }}
+        onClose={() => setActiveCampaign((prev) => prev ? { ...prev, phase: 'preview', editScope: null } : prev)}
+      />
+    );
+  }
 
-      {/* Input bar */}
-      <div className="shrink-0 border-t border-border bg-background px-4 py-4">
-        <div className="max-w-3xl mx-auto space-y-2">
-          {/* Attachment previews */}
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-1">
-              {attachments.map((att, i) => (
-                <div key={i} className="relative flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-xs text-foreground">
-                  {att.type === 'image' ? (
-                    <img src={att.url} alt={att.name} className="size-6 rounded object-cover" />
-                  ) : (
-                    <ImageIcon className="size-4 text-muted-foreground" />
-                  )}
-                  <span className="max-w-[120px] truncate">{att.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(i)}
-                    className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
-                  >
-                    <XIcon className="size-3" />
-                  </button>
+  const showRHS = activeCampaign !== null;
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Left: chat */}
+      <div className={cn('flex flex-col transition-all duration-300', showRHS ? 'flex-1 min-w-0' : 'flex-1')}>
+        {/* Message thread */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {historyLoading ? (
+            <div className="flex flex-col gap-4 px-4 py-6 max-w-3xl mx-auto w-full">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className={`flex gap-3 ${i % 2 === 0 ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`h-12 rounded-xl animate-pulse bg-muted ${i % 2 === 0 ? 'w-48' : 'w-64'}`} />
                 </div>
               ))}
             </div>
-          )}
-
-          <form
-            onSubmit={handleSubmit}
-            className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all"
-          >
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
+          ) : isEmpty ? (
+            <EmptyState
+              firstName={firstName}
+              onQuickAction={(prompt) => void sendMessage(prompt)}
             />
-
-            {/* Attach button */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading}
-              className="shrink-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
-              aria-label="Attach image or video"
-            >
-              <PaperclipIcon className="size-4" />
-            </button>
-
-            <SparklesIcon className="size-4 text-muted-foreground shrink-0" />
-
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask Accelera AI anything about your campaigns..."
-              className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0"
-              disabled={loading}
-            />
-
-            {loading ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="gap-2 shrink-0 text-muted-foreground"
-                onClick={() => { abortRef.current?.abort(); campaignAbortRef.current?.abort(); }}
-              >
-                Stop
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                size="sm"
-                className="gap-2 shrink-0"
-                disabled={!input.trim() && attachments.length === 0}
-              >
-                <SendIcon className="size-4" />
-                Send
-              </Button>
-            )}
-          </form>
-
-          {connectedAccounts.length > 0 && !isEmpty && (
-            <p className="text-center text-xs text-muted-foreground">
-              Connected:{' '}
-              {connectedAccounts.map((a) => a.platform).join(', ')}
-            </p>
+          ) : (
+            <div className="flex flex-col gap-6 px-4 py-6 max-w-3xl mx-auto w-full">
+              {messages.map((message) =>
+                message.role === 'campaign' ? (
+                  <CampaignInlineBubble key={message.id} message={message as CampaignMessageData} />
+                ) : (
+                  <MessageBubble
+                    key={message.id}
+                    message={message as ChatMessage}
+                    orgSlug={orgSlug}
+                  />
+                )
+              )}
+              <div ref={bottomRef} />
+            </div>
           )}
         </div>
+
+        {/* Input bar */}
+        <div className="shrink-0 border-t border-border bg-background px-4 py-4">
+          <div className="max-w-3xl mx-auto space-y-2">
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-1">
+                {attachments.map((att, i) => (
+                  <div key={i} className="relative flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-xs text-foreground">
+                    {att.type === 'image' ? (
+                      <img src={att.url} alt={att.name} className="size-6 rounded object-cover" />
+                    ) : (
+                      <ImageIcon className="size-4 text-muted-foreground" />
+                    )}
+                    <span className="max-w-[120px] truncate">{att.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(i)}
+                      className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form
+              onSubmit={handleSubmit}
+              className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+              />
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
+                className="shrink-0 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+                aria-label="Attach image or video"
+              >
+                <PaperclipIcon className="size-4" />
+              </button>
+
+              <SparklesIcon className="size-4 text-muted-foreground shrink-0" />
+
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask Accelera AI anything about your campaigns..."
+                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-w-0"
+                disabled={loading}
+              />
+
+              {loading ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="gap-2 shrink-0 text-muted-foreground"
+                  onClick={() => { abortRef.current?.abort(); campaignAbortRef.current?.abort(); }}
+                >
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="gap-2 shrink-0"
+                  disabled={!input.trim() && attachments.length === 0}
+                >
+                  <SendIcon className="size-4" />
+                  Send
+                </Button>
+              )}
+            </form>
+
+            {connectedAccounts.length > 0 && !isEmpty && (
+              <p className="text-center text-xs text-muted-foreground">
+                Connected:{' '}
+                {[...new Set(connectedAccounts.map((a) => a.platform))].join(', ')}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Right: campaign RHS panel */}
+      {showRHS && (
+        <div className="w-[420px] shrink-0 flex flex-col h-full border-l border-border overflow-hidden">
+          {activeCampaign.phase === 'analyzing' && (
+            <AgentProgressPanel
+              agents={activeCampaign.agents}
+              onClose={() => setActiveCampaign(null)}
+            />
+          )}
+          {activeCampaign.phase === 'preview' && activeCampaign.mediaPlan && (
+            <CampaignPreviewPanel
+              mediaPlan={activeCampaign.mediaPlan}
+              onClose={() => setActiveCampaign(null)}
+              onEdit={(scope) => setActiveCampaign((prev) => prev ? { ...prev, phase: 'editing', editScope: scope ?? null } : prev)}
+              onPublish={() => {
+                alert('Publishing is currently disabled. Save draft instead.');
+              }}
+              onMediaPlanChange={(updated) => setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: updated } : prev)}
+              orgSlug={orgSlug}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -702,24 +755,16 @@ function EmptyState({
 }
 
 function CampaignInlineBubble({ message }: { message: CampaignMessageData }) {
-  return (
-    <div className="flex justify-start w-full">
-      <div className="flex-1 min-w-0 space-y-3">
-        {!message.mediaPlan && (
-          <AgentProgressPanel
-            agents={message.agents}
-            onClose={() => undefined}
-          />
-        )}
-        {message.mediaPlan && (
-          <MediaPlanCard
-            plan={message.mediaPlan}
-            onPreview={() => undefined}
-          />
-        )}
+  if (message.done && message.mediaPlan) {
+    return (
+      <div className="flex justify-start">
+        <div className="rounded-xl px-4 py-3 text-sm bg-card border border-border text-foreground max-w-[80%]">
+          Campaign plan for <span className="font-medium">{message.mediaPlan.summary?.brandName ?? new URL(message.url).hostname}</span> is ready. See the preview panel on the right.
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+  return null;
 }
 
 function MessageBubble({
