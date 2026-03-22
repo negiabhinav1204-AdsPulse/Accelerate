@@ -297,13 +297,6 @@ export async function POST(request: NextRequest): Promise<Response> {
             plan: { ...mediaPlan, _campaignId: campaign.id } as MediaPlan & { _campaignId: string }
           });
 
-          // Generate images for each platform ad type asynchronously and stream updates
-          try {
-            await generateCampaignImages(mediaPlan, enqueue);
-          } catch {
-            // Non-fatal — campaign is already saved and streamed
-          }
-
           // Save memory nodes (fire-and-forget, non-fatal)
           void saveCampaignMemory({
             orgId: organizationId,

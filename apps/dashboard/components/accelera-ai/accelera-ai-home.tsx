@@ -280,6 +280,28 @@ export function AcceleraAiHome({
                   updateCampaignMsg((prev) => ({ ...prev, mediaPlan: event.plan, done: true }));
                   setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: event.plan, phase: 'preview' } : prev);
                   break;
+                case 'image_update': {
+                  const [platformKey, adTypeKey] = event.platformAdTypeKey.split(':');
+                  const applyImageUpdate = (plan: MediaPlan): MediaPlan => ({
+                    ...plan,
+                    platforms: plan.platforms.map((p) =>
+                      (p.platform as string) !== platformKey ? p : {
+                        ...p,
+                        adTypes: p.adTypes.map((at) =>
+                          at.adType !== adTypeKey ? at : {
+                            ...at,
+                            ads: at.ads.map((ad, i) =>
+                              event.imageUrls[i] ? { ...ad, imageUrls: [event.imageUrls[i]!] } : ad
+                            )
+                          }
+                        )
+                      }
+                    )
+                  });
+                  setActiveCampaign((prev) => prev?.mediaPlan ? { ...prev, mediaPlan: applyImageUpdate(prev.mediaPlan) } : prev);
+                  updateCampaignMsg((prev) => prev.mediaPlan ? { ...prev, mediaPlan: applyImageUpdate(prev.mediaPlan) } : prev);
+                  break;
+                }
                 case 'error':
                   updateCampaignMsg((prev) => ({ ...prev, done: true }));
                   setActiveCampaign((prev) => prev ? { ...prev, phase: 'preview' } : prev);
@@ -560,7 +582,20 @@ export function AcceleraAiHome({
             <div className="flex flex-col gap-6 px-4 py-6 max-w-3xl mx-auto w-full">
               {messages.map((message) =>
                 message.role === 'campaign' ? (
-                  <CampaignInlineBubble key={message.id} message={message as CampaignMessageData} />
+                  <CampaignInlineBubble
+                    key={message.id}
+                    message={message as CampaignMessageData}
+                    onOpenPreview={() => {
+                      const cm = message as CampaignMessageData;
+                      if (cm.mediaPlan) {
+                        setActiveCampaign((prev) =>
+                          prev
+                            ? { ...prev, mediaPlan: cm.mediaPlan!, phase: 'preview', editScope: null }
+                            : { agents: INITIAL_AGENTS.map((a) => ({ ...a })), mediaPlan: cm.mediaPlan!, phase: 'preview', editScope: null }
+                        );
+                      }
+                    }}
+                  />
                 ) : (
                   <MessageBubble
                     key={message.id}
@@ -754,13 +789,18 @@ function EmptyState({
   );
 }
 
-function CampaignInlineBubble({ message }: { message: CampaignMessageData }) {
+function CampaignInlineBubble({ message, onOpenPreview }: { message: CampaignMessageData; onOpenPreview: () => void }) {
   if (message.done && message.mediaPlan) {
     return (
       <div className="flex justify-start">
-        <div className="rounded-xl px-4 py-3 text-sm bg-card border border-border text-foreground max-w-[80%]">
-          Campaign plan for <span className="font-medium">{message.mediaPlan.summary?.brandName ?? new URL(message.url).hostname}</span> is ready. See the preview panel on the right.
-        </div>
+        <button
+          type="button"
+          onClick={onOpenPreview}
+          className="rounded-xl px-4 py-3 text-sm bg-card border border-border text-foreground max-w-[80%] text-left hover:bg-accent transition-colors"
+        >
+          Campaign plan for <span className="font-medium">{message.mediaPlan.summary?.brandName ?? new URL(message.url).hostname}</span> is ready.{' '}
+          <span className="text-primary underline underline-offset-2">Click to view preview.</span>
+        </button>
       </div>
     );
   }

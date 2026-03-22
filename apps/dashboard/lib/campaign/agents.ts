@@ -305,6 +305,24 @@ async function callClaude(
   }
 }
 
+async function callGemini(
+  systemPrompt: string,
+  userPrompt: string
+): Promise<string> {
+  try {
+    const genAI = getGeminiClient();
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: systemPrompt
+    });
+    const result = await model.generateContent(userPrompt);
+    return result.response.text();
+  } catch (e) {
+    console.warn('[agents] Gemini call failed:', e);
+    return '';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helper: parse JSON safely from LLM response
 // ---------------------------------------------------------------------------
@@ -1062,15 +1080,13 @@ Return a JSON object with these exact fields:
 }
 Provide 5 adVariations and exactly 5 concepts.`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<CreativeOutput>(rawOutput, {
-    headlines: ['Shop Now', 'Discover More', 'Trusted by Thousands'],
-    descriptions: ['Quality products and great service.', 'Shop now and explore our latest offers.'],
-    imagePrompts: ['Professional product photography, clean white background, high quality'],
-    adVariations: [
-      { headline: 'Shop Now', description: 'Quality guaranteed.', cta: 'Shop Now', messagingAngle: 'product_benefit' }
-    ],
+    headlines: [],
+    descriptions: [],
+    imagePrompts: [],
+    adVariations: [],
     rsaHeadlines: [],
     adExtensions: {
       sitelinks: [],
@@ -1079,30 +1095,6 @@ Provide 5 adVariations and exactly 5 concepts.`;
     },
     concepts: []
   });
-
-  // Try to refine image prompts with Gemini (optional, graceful fallback)
-  try {
-    const genAI = getGeminiClient();
-    const imageModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    if (output.imagePrompts.length > 0) {
-      const refinedResult = await imageModel.generateContent(
-        `Refine these image generation prompts to be more specific and visually compelling for digital ads. Keep brand tone: ${brandOutput.tone}.
-${output.imagePrompts.slice(0, 3).join('\n')}
-
-Return exactly the same number of improved prompts, one per line, no numbering.`
-      );
-      const refinedText = refinedResult.response.text();
-      const refinedPrompts = refinedText
-        .split('\n')
-        .map((l: string) => l.trim())
-        .filter(Boolean);
-      if (refinedPrompts.length > 0) {
-        output.imagePrompts = refinedPrompts;
-      }
-    }
-  } catch {
-    // Gracefully fall back to Claude-generated prompts
-  }
 
   const timeTaken = Date.now() - start;
   enqueue({
@@ -1317,6 +1309,8 @@ ${userPreferences?.notes ? `User Instructions (MUST follow): ${userPreferences.n
 
 PLATFORM RULE — STRICTLY ENFORCED: Only generate platforms that are in this exact list: [${connectedPlatforms.join(', ')}]. Do NOT include any other platform. This is non-negotiable.
 
+AD TYPE RULE — STRICTLY ENFORCED: For each platform, include ONLY the 1-2 best-performing ad types for this specific brand and objective. Do NOT list every possible format. Choose what will actually perform best based on the brand profile, audience, and product type. Quality over quantity — a focused plan with 1-2 ad types per platform outperforms a scattered plan with 5.
+
 Do NOT include an "ads" array inside adTypes — ad creatives will be populated separately from the creative agent. Leave adTypes[].ads as an empty array [].
 
 Generate a complete media plan. Include:
@@ -1488,10 +1482,12 @@ FINAL REMINDER: The "platforms" array in your JSON MUST contain ONLY these platf
               : p === 'meta'
                 ? 'lowest cost'
                 : intentOut.platformObjectives.bing.bidStrategy,
-            ads: creativeOut.adVariations.slice(0, 3).map((v) => ({
+            ads: creativeOut.adVariations.slice(0, 3).map((v, i) => ({
+              id: crypto.randomUUID(),
               headlines: [v.headline, ...creativeOut.headlines.slice(0, 4)],
               descriptions: [v.description, ...creativeOut.descriptions.slice(0, 2)],
               imageUrls: [],
+              imagePrompt: creativeOut.imagePrompts[i] ?? creativeOut.imagePrompts[0],
               ctaText: v.cta,
               destinationUrl: url
             }))
@@ -1521,6 +1517,7 @@ FINAL REMINDER: The "platforms" array in your JSON MUST contain ONLY these platf
         const isSearch = adType.adType === 'search' || adType.adType === 'rsa';
         if (isSearch) {
           adType.ads = [{
+            id: crypto.randomUUID(),
             headlines: creativeOut.rsaHeadlines.slice(0, 15).map((h) => h.text),
             descriptions: creativeOut.descriptions.slice(0, 4),
             imageUrls: [],
@@ -1528,10 +1525,12 @@ FINAL REMINDER: The "platforms" array in your JSON MUST contain ONLY these platf
             destinationUrl: url
           }];
         } else {
-          adType.ads = creativeOut.adVariations.slice(0, 3).map((v) => ({
+          adType.ads = creativeOut.adVariations.slice(0, 3).map((v, i) => ({
+            id: crypto.randomUUID(),
             headlines: [v.headline, ...creativeOut.headlines.slice(0, 4)],
             descriptions: [v.description, ...creativeOut.descriptions.slice(0, 2)],
             imageUrls: [],
+            imagePrompt: creativeOut.imagePrompts[i] ?? creativeOut.imagePrompts[0],
             ctaText: v.cta,
             destinationUrl: url
           }));

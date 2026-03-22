@@ -196,6 +196,84 @@ export function CampaignPreviewPanel({
   const [targetingExpanded, setTargetingExpanded] = React.useState(false);
   const [openMenu, setOpenMenu] = React.useState<MenuState>(null);
 
+  // Generate images lazily for visual ad types that have no images yet.
+  // Uses a ref to track which have been attempted and processes sequentially
+  // so each successive update is applied on top of the previous.
+  const imageGenAttemptedRef = React.useRef<Set<string>>(new Set());
+  const mediaPlanRef = React.useRef(mediaPlan);
+  mediaPlanRef.current = mediaPlan;
+
+  React.useEffect(() => {
+    if (!onMediaPlanChange) return;
+
+    const visualAdTypes: { platform: string; adType: string; aspectRatio: '1:1' | '16:9' | '9:16'; prompts: string[] }[] = [];
+    const brandName = mediaPlan.summary?.brandName ?? '';
+
+    for (const platform of mediaPlan.platforms) {
+      for (const adType of platform.adTypes) {
+        const normalizedType = adType.adType.toLowerCase();
+        if (['search', 'rsa'].includes(normalizedType)) continue;
+        const key = `${platform.platform}:${adType.adType}`;
+        const needsImages = adType.ads.some((ad) => ad.imageUrls.length === 0);
+        if (!needsImages || imageGenAttemptedRef.current.has(key)) continue;
+        imageGenAttemptedRef.current.add(key);
+
+        const aspectRatio: '1:1' | '16:9' | '9:16' =
+          normalizedType.includes('stories') || normalizedType.includes('reels') ? '9:16'
+          : platform.platform === 'meta' ? '1:1'
+          : '16:9';
+
+        visualAdTypes.push({
+          platform: platform.platform,
+          adType: adType.adType,
+          aspectRatio,
+          prompts: adType.ads.slice(0, 3).map((ad) =>
+            ad.imagePrompt ?? `${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}`.trim()
+          )
+        });
+      }
+    }
+
+    if (visualAdTypes.length === 0) return;
+
+    // Process sequentially so each update builds on the previous
+    void (async () => {
+      for (const item of visualAdTypes) {
+        try {
+          const res = await fetch('/api/campaign/generate-images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompts: item.prompts, aspectRatio: item.aspectRatio, brandName })
+          });
+          const data = (await res.json()) as { imageUrls?: string[] };
+          if (!data.imageUrls || data.imageUrls.length === 0) continue;
+
+          // Read the current latest plan from the ref so we always apply on top of previous updates
+          const current = mediaPlanRef.current;
+          onMediaPlanChange({
+            ...current,
+            platforms: current.platforms.map((p) =>
+              (p.platform as string) !== item.platform ? p : {
+                ...p,
+                adTypes: p.adTypes.map((at) =>
+                  at.adType !== item.adType ? at : {
+                    ...at,
+                    ads: at.ads.map((ad, i) =>
+                      data.imageUrls![i] ? { ...ad, imageUrls: [data.imageUrls![i]!] } : ad
+                    )
+                  }
+                )
+              }
+            )
+          });
+        } catch {
+          // non-fatal
+        }
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaPlan.platforms, onMediaPlanChange]);
+
   const selectedPlatform: PlatformPlan | undefined = mediaPlan.platforms[selectedPlatformIdx];
   const selectedAdType: AdTypePlan | undefined = selectedPlatform?.adTypes[selectedAdTypeIdx];
 

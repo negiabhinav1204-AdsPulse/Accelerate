@@ -113,6 +113,7 @@ export type AdCreative = {
   headlines: string[];
   descriptions: string[];
   imageUrls: string[];
+  imagePrompt?: string;
   videoUrl?: string;
   ctaText: string;
   destinationUrl: string;
