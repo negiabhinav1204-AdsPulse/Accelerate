@@ -10,7 +10,8 @@
     "migrate": "prisma migrate",
     "push": "prisma db push --skip-generate",
     "studio": "prisma studio --port 3003 --browser none",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "seed:dev": "dotenv -e ../../apps/dashboard/.env -- tsx prisma/seed-dev.ts"
   },
   "dependencies": {
     "@prisma/client": "6.9.0",
@@ -22,7 +23,9 @@
     "@workspace/eslint-config": "workspace:*",
     "@workspace/prettier-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
-    "prisma": "6.9.0"
+    "dotenv-cli": "^11.0.0",
+    "prisma": "6.9.0",
+    "tsx": "^4.21.0"
   },
   "prettier": "@workspace/prettier-config",
   "exports": {

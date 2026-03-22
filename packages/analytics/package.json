@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@t3-oss/env-nextjs": "0.13.6",
-    "next": "15.3.3",
+    "next": "15.5.14",
     "posthog-js": "1.250.2",
     "posthog-node": "4.16.0",
     "react": "19.0.0",
