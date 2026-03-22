@@ -1,6 +1,10 @@
 /**
  * Campaign creation agent pipeline.
- * 7 agents run in parallel, then a Strategy agent synthesizes results into a MediaPlan.
+ * Agents run in a phased DAG:
+ *   Phase 1 (parallel): Brand, LPU, Competitor  — all use pageContent
+ *   Phase 2 (after Phase 1): Intent             — uses brandOut + lpuOut + pageContent
+ *   Phase 3 (after Phase 2): Creative           — uses brandOut + lpuOut + intentOut + competitorOut + pageContent
+ *   Phase 4: Strategy                           — synthesises all outputs into a MediaPlan
  * Progress is streamed via SSE events through the `enqueue` callback.
  */
 
@@ -31,14 +35,18 @@ export type AgentEvent =
   | { type: 'agent_complete'; agent: AgentName; message: string; output: AgentOutput; timeTaken: number; confidence: 'High' | 'Medium' | 'Low' }
   | { type: 'preference_question'; question: string; options?: string[]; questionId: string }
   | { type: 'media_plan'; plan: MediaPlan }
+  | { type: 'image_update'; platformAdTypeKey: string; imageUrls: string[] }
+  | { type: 'conflict_check'; conflictId: string; message: string; question: string; options: string[] }
   | { type: 'error'; message: string };
 
 export type UserPreferences = {
   primaryPlatform?: string;
+  platforms?: string[];       // explicit platform list from user ("only in META" → ['meta'])
   monthlyBudget?: number;
   currency?: string;
   targetCountries?: string[];
   campaignObjective?: string;
+  notes?: string; // free-text from the user's initial message
 };
 
 export type ConnectedAccountInfo = {
@@ -52,30 +60,64 @@ export type ConnectedAccountInfo = {
   timezone?: string | null;
 };
 
-// Agent output types
+// ---------------------------------------------------------------------------
+// Internal agent output types (freely upgraded between agents)
+// ---------------------------------------------------------------------------
+
 export type BrandOutput = {
   brandName: string;
+  domain: string;
   industry: string;
+  iabCategory: string;
   colors: string[];
-  tone: string;
+  fonts: string[];
+  tone: 'premium' | 'playful' | 'corporate' | 'dtc_casual' | 'technical' | 'luxury' | 'value_focused';
+  brandScale: 'smb' | 'mid_market' | 'enterprise';
   valuePropositions: string[];
   targetAudience: string;
+  brandGuidelinesSummary: string;
+  socialPresence: { platform: string; url: string }[];
+  country: string;
+  confidenceScore: number;
 };
 
 export type LpuOutput = {
-  pageType: string;
+  pageType: 'product' | 'collection' | 'content' | 'lead_gen' | 'homepage' | 'app_install';
   products: string[];
   offers: string[];
-  keywords: string[];
+  keywords: { keyword: string; relevanceScore: number }[];
   callToAction: string;
   conversionGoal: string;
+  trustSignals: string[];
+  existingPixels: string[];
+  hasStructuredData: boolean;
+  mobileOptimized: boolean;
+  sslEnabled: boolean;
+  heroHeadline: string;
+  valuePropositions: string[];
+  confidenceScore: number;
 };
 
 export type IntentOutput = {
-  primaryIntent: string;
+  primaryIntent: 'conversion' | 'consideration' | 'awareness' | 'app_install';
+  actionType: 'purchase' | 'add_to_cart' | 'lead_form_submit' | 'app_install' | 'page_visit';
+  funnelStage: 'top' | 'mid' | 'bottom';
   keywords: string[];
-  funnelStage: string;
   audienceSignals: string[];
+  platformObjectives: {
+    google: { campaignType: string; objective: string; bidStrategy: string };
+    meta: { campaignObjective: string; optimizationEvent: string };
+    bing: { campaignType: string; objective: string; bidStrategy: string };
+  };
+  kpiTargets: {
+    primaryKpi: string;
+    primaryTarget: string;
+    secondaryKpi: string;
+    secondaryTarget: string;
+  };
+  multiPhaseRecommended: boolean;
+  conflictsDetected: { type: string; description: string; resolution: string }[];
+  confidenceScore: number;
 };
 
 export type TrendOutput = {
@@ -89,17 +131,44 @@ export type CompetitorOutput = {
   competitorStrategies: string[];
   gaps: string[];
   differentiators: string[];
+  marketSaturation: 'low' | 'medium' | 'high';
+  dominantPlatform: string;
+  dominantFormat: string;
+  messagingThemes: string[];
+  pricingTier: 'budget' | 'mid' | 'premium';
+  competitiveGaps: { gapType: string; description: string; opportunityScore: number }[];
 };
 
 export type CreativeOutput = {
   headlines: string[];
   descriptions: string[];
   imagePrompts: string[];
-  adVariations: Array<{
+  adVariations: {
     headline: string;
     description: string;
     cta: string;
-  }>;
+    messagingAngle: string;
+  }[];
+  rsaHeadlines: {
+    text: string;
+    slotType: 'high_intent' | 'value_prop' | 'social_proof' | 'urgency' | 'brand';
+    pinPosition: number | null;
+  }[];
+  adExtensions: {
+    sitelinks: { title: string; description: string }[];
+    callouts: string[];
+    structuredSnippet: { header: string; values: string[] };
+  };
+  concepts: {
+    conceptId: string;
+    messagingAngle: 'product_benefit' | 'social_proof' | 'offer_urgency' | 'problem_solution' | 'lifestyle';
+    headline: string;
+    bodyText: string;
+    cta: string;
+    imageDirection: string;
+    brandAlignmentScore: number;
+    competitiveDifferentiationScore: number;
+  }[];
 };
 
 export type BudgetOutput = {
@@ -109,7 +178,8 @@ export type BudgetOutput = {
   duration: number;
 };
 
-export type AgentOutput =
+// Raw outputs used internally between agents
+export type AgentRawOutput =
   | BrandOutput
   | LpuOutput
   | IntentOutput
@@ -118,6 +188,12 @@ export type AgentOutput =
   | CreativeOutput
   | BudgetOutput
   | MediaPlan;
+
+// UI-compatible output sent to the client via SSE
+export type AgentOutput = {
+  capabilities?: { title: string; description?: string }[];
+  summary?: string;
+};
 
 // ---------------------------------------------------------------------------
 // Client initialization helpers (lazy — only when env vars are present)
@@ -159,6 +235,34 @@ async function streamProgress(
 }
 
 // ---------------------------------------------------------------------------
+// Country → Currency mapping (used when connected account currency is missing)
+// ---------------------------------------------------------------------------
+
+const COUNTRY_TO_CURRENCY: Record<string, string> = {
+  IN: 'INR', US: 'USD', GB: 'GBP', AU: 'AUD', CA: 'CAD',
+  EU: 'EUR', DE: 'EUR', FR: 'EUR', IT: 'EUR', ES: 'EUR',
+  NL: 'EUR', BE: 'EUR', AT: 'EUR', PT: 'EUR', FI: 'EUR',
+  JP: 'JPY', CN: 'CNY', KR: 'KRW', SG: 'SGD', HK: 'HKD',
+  AE: 'AED', SA: 'SAR', BR: 'BRL', MX: 'MXN', ID: 'IDR',
+  TH: 'THB', MY: 'MYR', PH: 'PHP', VN: 'VND', PK: 'PKR',
+  BD: 'BDT', LK: 'LKR', NZ: 'NZD', ZA: 'ZAR', NG: 'NGN',
+};
+
+function currencyForCountry(country: string): string {
+  return COUNTRY_TO_CURRENCY[country?.toUpperCase()] ?? 'USD';
+}
+
+// Extract homepage URL from any URL (strips path)
+function homepageUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return url;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helper: scrape URL with Firecrawl (graceful fallback)
 // ---------------------------------------------------------------------------
 
@@ -179,12 +283,16 @@ async function scrapeUrl(url: string): Promise<string> {
 // Helper: call Claude claude-sonnet-4-6 (non-streaming)
 // ---------------------------------------------------------------------------
 
-async function callClaude(systemPrompt: string, userPrompt: string): Promise<string> {
+async function callClaude(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 2048
+): Promise<string> {
   try {
     const client = getAnthropicClient();
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }]
     });
@@ -213,6 +321,41 @@ function parseJsonFromLlm<T>(text: string, fallback: T): T {
 }
 
 // ---------------------------------------------------------------------------
+// Conflict detection helper
+// ---------------------------------------------------------------------------
+
+const SEASONAL_TERMS = ['diwali', 'holi', 'eid', 'christmas', 'black friday', 'sale season', 'new year', 'independence day', 'navratri', 'puja', 'festive season'];
+
+function detectSeasonalConflict(
+  userNotes: string,
+  trendOut: TrendOutput
+): { message: string; question: string; options: string[] } | null {
+  if (!userNotes) return null;
+
+  const userNotesLower = userNotes.toLowerCase();
+  const mentionedSeason = SEASONAL_TERMS.find((s) => userNotesLower.includes(s));
+  if (!mentionedSeason) return null;
+
+  // Check if trends confirm this season (if any trend mentions it, no conflict)
+  const trendText = [...trendOut.trends, ...trendOut.seasonalFactors].join(' ').toLowerCase();
+  const seasonConfirmed = trendText.includes(mentionedSeason) ||
+    trendText.includes('festive') ||
+    trendText.includes('seasonal');
+
+  if (seasonConfirmed) return null; // No conflict
+
+  return {
+    message: `I noticed you want to create a **${mentionedSeason}** campaign, but our trend analysis suggests this season is not currently active. Running a seasonal campaign outside its peak window typically results in lower ROI.`,
+    question: `Would you like to proceed with a ${mentionedSeason} campaign now, or would you prefer to create a general campaign that we can adapt closer to the season?`,
+    options: [
+      `Yes, proceed with the ${mentionedSeason} campaign now`,
+      'Create a general campaign instead',
+      `Schedule it for the actual ${mentionedSeason} season`
+    ]
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Agent: Brand
 // ---------------------------------------------------------------------------
 
@@ -220,63 +363,136 @@ const BRAND_MESSAGES = {
   start: 'Understanding your brand...',
   progress: [
     'Reviewing your website and brand presence',
-    'Identifying brand tone and messaging style',
-    'Extracting key value propositions',
-    'Structuring brand identity signals'
+    'Classifying brand scale and IAB category',
+    'Identifying brand tone and visual identity',
+    'Extracting key value propositions'
   ],
   complete: 'Brand profile ready'
 };
 
 async function runBrandAgent(params: {
   url: string;
+  pageContent: string;
   enqueue: (event: AgentEvent) => void;
 }): Promise<BrandOutput> {
-  const { url, enqueue } = params;
+  const { url, pageContent, enqueue } = params;
   const start = Date.now();
 
   enqueue({ type: 'agent_start', agent: 'brand', message: BRAND_MESSAGES.start });
 
   const progressPromise = streamProgress('brand', BRAND_MESSAGES.progress, enqueue);
 
-  const pageContent = await scrapeUrl(url);
+  const systemPrompt = `You are a brand analyst specializing in digital advertising. Extract structured brand identity information from website content. Respond with valid JSON only — no markdown fences, no explanation.`;
 
-  const systemPrompt = `You are a brand analyst. Extract structured brand identity information from website content. Respond with valid JSON only — no markdown fences, no explanation.`;
-
-  const userPrompt = `Analyze this website content and extract brand identity information.
+  const userPrompt = `Analyze this website content and extract comprehensive brand identity information.
 URL: ${url}
 
 Content:
 ${pageContent || '(Could not fetch content — infer from URL)'}
 
+Instructions:
+1. Classify the brand into the IAB Content Taxonomy v3 — provide the primary category code + human-readable label (e.g. "IAB-602 Fashion & Apparel > Women's Clothing")
+2. Classify brand scale from signals: website complexity, product count, brand mentions, pricing, presence of enterprise features
+   - smb: small business, few products, simple site, local/regional
+   - mid_market: established brand, reasonable product range, multi-region
+   - enterprise: large brand, extensive catalog, global presence, multiple sub-brands
+3. Classify tone from exactly one of: premium, playful, corporate, dtc_casual, technical, luxury, value_focused
+4. Extract primary_colors as hex codes from any visible brand color references
+5. Extract font names if mentioned or inferable from brand style
+6. Provide a 2-3 sentence brand_guidelines_summary describing voice, visual style, and positioning
+7. Set confidence_score: 0.9 if rich brand content, 0.7 if moderate content, 0.5 if sparse
+
 Return a JSON object with these exact fields:
 {
   "brandName": "string",
+  "domain": "string (domain from URL, no protocol)",
   "industry": "string",
-  "colors": ["string"],
-  "tone": "string (e.g. professional, friendly, playful, bold)",
-  "valuePropositions": ["string"],
-  "targetAudience": "string"
+  "iabCategory": "string (e.g. IAB-602 Fashion & Apparel > Women's Clothing)",
+  "colors": ["string (hex codes like #FF5733)"],
+  "fonts": ["string (font names)"],
+  "tone": "premium|playful|corporate|dtc_casual|technical|luxury|value_focused",
+  "brandScale": "smb|mid_market|enterprise",
+  "valuePropositions": ["string (3-5 core value props)"],
+  "targetAudience": "string (1-2 sentence description)",
+  "brandGuidelinesSummary": "string (2-3 sentences on voice, visual style, positioning)",
+  "socialPresence": [{"platform": "string", "url": "string"}],
+  "country": "string (ISO 2-letter country code — PRIORITY ORDER: 1) domain TLD: .in=IN, .co.uk=GB, .de=DE, .au=AU, .ca=CA 2) ₹ or 'Rs.' in content=IN 3) addresses/phone numbers mentioning a country 4) language signals. NEVER default to US unless there is clear evidence.",
+  "confidenceScore": number
 }`;
 
   const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
 
+  const hostname = (() => {
+    try { return new URL(url).hostname.replace('www.', ''); } catch { return url; }
+  })();
+
+  // Derive country from TLD before LLM output — used as fallback and to validate LLM result
+  const tldCountry = (() => {
+    if (hostname.endsWith('.in')) return 'IN';
+    if (hostname.endsWith('.co.uk') || hostname.endsWith('.uk')) return 'GB';
+    if (hostname.endsWith('.de')) return 'DE';
+    if (hostname.endsWith('.fr')) return 'FR';
+    if (hostname.endsWith('.au') || hostname.endsWith('.com.au')) return 'AU';
+    if (hostname.endsWith('.ca')) return 'CA';
+    if (hostname.endsWith('.jp')) return 'JP';
+    if (hostname.endsWith('.sg')) return 'SG';
+    if (hostname.endsWith('.ae')) return 'AE';
+    if (hostname.endsWith('.br') || hostname.endsWith('.com.br')) return 'BR';
+    if (hostname.endsWith('.mx')) return 'MX';
+    return null;
+  })();
+
+  // Also detect country from ₹ symbol in page content
+  const contentCountry = pageContent.includes('₹') || pageContent.includes('Rs.') ? 'IN' : null;
+
+  const detectedCountry = tldCountry ?? contentCountry;
+
+  // Extract brand name from domain (e.g. chumbak.com → Chumbak)
+  const brandNameFromDomain = (() => {
+    const parts = hostname.split('.');
+    // For SLD+TLD like chumbak.com, use parts[0]. For co.uk etc, still parts[0].
+    const name = parts[0] ?? 'Brand';
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  })();
+
   const output = parseJsonFromLlm<BrandOutput>(rawOutput, {
-    brandName: new URL(url).hostname.replace('www.', '').split('.')[0] ?? 'Brand',
+    brandName: brandNameFromDomain,
+    domain: hostname,
     industry: 'General',
+    iabCategory: 'IAB-1 Arts & Entertainment',
     colors: ['#000000', '#ffffff'],
-    tone: 'professional',
+    fonts: [],
+    tone: 'corporate',
+    brandScale: 'smb',
     valuePropositions: ['Quality products', 'Great service'],
-    targetAudience: 'General consumers'
+    targetAudience: 'General consumers',
+    brandGuidelinesSummary: 'A modern brand focused on delivering quality and value to its customers.',
+    socialPresence: [],
+    country: detectedCountry ?? 'US',
+    confidenceScore: pageContent ? 0.7 : 0.5
   });
+
+  // Override country if TLD or content gives a stronger signal
+  if (detectedCountry && output.country === 'US') {
+    output.country = detectedCountry;
+  }
 
   const timeTaken = Date.now() - start;
   enqueue({
     type: 'agent_complete',
     agent: 'brand',
     message: BRAND_MESSAGES.complete,
-    output,
+    output: {
+      capabilities: [
+        { title: 'IAB Category', description: output.iabCategory },
+        { title: 'Brand Scale', description: output.brandScale },
+        { title: 'Tone', description: output.tone },
+        ...output.valuePropositions.slice(0, 3).map((vp) => ({ title: vp }))
+      ],
+      summary: `${output.brandName} — ${output.industry} | ${output.tone} | ${output.brandScale} | Confidence: ${Math.round(output.confidenceScore * 100)}%`
+    },
     timeTaken,
-    confidence: pageContent ? 'High' : 'Low'
+    confidence: output.confidenceScore >= 0.8 ? 'High' : output.confidenceScore >= 0.6 ? 'Medium' : 'Low'
   });
 
   return output;
@@ -290,42 +506,65 @@ const LPU_MESSAGES = {
   start: 'Reviewing your landing page...',
   progress: [
     'Scanning page structure and layout',
-    'Evaluating user experience and clarity',
+    'Detecting tracking pixels and conversion setup',
     'Extracting product and offer details',
-    'Identifying conversion elements'
+    'Scoring keywords by relevance'
   ],
   complete: 'Landing page insights generated'
 };
 
 async function runLpuAgent(params: {
   url: string;
+  pageContent: string;
   enqueue: (event: AgentEvent) => void;
 }): Promise<LpuOutput> {
-  const { url, enqueue } = params;
+  const { url, pageContent, enqueue } = params;
   const start = Date.now();
 
   enqueue({ type: 'agent_start', agent: 'lpu', message: LPU_MESSAGES.start });
 
   const progressPromise = streamProgress('lpu', LPU_MESSAGES.progress, enqueue);
 
-  const pageContent = await scrapeUrl(url);
+  const systemPrompt = `You are a landing page conversion analyst. Extract structured conversion insights from website content. Respond with valid JSON only — no markdown fences, no explanation.`;
 
-  const systemPrompt = `You are a landing page analyst. Extract structured conversion insights from website content. Respond with valid JSON only — no markdown fences, no explanation.`;
+  const sslEnabled = url.startsWith('https://');
 
   const userPrompt = `Analyze this landing page and extract conversion-relevant information.
 URL: ${url}
+SSL Enabled: ${sslEnabled}
 
 Content:
 ${pageContent || '(Could not fetch content — infer from URL)'}
 
+Instructions:
+1. Classify page type as one of: product, collection, content, lead_gen, homepage, app_install
+2. Extract top 10 keywords with relevance scores (0.0–1.0) based on frequency + prominence in the page
+3. Detect existing tracking pixels by looking for patterns in the content:
+   - Meta Pixel: look for "fbq", "facebook.net", "connect.facebook"
+   - Google: look for "gtag", "googletagmanager", "google-analytics"
+   - TikTok: look for "tiktok", "analytics.tiktok"
+   - Bing/Microsoft: look for "bat.bing", "clarity"
+   List only the platforms with detected pixel code (e.g. ["meta", "google"])
+4. Extract trust signals: ratings, review counts, certifications, guarantees, customer counts
+5. Detect the hero headline (the most prominent text on the page)
+6. Set confidence_score: 0.9 if rich content, 0.7 if moderate, 0.5 if sparse
+
 Return a JSON object with these exact fields:
 {
-  "pageType": "string (e.g. homepage, product, landing, ecommerce, saas)",
-  "products": ["string"],
+  "pageType": "product|collection|content|lead_gen|homepage|app_install",
+  "products": ["string (product/service names)"],
   "offers": ["string (discounts, free trials, promotions)"],
-  "keywords": ["string (10-15 relevant search keywords)"],
+  "keywords": [{"keyword": "string", "relevanceScore": number}],
   "callToAction": "string (primary CTA text)",
-  "conversionGoal": "string (e.g. purchase, sign-up, contact, download)"
+  "conversionGoal": "string (purchase|sign_up|contact|download|app_install)",
+  "trustSignals": ["string (e.g. 4.8/5 rating, 10000+ customers, SSL secured)"],
+  "existingPixels": ["string (platforms: meta|google|tiktok|bing)"],
+  "hasStructuredData": boolean,
+  "mobileOptimized": boolean,
+  "sslEnabled": ${sslEnabled},
+  "heroHeadline": "string",
+  "valuePropositions": ["string (3-5 key value props from the page)"],
+  "confidenceScore": number
 }`;
 
   const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
@@ -336,79 +575,176 @@ Return a JSON object with these exact fields:
     offers: [],
     keywords: [],
     callToAction: 'Learn More',
-    conversionGoal: 'purchase'
+    conversionGoal: 'purchase',
+    trustSignals: [],
+    existingPixels: [],
+    hasStructuredData: false,
+    mobileOptimized: true,
+    sslEnabled,
+    heroHeadline: '',
+    valuePropositions: [],
+    confidenceScore: pageContent ? 0.7 : 0.5
   });
 
+  // Ensure sslEnabled reflects actual URL
+  output.sslEnabled = sslEnabled;
+
   const timeTaken = Date.now() - start;
+  const topKeywords = output.keywords.slice(0, 5).map((k) =>
+    typeof k === 'string' ? { title: k } : { title: k.keyword, description: `Score: ${k.relevanceScore.toFixed(2)}` }
+  );
+
   enqueue({
     type: 'agent_complete',
     agent: 'lpu',
     message: LPU_MESSAGES.complete,
-    output,
+    output: {
+      capabilities: [
+        { title: 'Page Type', description: output.pageType },
+        { title: 'Pixels Detected', description: output.existingPixels.length > 0 ? output.existingPixels.join(', ') : 'None detected' },
+        ...topKeywords
+      ],
+      summary: `${output.pageType} page → ${output.callToAction} | Pixels: ${output.existingPixels.join(', ') || 'none'} | Confidence: ${Math.round(output.confidenceScore * 100)}%`
+    },
     timeTaken,
-    confidence: pageContent ? 'High' : 'Medium'
+    confidence: output.confidenceScore >= 0.8 ? 'High' : output.confidenceScore >= 0.6 ? 'Medium' : 'Low'
   });
 
   return output;
 }
 
 // ---------------------------------------------------------------------------
-// Agent: Intent
+// Agent: Intent (Phase 2 — depends on brandOut + lpuOut)
 // ---------------------------------------------------------------------------
 
 const INTENT_MESSAGES = {
   start: 'Analyzing customer intent signals...',
   progress: [
-    'Reviewing search and engagement patterns',
-    'Mapping intent across funnel stages',
-    'Identifying high-intent keyword themes',
-    'Aligning intent with ad platforms'
+    'Reviewing brand scale and page type',
+    'Applying intent decision matrix',
+    'Mapping platform objectives and bid strategies',
+    'Setting KPI targets and funnel stage'
   ],
   complete: 'Intent analysis complete'
 };
 
 async function runIntentAgent(params: {
   url: string;
-  lpuOutput: LpuOutput;
+  pageContent: string;
   brandOutput: BrandOutput;
+  lpuOutput: LpuOutput;
+  userPreferences?: UserPreferences;
   enqueue: (event: AgentEvent) => void;
 }): Promise<IntentOutput> {
-  const { url, lpuOutput, brandOutput, enqueue } = params;
+  const { url, pageContent, brandOutput, lpuOutput, userPreferences, enqueue } = params;
   const start = Date.now();
 
   enqueue({ type: 'agent_start', agent: 'intent', message: INTENT_MESSAGES.start });
 
   const progressPromise = streamProgress('intent', INTENT_MESSAGES.progress, enqueue);
 
-  const systemPrompt = `You are a search intent analyst specializing in digital advertising. Respond with valid JSON only — no markdown fences, no explanation.`;
+  const systemPrompt = `You are a search intent analyst specializing in digital advertising strategy. Respond with valid JSON only — no markdown fences, no explanation.`;
 
-  const userPrompt = `Analyze customer search intent for this brand and landing page.
+  const userPrompt = `Determine the optimal advertising intent and platform strategy for this campaign.
 
-Brand: ${brandOutput.brandName}
-Industry: ${brandOutput.industry}
-Value Propositions: ${brandOutput.valuePropositions.join(', ')}
-Target Audience: ${brandOutput.targetAudience}
-Page Type: ${lpuOutput.pageType}
-Products/Services: ${lpuOutput.products.join(', ')}
-Conversion Goal: ${lpuOutput.conversionGoal}
-Existing Keywords: ${lpuOutput.keywords.join(', ')}
 URL: ${url}
+Page Content:
+${pageContent.slice(0, 2000) || '(Could not fetch content — infer from URL)'}
+${userPreferences?.notes ? `\nUser Campaign Notes: ${userPreferences.notes}` : ''}
+
+=== BRAND CONTEXT ===
+Brand Name: ${brandOutput.brandName}
+Brand Scale: ${brandOutput.brandScale}
+Industry: ${brandOutput.industry}
+Tone: ${brandOutput.tone}
+
+=== LANDING PAGE CONTEXT ===
+Page Type: ${lpuOutput.pageType}
+Existing Pixels: ${lpuOutput.existingPixels.join(', ') || 'none'}
+Conversion Goal: ${lpuOutput.conversionGoal}
+Offers: ${lpuOutput.offers.join(', ') || 'none'}
+
+Apply this decision matrix to determine intent:
+- product page + has pixel (meta or google) → conversion intent, purchase action, bottom funnel
+- product page + no pixel → consideration intent, page_visit action, mid funnel
+- collection page + has pixel → conversion intent, add_to_cart action, bottom funnel
+- lead_gen page + has pixel → conversion intent, lead_form_submit action, bottom funnel
+- lead_gen page + no pixel → consideration intent, page_visit action, mid funnel
+- homepage + smb brand scale → awareness intent, page_visit action, top funnel
+- homepage + mid_market or enterprise → consideration intent, page_visit action, mid funnel
+- app_install page → app_install intent, app_install action, mid funnel
+
+Based on the detected intent, generate:
+1. Platform objectives mapping appropriate to the intent
+2. KPI targets appropriate for the industry and intent:
+   - Ecommerce/product: ROAS primary, CPA secondary
+   - Lead gen: CPL primary, CPC secondary
+   - Awareness: CPM primary, CTR secondary
+3. Whether multi-phase campaign is recommended (true for top/mid funnel brands, false for bottom funnel ready)
+4. Any conflicts (e.g. "no pixel but targeting conversion", "homepage as landing for purchase campaign")
 
 Return a JSON object with these exact fields:
 {
-  "primaryIntent": "string (commercial, informational, navigational, transactional)",
-  "keywords": ["string (20 high-intent keywords for paid search)"],
-  "funnelStage": "string (awareness, consideration, decision)",
-  "audienceSignals": ["string (behavioral and interest signals for targeting)"]
+  "primaryIntent": "conversion|consideration|awareness|app_install",
+  "actionType": "purchase|add_to_cart|lead_form_submit|app_install|page_visit",
+  "funnelStage": "top|mid|bottom",
+  "keywords": ["string (20 high-intent keywords for paid search, mix of branded and non-branded)"],
+  "audienceSignals": ["string (behavioral and interest signals for audience targeting)"],
+  "platformObjectives": {
+    "google": {
+      "campaignType": "string (Search|Shopping|Performance Max|Display)",
+      "objective": "string (SALES|LEADS|WEBSITE_TRAFFIC|BRAND_AWARENESS)",
+      "bidStrategy": "string (TARGET_CPA|TARGET_ROAS|MAXIMIZE_CONVERSIONS|MAXIMIZE_CLICKS)"
+    },
+    "meta": {
+      "campaignObjective": "string (SALES|LEADS|TRAFFIC|AWARENESS)",
+      "optimizationEvent": "string (PURCHASE|LEAD|LANDING_PAGE_VIEW|REACH)"
+    },
+    "bing": {
+      "campaignType": "string (Search|Shopping|Audience)",
+      "objective": "string (Conversions|Visits|BrandAwareness)",
+      "bidStrategy": "string (TargetCpa|TargetRoas|MaximizeConversions|MaximizeClicks)"
+    }
+  },
+  "kpiTargets": {
+    "primaryKpi": "string (ROAS|CPA|CPL|CPC|CPM)",
+    "primaryTarget": "string (e.g. 4.0x or $50 or $0.80)",
+    "secondaryKpi": "string",
+    "secondaryTarget": "string"
+  },
+  "multiPhaseRecommended": boolean,
+  "conflictsDetected": [
+    {
+      "type": "string (e.g. pixel_missing|landing_page_mismatch|budget_too_low)",
+      "description": "string",
+      "resolution": "string"
+    }
+  ],
+  "confidenceScore": number
 }`;
 
   const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<IntentOutput>(rawOutput, {
-    primaryIntent: 'commercial',
-    keywords: lpuOutput.keywords.slice(0, 10),
-    funnelStage: 'consideration',
-    audienceSignals: []
+    primaryIntent: 'consideration',
+    actionType: 'page_visit',
+    funnelStage: 'mid',
+    keywords: [],
+    audienceSignals: [],
+    platformObjectives: {
+      google: { campaignType: 'Search', objective: 'WEBSITE_TRAFFIC', bidStrategy: 'MAXIMIZE_CLICKS' },
+      meta: { campaignObjective: 'TRAFFIC', optimizationEvent: 'LANDING_PAGE_VIEW' },
+      bing: { campaignType: 'Search', objective: 'Visits', bidStrategy: 'MaximizeClicks' }
+    },
+    kpiTargets: {
+      primaryKpi: 'CPC',
+      primaryTarget: '$1.00',
+      secondaryKpi: 'CTR',
+      secondaryTarget: '2%'
+    },
+    multiPhaseRecommended: false,
+    conflictsDetected: [],
+    confidenceScore: 0.7
   });
 
   const timeTaken = Date.now() - start;
@@ -416,101 +752,43 @@ Return a JSON object with these exact fields:
     type: 'agent_complete',
     agent: 'intent',
     message: INTENT_MESSAGES.complete,
-    output,
+    output: {
+      capabilities: [
+        { title: 'Intent', description: `${output.primaryIntent} → ${output.actionType}` },
+        { title: 'Funnel Stage', description: output.funnelStage },
+        { title: 'Primary KPI', description: `${output.kpiTargets.primaryKpi}: ${output.kpiTargets.primaryTarget}` },
+        ...output.keywords.slice(0, 3).map((k) => ({ title: k }))
+      ],
+      summary: `${output.funnelStage} funnel | ${output.primaryIntent} intent | ${output.kpiTargets.primaryKpi} target: ${output.kpiTargets.primaryTarget} | Confidence: ${Math.round(output.confidenceScore * 100)}%`
+    },
     timeTaken,
-    confidence: 'High'
+    confidence: output.confidenceScore >= 0.8 ? 'High' : output.confidenceScore >= 0.6 ? 'Medium' : 'Low'
   });
 
   return output;
 }
 
 // ---------------------------------------------------------------------------
-// Agent: Trend
-// ---------------------------------------------------------------------------
-
-const TREND_MESSAGES = {
-  start: 'Analyzing market trends...',
-  progress: [
-    'Reviewing industry and category trends',
-    'Analyzing seasonal demand patterns',
-    'Identifying emerging opportunities',
-    'Compiling trend signals'
-  ],
-  complete: 'Market trend insights ready'
-};
-
-async function runTrendAgent(params: {
-  brandOutput: BrandOutput;
-  enqueue: (event: AgentEvent) => void;
-}): Promise<TrendOutput> {
-  const { brandOutput, enqueue } = params;
-  const start = Date.now();
-
-  enqueue({ type: 'agent_start', agent: 'trend', message: TREND_MESSAGES.start });
-
-  const progressPromise = streamProgress('trend', TREND_MESSAGES.progress, enqueue);
-
-  const systemPrompt = `You are a market trends analyst specializing in digital advertising. Respond with valid JSON only — no markdown fences, no explanation.`;
-
-  const currentMonth = new Date().toLocaleString('default', { month: 'long' });
-  const currentYear = new Date().getFullYear();
-
-  const userPrompt = `Analyze market trends for this brand's industry.
-
-Brand: ${brandOutput.brandName}
-Industry: ${brandOutput.industry}
-Target Audience: ${brandOutput.targetAudience}
-Current Period: ${currentMonth} ${currentYear}
-
-Based on your knowledge of the ${brandOutput.industry} industry, provide trend analysis. Return a JSON object with these exact fields:
-{
-  "trends": ["string (5-7 current market trends relevant to this industry)"],
-  "seasonalFactors": ["string (seasonal demand patterns for ${currentMonth})"],
-  "opportunities": ["string (3-5 advertising opportunities based on trends)"]
-}`;
-
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
-
-  const output = parseJsonFromLlm<TrendOutput>(rawOutput, {
-    trends: [`Growing demand in ${brandOutput.industry}`, 'Digital-first consumer behavior'],
-    seasonalFactors: ['Standard seasonal patterns'],
-    opportunities: ['Search advertising', 'Social media advertising']
-  });
-
-  const timeTaken = Date.now() - start;
-  enqueue({
-    type: 'agent_complete',
-    agent: 'trend',
-    message: TREND_MESSAGES.complete,
-    output,
-    timeTaken,
-    confidence: 'Medium'
-  });
-
-  return output;
-}
-
-// ---------------------------------------------------------------------------
-// Agent: Competitor
+// Agent: Competitor (Phase 1 — independent, uses pageContent)
 // ---------------------------------------------------------------------------
 
 const COMPETITOR_MESSAGES = {
   start: 'Analyzing competitor activity...',
   progress: [
     'Identifying key competitors',
-    'Reviewing competitor positioning',
-    'Analyzing competitor ad presence',
-    'Identifying gaps and opportunities'
+    'Reviewing competitor positioning and messaging',
+    'Analyzing market saturation and dominant formats',
+    'Identifying competitive gaps and opportunities'
   ],
   complete: 'Competitor insights ready'
 };
 
 async function runCompetitorAgent(params: {
   url: string;
-  brandOutput: BrandOutput;
+  pageContent: string;
   enqueue: (event: AgentEvent) => void;
 }): Promise<CompetitorOutput> {
-  const { url, brandOutput, enqueue } = params;
+  const { url, pageContent, enqueue } = params;
   const start = Date.now();
 
   enqueue({ type: 'agent_start', agent: 'competitor', message: COMPETITOR_MESSAGES.start });
@@ -519,20 +797,39 @@ async function runCompetitorAgent(params: {
 
   const systemPrompt = `You are a competitive intelligence analyst for digital advertising. Respond with valid JSON only — no markdown fences, no explanation.`;
 
-  const userPrompt = `Analyze the competitive landscape for this brand.
+  const userPrompt = `Analyze the competitive landscape for this website.
 
-Brand: ${brandOutput.brandName}
-Industry: ${brandOutput.industry}
-Value Propositions: ${brandOutput.valuePropositions.join(', ')}
-Target Audience: ${brandOutput.targetAudience}
-Website: ${url}
+URL: ${url}
+Page Content:
+${pageContent.slice(0, 2000) || '(Could not fetch content — infer from URL)'}
 
-Based on your knowledge of the ${brandOutput.industry} industry, identify competitors and competitive insights. Return a JSON object with these exact fields:
+Instructions:
+1. Identify likely direct and indirect competitors
+2. Assess market saturation: low (niche, few players), medium (growing, several players), high (crowded, many established brands)
+3. Identify the dominant advertising platform in this category (Google Search, Meta Ads, TikTok, etc.)
+4. Identify the dominant ad format (Search text ads, Image carousel, Video, Shopping)
+5. Classify competitor messaging themes from: discount_led, benefit_led, social_proof, urgency, storytelling, feature_comparison
+6. Assess pricing tier relative to competitors: budget, mid, premium
+7. Identify specific competitive gaps with opportunity scores (0-1)
+
+Return a JSON object with these exact fields:
 {
   "competitors": ["string (5-8 likely competitors by name)"],
   "competitorStrategies": ["string (common advertising strategies used by competitors)"],
   "gaps": ["string (market gaps or underserved segments)"],
-  "differentiators": ["string (potential differentiators for ${brandOutput.brandName} based on their value propositions)"]
+  "differentiators": ["string (potential differentiators for this brand based on their value propositions)"],
+  "marketSaturation": "low|medium|high",
+  "dominantPlatform": "string (e.g. Google Search, Meta Ads)",
+  "dominantFormat": "string (e.g. Search text ads, Image carousel, Video)",
+  "messagingThemes": ["string (from: discount_led|benefit_led|social_proof|urgency|storytelling|feature_comparison)"],
+  "pricingTier": "budget|mid|premium",
+  "competitiveGaps": [
+    {
+      "gapType": "string (e.g. audience_gap|messaging_gap|platform_gap|offer_gap)",
+      "description": "string",
+      "opportunityScore": number
+    }
+  ]
 }`;
 
   const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
@@ -541,7 +838,13 @@ Based on your knowledge of the ${brandOutput.industry} industry, identify compet
     competitors: [],
     competitorStrategies: ['Search advertising', 'Social media presence'],
     gaps: [],
-    differentiators: brandOutput.valuePropositions
+    differentiators: [],
+    marketSaturation: 'medium',
+    dominantPlatform: 'Google Search',
+    dominantFormat: 'Search text ads',
+    messagingThemes: ['benefit_led'],
+    pricingTier: 'mid',
+    competitiveGaps: []
   });
 
   const timeTaken = Date.now() - start;
@@ -549,109 +852,241 @@ Based on your knowledge of the ${brandOutput.industry} industry, identify compet
     type: 'agent_complete',
     agent: 'competitor',
     message: COMPETITOR_MESSAGES.complete,
-    output,
+    output: {
+      capabilities: [
+        { title: 'Market Saturation', description: output.marketSaturation },
+        { title: 'Dominant Platform', description: output.dominantPlatform },
+        { title: 'Pricing Tier', description: output.pricingTier },
+        ...output.competitors.slice(0, 3).map((c) => ({ title: c, description: 'Competitor' }))
+      ],
+      summary: `${output.marketSaturation} saturation | ${output.dominantPlatform} | ${output.differentiators[0] ?? 'Competitive analysis complete'}`
+    },
     timeTaken,
-    confidence: 'Medium'
+    confidence: pageContent ? 'Medium' : 'Low'
   });
 
   return output;
 }
 
 // ---------------------------------------------------------------------------
-// Agent: Creative
+// Agent: Trend (Phase 1 — independent, uses pageContent)
+// ---------------------------------------------------------------------------
+
+const TREND_MESSAGES = {
+  start: 'Scanning industry trends and seasonal signals...',
+  progress: [
+    'Identifying macro trends in the category...',
+    'Analysing seasonal demand patterns...',
+    'Spotting emerging opportunities...',
+  ],
+  complete: 'Trend signals captured',
+};
+
+async function runTrendAgent(params: {
+  url: string;
+  pageContent: string;
+  enqueue: (event: AgentEvent) => void;
+}): Promise<TrendOutput> {
+  const { url, pageContent, enqueue } = params;
+  const start = Date.now();
+
+  enqueue({ type: 'agent_start', agent: 'trend', message: TREND_MESSAGES.start });
+
+  const progressPromise = streamProgress('trend', TREND_MESSAGES.progress, enqueue);
+
+  const systemPrompt = `You are a digital marketing trend analyst. Respond with valid JSON only — no markdown fences, no explanation.`;
+
+  const userPrompt = `Analyse industry trends and seasonal factors relevant to this brand's advertising strategy.
+
+URL: ${url}
+Page Content:
+${pageContent.slice(0, 2000) || '(Could not fetch content — infer from URL)'}
+
+Instructions:
+1. Identify 5-8 macro and micro trends relevant to this industry/category right now
+2. Identify seasonal demand factors (high season, low season, key calendar events, holidays)
+3. Identify 3-5 emerging advertising opportunities (new ad formats, platforms gaining traction, underutilised tactics)
+
+Return a JSON object with these exact fields:
+{
+  "trends": ["string — trend name: brief description (e.g. 'Video-first ads: Short-form video outperforms static in this category')"],
+  "seasonalFactors": ["string — seasonal signal relevant to campaign timing"],
+  "opportunities": ["string — specific actionable opportunity for this brand"]
+}`;
+
+  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+
+  const output = parseJsonFromLlm<TrendOutput>(rawOutput, {
+    trends: ['Performance marketing growth: Brands shifting budgets toward measurable channels'],
+    seasonalFactors: ['Evaluate seasonal demand patterns for this category'],
+    opportunities: ['Explore emerging ad formats to gain early-mover advantage'],
+  });
+
+  const timeTaken = Date.now() - start;
+  enqueue({
+    type: 'agent_complete',
+    agent: 'trend',
+    message: TREND_MESSAGES.complete,
+    output: {
+      capabilities: [
+        ...output.trends.slice(0, 3).map((t) => ({ title: 'Trend', description: t })),
+        ...output.opportunities.slice(0, 2).map((o) => ({ title: 'Opportunity', description: o })),
+      ],
+      summary: `${output.trends.length} trends · ${output.seasonalFactors.length} seasonal signals · ${output.opportunities.length} opportunities`
+    },
+    timeTaken,
+    confidence: pageContent ? 'Medium' : 'Low'
+  });
+
+  return output;
+}
+
+// ---------------------------------------------------------------------------
+// Agent: Creative (Phase 3 — depends on brandOut + lpuOut + intentOut + competitorOut)
 // ---------------------------------------------------------------------------
 
 const CREATIVE_MESSAGES = {
   start: 'Preparing ad creative concepts...',
   progress: [
-    'Loading brand and product context',
-    'Drafting headline variations',
-    'Writing description copy',
-    'Structuring ad variations',
-    'Preparing image and video prompts'
+    'Loading brand identity and competitive context',
+    'Drafting RSA headlines by slot type',
+    'Generating 5 messaging concept variations',
+    'Scoring brand alignment and competitive differentiation',
+    'Preparing image prompts and ad extensions'
   ],
   complete: 'Creative concepts ready'
 };
 
 async function runCreativeAgent(params: {
   url: string;
+  pageContent: string;
   brandOutput: BrandOutput;
   lpuOutput: LpuOutput;
+  intentOutput: IntentOutput;
+  competitorOutput: CompetitorOutput;
+  userPreferences?: UserPreferences;
   enqueue: (event: AgentEvent) => void;
 }): Promise<CreativeOutput> {
-  const { url, brandOutput, lpuOutput, enqueue } = params;
+  const { url, pageContent, brandOutput, lpuOutput, intentOutput, competitorOutput, userPreferences, enqueue } = params;
   const start = Date.now();
 
   enqueue({ type: 'agent_start', agent: 'creative', message: CREATIVE_MESSAGES.start });
 
   const progressPromise = streamProgress('creative', CREATIVE_MESSAGES.progress, enqueue);
 
-  // Generate ad copy with Claude
-  const systemPrompt = `You are a world-class advertising copywriter specializing in high-converting digital ads. Respond with valid JSON only — no markdown fences, no explanation.`;
+  const systemPrompt = `You are a world-class advertising copywriter specializing in high-converting digital ads. You create copy that is brand-aligned, competitively differentiated, and optimized for the detected intent. Respond with valid JSON only — no markdown fences, no explanation.`;
 
-  const userPrompt = `Create compelling ad copy for this brand.
+  const userPrompt = `Create compelling, high-converting ad creative for this campaign.
 
-Brand: ${brandOutput.brandName}
-Industry: ${brandOutput.industry}
-Tone: ${brandOutput.tone}
-Value Propositions: ${brandOutput.valuePropositions.join(' | ')}
-Target Audience: ${brandOutput.targetAudience}
-Products/Services: ${lpuOutput.products.join(', ')}
-Offers: ${lpuOutput.offers.join(', ')}
-Primary CTA: ${lpuOutput.callToAction}
-Conversion Goal: ${lpuOutput.conversionGoal}
-Landing Page: ${url}
+URL: ${url}
+${userPreferences?.notes ? `\nUser Campaign Notes (MUST follow): ${userPreferences.notes}` : ''}
 
-Create ad copy for Google Search Ads and Meta Feed Ads. Return a JSON object with these exact fields:
+=== BRAND CONTEXT ===
+Brand: ${brandOutput.brandName} | Tone: ${brandOutput.tone} | Scale: ${brandOutput.brandScale}
+Value Props: ${brandOutput.valuePropositions.join(' | ')}
+Brand Guidelines: ${brandOutput.brandGuidelinesSummary}
+
+=== LANDING PAGE CONTEXT ===
+Page Type: ${lpuOutput.pageType} | Hero: ${lpuOutput.heroHeadline}
+Products: ${lpuOutput.products.slice(0, 5).join(', ')}
+Offers: ${lpuOutput.offers.join(', ') || 'none'}
+Trust Signals: ${lpuOutput.trustSignals.join(' | ') || 'none'}
+CTA: ${lpuOutput.callToAction}
+
+=== INTENT CONTEXT ===
+Intent: ${intentOutput.primaryIntent} | Funnel: ${intentOutput.funnelStage} | Action: ${intentOutput.actionType}
+KPI: ${intentOutput.kpiTargets.primaryKpi} target ${intentOutput.kpiTargets.primaryTarget}
+
+=== COMPETITIVE CONTEXT ===
+Competitor Themes: ${competitorOutput.messagingThemes.join(', ')}
+Differentiators: ${competitorOutput.differentiators.slice(0, 3).join(' | ')}
+Gaps to exploit: ${competitorOutput.competitiveGaps.map(g => g.description).slice(0, 2).join(' | ') || 'none'}
+
+Page Content:
+${pageContent.slice(0, 2000) || '(Could not fetch content — infer from URL)'}
+
+Instructions:
+1. Generate 15 RSA headlines structured by slot type (max 30 chars each):
+   - Slots 1-3: High-intent, keyword-rich (e.g. "Buy {Product} Online")
+   - Slots 4-6: Value proposition (e.g. "Free Shipping on All Orders")
+   - Slots 7-9: Social proof (pull from trust signals, e.g. "Rated 4.8/5 Stars")
+   - Slots 10-12: Urgency/offer (e.g. "Limited Time: 20% Off")
+   - Slots 13-15: Brand-focused (e.g. "${brandOutput.brandName} Official Store")
+   - Pin the best high-intent headline to position 1, best brand headline to position 2
+2. Generate 4 descriptions (max 90 chars each) matching brand tone
+3. Generate 5 ad concepts with distinct messaging angles: product_benefit, social_proof, offer_urgency, problem_solution, lifestyle
+   - Each concept: headline (40 chars for Meta/30 for Google), bodyText (125 chars for Meta), cta, imageDirection
+   - Score each concept for brand alignment (0-1) and competitive differentiation (0-1)
+4. Generate ad extensions: 4 sitelinks, 6 callouts, 1 structured snippet
+5. Generate 5 image prompts that are specific, brand-aligned, and visually compelling for digital ads
+
+Return a JSON object with these exact fields:
 {
-  "headlines": ["string (15 headlines, max 30 chars each, compelling and varied)"],
+  "headlines": ["string (15 headlines, max 30 chars each)"],
   "descriptions": ["string (4 descriptions, max 90 chars each)"],
-  "imagePrompts": ["string (5 detailed Stable Diffusion / image generation prompts for ad visuals)"],
+  "imagePrompts": ["string (5 detailed image generation prompts)"],
   "adVariations": [
     {
       "headline": "string",
       "description": "string",
-      "cta": "string"
+      "cta": "string",
+      "messagingAngle": "string"
+    }
+  ],
+  "rsaHeadlines": [
+    {
+      "text": "string (max 30 chars)",
+      "slotType": "high_intent|value_prop|social_proof|urgency|brand",
+      "pinPosition": number or null
+    }
+  ],
+  "adExtensions": {
+    "sitelinks": [
+      {"title": "string", "description": "string"}
+    ],
+    "callouts": ["string"],
+    "structuredSnippet": {"header": "string", "values": ["string"]}
+  },
+  "concepts": [
+    {
+      "conceptId": "string (c1-c5)",
+      "messagingAngle": "product_benefit|social_proof|offer_urgency|problem_solution|lifestyle",
+      "headline": "string (max 40 chars)",
+      "bodyText": "string (max 125 chars)",
+      "cta": "string",
+      "imageDirection": "string",
+      "brandAlignmentScore": number,
+      "competitiveDifferentiationScore": number
     }
   ]
 }
-Provide 5 adVariations.`;
+Provide 5 adVariations and exactly 5 concepts.`;
 
   const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<CreativeOutput>(rawOutput, {
-    headlines: [
-      `${brandOutput.brandName} — Official Site`,
-      `Shop ${brandOutput.brandName} Today`,
-      'Trusted by Thousands'
-    ],
-    descriptions: [
-      `Discover ${brandOutput.brandName}. ${brandOutput.valuePropositions[0] ?? 'Quality products and great service.'}`,
-      `Shop now and explore our latest offers. ${lpuOutput.callToAction}.`
-    ],
-    imagePrompts: [
-      `Professional product photography for ${brandOutput.industry} brand, clean white background, high quality`
-    ],
+    headlines: ['Shop Now', 'Discover More', 'Trusted by Thousands'],
+    descriptions: ['Quality products and great service.', 'Shop now and explore our latest offers.'],
+    imagePrompts: ['Professional product photography, clean white background, high quality'],
     adVariations: [
-      {
-        headline: `${brandOutput.brandName} — Shop Now`,
-        description: `${brandOutput.valuePropositions[0] ?? 'Quality guaranteed.'}`,
-        cta: lpuOutput.callToAction || 'Shop Now'
-      }
-    ]
+      { headline: 'Shop Now', description: 'Quality guaranteed.', cta: 'Shop Now', messagingAngle: 'product_benefit' }
+    ],
+    rsaHeadlines: [],
+    adExtensions: {
+      sitelinks: [],
+      callouts: [],
+      structuredSnippet: { header: 'Products', values: [] }
+    },
+    concepts: []
   });
 
-  // Try to generate actual images with Gemini (optional, graceful fallback)
+  // Try to refine image prompts with Gemini (optional, graceful fallback)
   try {
     const genAI = getGeminiClient();
-    // imagen-3.0-generate-002 for image generation
-    // If not accessible, we keep imagePrompts as strings
     const imageModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    // We use Gemini Flash to refine image prompts rather than generate actual images
-    // (imagen model access may be restricted in many environments)
     if (output.imagePrompts.length > 0) {
       const refinedResult = await imageModel.generateContent(
-        `Refine these image generation prompts to be more specific and visually compelling for digital ads:
+        `Refine these image generation prompts to be more specific and visually compelling for digital ads. Keep brand tone: ${brandOutput.tone}.
 ${output.imagePrompts.slice(0, 3).join('\n')}
 
 Return exactly the same number of improved prompts, one per line, no numbering.`
@@ -674,7 +1109,14 @@ Return exactly the same number of improved prompts, one per line, no numbering.`
     type: 'agent_complete',
     agent: 'creative',
     message: CREATIVE_MESSAGES.complete,
-    output,
+    output: {
+      capabilities: [
+        { title: 'RSA Headlines', description: `${output.rsaHeadlines.length || output.headlines.length} headlines across ${output.rsaHeadlines.length > 0 ? '5 slot types' : 'variations'}` },
+        { title: 'Ad Concepts', description: `${output.concepts.length} concepts (${output.concepts.map(c => c.messagingAngle).join(', ') || 'varied angles'})` },
+        ...output.adVariations.slice(0, 2).map((v) => ({ title: v.headline, description: v.description }))
+      ],
+      summary: `${output.concepts.length} concepts | ${output.headlines.length} headlines | ${output.adVariations.length} ad variations`
+    },
     timeTaken,
     confidence: 'High'
   });
@@ -683,7 +1125,7 @@ Return exactly the same number of improved prompts, one per line, no numbering.`
 }
 
 // ---------------------------------------------------------------------------
-// Agent: Budget
+// Agent: Budget (remains independent — uses connectedAccounts + userPreferences)
 // ---------------------------------------------------------------------------
 
 const BUDGET_MESSAGES = {
@@ -698,48 +1140,48 @@ const BUDGET_MESSAGES = {
 };
 
 async function runBudgetAgent(params: {
-  brandOutput: BrandOutput;
+  url: string;
   connectedAccounts: ConnectedAccountInfo[];
   userPreferences?: UserPreferences;
+  authorizedPlatforms?: string[];
+  brandCountry?: string;
   enqueue: (event: AgentEvent) => void;
 }): Promise<BudgetOutput> {
-  const { brandOutput, connectedAccounts, userPreferences, enqueue } = params;
+  const { url, connectedAccounts, userPreferences, authorizedPlatforms, brandCountry, enqueue } = params;
   const start = Date.now();
 
   enqueue({ type: 'agent_start', agent: 'budget', message: BUDGET_MESSAGES.start });
 
   const progressPromise = streamProgress('budget', BUDGET_MESSAGES.progress, enqueue);
 
-  const connectedPlatforms = [...new Set(connectedAccounts.map((a) => a.platform))];
+  const connectedPlatforms = authorizedPlatforms && authorizedPlatforms.length > 0
+    ? authorizedPlatforms
+    : [...new Set(connectedAccounts.map((a) => a.platform))];
   const monthlyBudgetHint = userPreferences?.monthlyBudget;
   const currency =
     userPreferences?.currency ??
     connectedAccounts.find((a) => a.currency)?.currency ??
-    'USD';
+    (brandCountry ? currencyForCountry(brandCountry) : 'USD');
 
   const systemPrompt = `You are a digital advertising budget strategist. Respond with valid JSON only — no markdown fences, no explanation.`;
 
-  const userPrompt = `Recommend a campaign budget allocation for this brand.
+  const userPrompt = `Recommend a campaign budget allocation for this website.
 
-Brand: ${brandOutput.brandName}
-Industry: ${brandOutput.industry}
-Target Audience: ${brandOutput.targetAudience}
+URL: ${url}
 Connected Ad Platforms: ${connectedPlatforms.join(', ') || 'google, meta'}
-${monthlyBudgetHint ? `Monthly Budget Hint: ${currency} ${monthlyBudgetHint}` : ''}
+${monthlyBudgetHint ? `User Budget: ${currency} ${monthlyBudgetHint} (MUST use this exact amount)` : ''}
 Currency: ${currency}
 
 Provide budget recommendations. Return a JSON object with these exact fields:
 {
   "recommendedTotal": number (total campaign budget in ${currency}),
   "platformAllocation": {
-    "google": number (percentage 0-100),
-    "meta": number (percentage 0-100),
-    "bing": number (percentage 0-100)
+    ${(connectedPlatforms.length > 0 ? connectedPlatforms : ['google', 'meta']).map((p) => `"${p}": number (percentage 0-100)`).join(',\n    ')}
   },
   "dailyBudget": number (recommended daily budget),
   "duration": number (recommended campaign duration in days)
 }
-Platform percentages must sum to 100. Only include platforms that are in the connected platforms list or all if none specified.`;
+CRITICAL: Platform percentages must sum to 100. ONLY include the platforms listed above: ${(connectedPlatforms.length > 0 ? connectedPlatforms : ['google', 'meta']).join(', ')}. Do NOT add any other platforms.`;
 
   const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
 
@@ -762,7 +1204,13 @@ Platform percentages must sum to 100. Only include platforms that are in the con
     type: 'agent_complete',
     agent: 'budget',
     message: BUDGET_MESSAGES.complete,
-    output,
+    output: {
+      capabilities: Object.entries(output.platformAllocation).map(([platform, pct]) => ({
+        title: platform.charAt(0).toUpperCase() + platform.slice(1),
+        description: `${pct}% — ${currency} ${Math.round((output.recommendedTotal * pct) / 100).toLocaleString()}`
+      })),
+      summary: `${currency} ${output.recommendedTotal.toLocaleString()} over ${output.duration} days`
+    },
     timeTaken,
     confidence: monthlyBudgetHint ? 'High' : 'Medium'
   });
@@ -771,16 +1219,16 @@ Platform percentages must sum to 100. Only include platforms that are in the con
 }
 
 // ---------------------------------------------------------------------------
-// Agent: Strategy (runs after all others)
+// Agent: Strategy (Phase 4 — synthesises all outputs)
 // ---------------------------------------------------------------------------
 
 const STRATEGY_MESSAGES = {
   start: 'Building your campaign strategy...',
   progress: [
     'Combining insights from all analyses',
-    'Structuring platform-level strategy',
-    'Defining campaign setup and priorities',
-    'Finalizing recommendations'
+    'Scoring platforms and structuring allocation rationale',
+    'Generating KPI forecast scenarios',
+    'Finalizing prerequisites and risk assessment'
   ],
   complete: 'Campaign strategy ready'
 };
@@ -790,6 +1238,7 @@ async function runStrategyAgent(params: {
   organizationId: string;
   connectedAccounts: ConnectedAccountInfo[];
   userPreferences?: UserPreferences;
+  authorizedPlatforms?: string[];
   brandOut: BrandOutput;
   lpuOut: LpuOutput;
   intentOut: IntentOutput;
@@ -803,6 +1252,7 @@ async function runStrategyAgent(params: {
     url,
     connectedAccounts,
     userPreferences,
+    authorizedPlatforms,
     brandOut,
     lpuOut,
     intentOut,
@@ -818,13 +1268,17 @@ async function runStrategyAgent(params: {
 
   const progressPromise = streamProgress('strategy', STRATEGY_MESSAGES.progress, enqueue);
 
-  const connectedPlatforms = [...new Set(connectedAccounts.map((a) => a.platform))];
+  const connectedPlatforms = authorizedPlatforms && authorizedPlatforms.length > 0
+    ? authorizedPlatforms
+    : [...new Set(connectedAccounts.map((a) => a.platform))];
   const currency =
     userPreferences?.currency ??
     connectedAccounts.find((a) => a.currency)?.currency ??
-    'USD';
+    currencyForCountry(brandOut.country);
 
-  const systemPrompt = `You are a senior digital advertising strategist at InMobi Accelerate. Your job is to synthesize insights from multiple AI agents into a comprehensive, actionable media plan. Respond with valid JSON only — no markdown fences, no explanation.`;
+  const hasPixel = lpuOut.existingPixels.length > 0;
+
+  const systemPrompt = `You are a senior digital advertising strategist at InMobi Accelerate. Your job is to synthesize insights from multiple AI agents into a comprehensive, actionable media plan with realistic forecasts and clear prerequisites. Respond with valid JSON only — no markdown fences, no explanation.`;
 
   const userPrompt = `Create a comprehensive media plan for this campaign.
 
@@ -837,27 +1291,46 @@ ${JSON.stringify(lpuOut, null, 2)}
 === INTENT ANALYSIS ===
 ${JSON.stringify(intentOut, null, 2)}
 
-=== MARKET TRENDS ===
-${JSON.stringify(trendOut, null, 2)}
-
 === COMPETITOR INSIGHTS ===
 ${JSON.stringify(competitorOut, null, 2)}
+
+=== TREND SIGNALS ===
+${JSON.stringify(trendOut, null, 2)}
 
 === CREATIVE ASSETS ===
 Headlines: ${creativeOut.headlines.slice(0, 10).join(' | ')}
 Descriptions: ${creativeOut.descriptions.join(' | ')}
+Concepts: ${creativeOut.concepts.map(c => `[${c.messagingAngle}] ${c.headline}`).join(' | ')}
 
 === BUDGET RECOMMENDATION ===
 ${JSON.stringify(budgetOut, null, 2)}
 
 === CONSTRAINTS ===
+Brand Country: ${brandOut.country} (USE THIS as the primary targeting location. Do NOT default to United States.)
 Connected Ad Platforms: ${connectedPlatforms.join(', ') || 'google, meta'}
 Currency: ${currency}
 Landing Page: ${url}
+Tracking Pixels: ${lpuOut.existingPixels.join(', ') || 'none'}
 ${userPreferences?.campaignObjective ? `User Objective: ${userPreferences.campaignObjective}` : ''}
 ${userPreferences?.targetCountries ? `Target Countries: ${userPreferences.targetCountries.join(', ')}` : ''}
+${userPreferences?.notes ? `User Instructions (MUST follow): ${userPreferences.notes}` : ''}
 
-Generate a complete media plan. Return a JSON object matching this exact structure:
+PLATFORM RULE — STRICTLY ENFORCED: Only generate platforms that are in this exact list: [${connectedPlatforms.join(', ')}]. Do NOT include any other platform. This is non-negotiable.
+
+For Search/RSA ad types (Google search, Bing search): generate exactly 1 ad object with EXACTLY 15 headlines (each max 30 chars) and EXACTLY 4 descriptions (each max 90 chars). Each headline must be unique and specific to the brand/product — NOT generic filler. For all other ad types: generate exactly 3 ad objects with different creative angles (product benefit, social proof, urgency), each with 3-5 headlines and 2 descriptions.
+
+Generate a complete media plan. Include:
+1. Executive summary: 3-5 sentence natural language overview of the plan, the rationale, and expected outcomes
+2. Platform mix: for each platform include allocation_percentage AND a 1-2 sentence rationale explaining WHY this platform
+3. Platform scoring based on: intent match, pixel readiness, competitive gap, creative readiness (scores 0-10 each)
+4. Budget breakdown: monthly_total, daily_total, per-platform amounts, minimum_effective_budget
+5. KPI forecast with conservative/moderate/aggressive scenarios (impressions, clicks, CTR, conversions, CPA or ROAS)
+6. Phasing: if intent agent recommends multi-phase, provide phase breakdown with objectives and budgets
+7. Prerequisites: blockers and high-priority items (${!hasPixel ? '"Install tracking pixel" should be a BLOCKER priority' : 'list any setup items'})
+8. Audience strategy: prospecting vs retargeting split, specific audience recommendations
+9. Risk flags: 2-4 identified risks with severity and mitigation
+
+Return a JSON object matching this exact structure:
 {
   "campaignName": "string",
   "objective": "string (SALES|LEADS|WEBSITE_TRAFFIC|BRAND_AWARENESS|APP_PROMOTION)",
@@ -879,6 +1352,8 @@ Generate a complete media plan. Return a JSON object matching this exact structu
       "platform": "google|meta|bing",
       "budget": number,
       "budgetPercent": number,
+      "rationale": "string (1-2 sentences on why this platform)",
+      "platformScore": number,
       "adTypes": [
         {
           "adType": "string",
@@ -894,11 +1369,31 @@ Generate a complete media plan. Return a JSON object matching this exact structu
           "bidStrategy": "string",
           "ads": [
             {
-              "headlines": ["string"],
+              "id": "string (unique, e.g. ad-1)",
+              "headlines": ["string — 3-15 headlines depending on ad type (for RSA: exactly 15 headlines max 30 chars; for image ads: 3 variations)"],
+              "descriptions": ["string — for RSA: exactly 4 descriptions max 90 chars; for image ads: 2-3 variations"],
+              "imageUrls": [],
+              "videoUrl": null,
+              "ctaText": "string",
+              "destinationUrl": "string (the landing page URL)"
+            },
+            {
+              "id": "string (unique, e.g. ad-2)",
+              "headlines": ["string — different combination than ad-1"],
+              "descriptions": ["string — different angle than ad-1"],
+              "imageUrls": [],
+              "videoUrl": null,
+              "ctaText": "string",
+              "destinationUrl": "string"
+            },
+            {
+              "id": "string (unique, e.g. ad-3)",
+              "headlines": ["string — third variation, different messaging angle"],
               "descriptions": ["string"],
               "imageUrls": [],
+              "videoUrl": null,
               "ctaText": "string",
-              "destinationUrl": "${url}"
+              "destinationUrl": "string"
             }
           ]
         }
@@ -909,20 +1404,79 @@ Generate a complete media plan. Return a JSON object matching this exact structu
     "brandName": "${brandOut.brandName}",
     "tagline": "string",
     "primaryObjective": "string"
-  }
+  },
+  "executiveSummary": "string (3-5 sentence overview)",
+  "kpiForecast": {
+    "conservative": {
+      "impressions": number,
+      "clicks": number,
+      "ctr": number,
+      "conversions": number,
+      "costPerResult": number,
+      "roas": number
+    },
+    "moderate": {
+      "impressions": number,
+      "clicks": number,
+      "ctr": number,
+      "conversions": number,
+      "costPerResult": number,
+      "roas": number
+    },
+    "aggressive": {
+      "impressions": number,
+      "clicks": number,
+      "ctr": number,
+      "conversions": number,
+      "costPerResult": number,
+      "roas": number
+    }
+  },
+  "prerequisites": [
+    {
+      "item": "string",
+      "priority": "blocker|high|medium|low",
+      "description": "string"
+    }
+  ],
+  "audienceStrategy": {
+    "prospectingPercentage": number,
+    "retargetingPercentage": number,
+    "prospectingAudiences": ["string"],
+    "retargetingAudiences": ["string"]
+  },
+  "riskFlags": [
+    {
+      "risk": "string",
+      "severity": "high|medium|low",
+      "mitigation": "string"
+    }
+  ]
 }
 
-Only include platforms from the connected platforms list. Use the creative assets and insights above to populate headlines, descriptions, targeting, and ad variations.`;
+FINAL REMINDER: The "platforms" array in your JSON MUST contain ONLY these platforms: [${connectedPlatforms.join(', ')}]. Any platform not in this list will be rejected. Use the creative assets and insights above to populate headlines, descriptions, targeting, and ad variations.`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt, 8192), progressPromise]);
 
-  const rawMediaPlan = parseJsonFromLlm<unknown>(rawOutput, null);
+  type RawPlan = { platforms?: { platform: string }[] } & Record<string, unknown>;
+  let rawMediaPlan = parseJsonFromLlm<RawPlan>(rawOutput, {} as RawPlan);
+
+  // Hard-enforce platform filter: remove any platform the LLM hallucinated
+  if (rawMediaPlan?.platforms && connectedPlatforms.length > 0) {
+    rawMediaPlan = {
+      ...rawMediaPlan,
+      platforms: rawMediaPlan.platforms.filter((p) => connectedPlatforms.includes(p.platform))
+    };
+  }
+
+  // Use rich fallback when JSON parse returned empty object (cut-off response)
+  const hasValidPlan = rawMediaPlan && Object.keys(rawMediaPlan).length > 0;
 
   // Transform and validate
   const mediaPlan = transformMediaPlan(
-    rawMediaPlan ?? {
+    hasValidPlan ? rawMediaPlan : {
       campaignName: `${brandOut.brandName} Campaign`,
-      objective: 'SALES',
+      objective: intentOut.platformObjectives.google.objective || 'SALES',
       totalBudget: budgetOut.recommendedTotal,
       currency,
       dailyBudget: budgetOut.dailyBudget,
@@ -934,7 +1488,7 @@ Only include platforms from the connected platforms list. Use the creative asset
         return d.toISOString().split('T')[0];
       })(),
       targetAudience: {
-        locations: userPreferences?.targetCountries ?? ['United States'],
+        locations: userPreferences?.targetCountries ?? [brandOut.country],
         ageRange: '25-44',
         gender: 'All',
         languages: ['English'],
@@ -950,14 +1504,18 @@ Only include platforms from the connected platforms list. Use the creative asset
             adType: p === 'google' ? 'search' : 'feed',
             adCount: 3,
             targeting: {
-              locations: userPreferences?.targetCountries ?? ['United States'],
+              locations: userPreferences?.targetCountries ?? [brandOut.country],
               ageRange: '25-44',
               gender: 'All',
               languages: ['English'],
               interests: intentOut.audienceSignals.slice(0, 3),
               keywords: intentOut.keywords.slice(0, 10)
             },
-            bidStrategy: 'maximize conversions',
+            bidStrategy: p === 'google'
+              ? intentOut.platformObjectives.google.bidStrategy
+              : p === 'meta'
+                ? 'lowest cost'
+                : intentOut.platformObjectives.bing.bidStrategy,
             ads: creativeOut.adVariations.slice(0, 3).map((v) => ({
               headlines: [v.headline, ...creativeOut.headlines.slice(0, 4)],
               descriptions: [v.description, ...creativeOut.descriptions.slice(0, 2)],
@@ -972,7 +1530,14 @@ Only include platforms from the connected platforms list. Use the creative asset
         brandName: brandOut.brandName,
         tagline: brandOut.valuePropositions[0] ?? '',
         primaryObjective: lpuOut.conversionGoal
-      }
+      },
+      executiveSummary: `A ${intentOut.funnelStage}-funnel campaign for ${brandOut.brandName} targeting ${intentOut.primaryIntent}. The strategy focuses on ${connectedPlatforms.join(' and ')} based on intent match and creative readiness.`,
+      prerequisites: hasPixel ? [] : [
+        { item: 'Install Tracking Pixel', priority: 'blocker', description: 'No tracking pixel detected. Install Meta Pixel and/or Google Tag before launching conversion campaigns.' }
+      ],
+      riskFlags: [],
+      kpiForecast: null,
+      audienceStrategy: null
     },
     connectedAccounts
   );
@@ -982,18 +1547,22 @@ Only include platforms from the connected platforms list. Use the creative asset
     type: 'agent_complete',
     agent: 'strategy',
     message: STRATEGY_MESSAGES.complete,
-    output: mediaPlan,
+    output: {
+      capabilities: mediaPlan.platforms.map((p) => ({
+        title: p.platform.charAt(0).toUpperCase() + p.platform.slice(1),
+        description: `${p.budgetPercent}% budget — ${mediaPlan.currency} ${p.budget.toLocaleString()}`
+      })),
+      summary: `${mediaPlan.campaignName} | ${mediaPlan.objective}`
+    },
     timeTaken,
     confidence: rawMediaPlan ? 'High' : 'Medium'
   });
-
-  enqueue({ type: 'media_plan', plan: mediaPlan });
 
   return mediaPlan;
 }
 
 // ---------------------------------------------------------------------------
-// Main runner: orchestrates all agents
+// Main runner: orchestrates all agents in phased DAG
 // ---------------------------------------------------------------------------
 
 export async function runCampaignAgents(params: {
@@ -1005,27 +1574,87 @@ export async function runCampaignAgents(params: {
 }): Promise<MediaPlan> {
   const { url, organizationId, connectedAccounts, userPreferences, enqueue } = params;
 
-  // Phase 1: Run brand and LPU agents first (others depend on them)
-  const [brandOut, lpuOut] = await Promise.all([
-    runBrandAgent({ url, enqueue }),
-    runLpuAgent({ url, enqueue })
+  // Filter connected accounts to user-specified platforms (e.g. "only in META")
+  const platformFilter = userPreferences?.platforms;
+  const activeAccounts =
+    platformFilter && platformFilter.length > 0
+      ? connectedAccounts.filter((a) => platformFilter.includes(a.platform))
+      : connectedAccounts;
+
+  // Authoritative platform list: user-specified > derived from accounts > default
+  const authorizedPlatforms: string[] =
+    platformFilter && platformFilter.length > 0
+      ? platformFilter
+      : activeAccounts.length > 0
+      ? [...new Set(activeAccounts.map((a) => a.platform))]
+      : ['google', 'meta'];
+
+  // Scrape both the given URL and the homepage (for brand detection)
+  const homepage = homepageUrl(url);
+  const [pageContent, homepageContent] = await Promise.all([
+    scrapeUrl(url),
+    homepage !== url ? scrapeUrl(homepage) : Promise.resolve('')
+  ]);
+  // Combine homepage + product page content for brand agent (homepage has stronger brand signals)
+  const brandPageContent = homepageContent
+    ? `=== HOMEPAGE ===\n${homepageContent}\n\n=== PRODUCT PAGE ===\n${pageContent}`
+    : pageContent;
+
+  // Phase 1 (parallel): Brand, LPU, Competitor, Trend — all independent, use pageContent
+  const [brandOut, lpuOut, competitorOut, trendOut] = await Promise.all([
+    runBrandAgent({ url: homepage, pageContent: brandPageContent, enqueue }),
+    runLpuAgent({ url, pageContent, enqueue }),
+    runCompetitorAgent({ url, pageContent, enqueue }),
+    runTrendAgent({ url, pageContent, enqueue })
   ]);
 
-  // Phase 2: Run remaining 5 agents in parallel (they use brand/lpu outputs)
-  const [intentOut, trendOut, competitorOut, creativeOut, budgetOut] = await Promise.all([
-    runIntentAgent({ url, lpuOutput: lpuOut, brandOutput: brandOut, enqueue }),
-    runTrendAgent({ brandOutput: brandOut, enqueue }),
-    runCompetitorAgent({ url, brandOutput: brandOut, enqueue }),
-    runCreativeAgent({ url, brandOutput: brandOut, lpuOutput: lpuOut, enqueue }),
-    runBudgetAgent({ brandOutput: brandOut, connectedAccounts, userPreferences, enqueue })
+  // Conflict check: does user intent conflict with trend signals?
+  const conflictSignal = detectSeasonalConflict(userPreferences?.notes ?? '', trendOut);
+  if (conflictSignal) {
+    enqueue({
+      type: 'conflict_check',
+      conflictId: `conflict_${Date.now()}`,
+      message: conflictSignal.message,
+      question: conflictSignal.question,
+      options: conflictSignal.options
+    } as unknown as AgentEvent);
+    // Return a sentinel to signal the pipeline was paused
+    throw new Error('CONFLICT_DETECTED');
+  }
+
+  // Phase 2 (after Phase 1): Intent — uses brandOut + lpuOut + pageContent
+  const intentOut = await runIntentAgent({
+    url,
+    pageContent,
+    brandOutput: brandOut,
+    lpuOutput: lpuOut,
+    userPreferences,
+    enqueue
+  });
+
+  // Phase 3 (after Phase 1+2): Creative — uses brandOut + lpuOut + intentOut + competitorOut + pageContent
+  // Budget runs in parallel with Creative since it is independent of all agent outputs
+  const [creativeOut, budgetOut] = await Promise.all([
+    runCreativeAgent({
+      url,
+      pageContent,
+      brandOutput: brandOut,
+      lpuOutput: lpuOut,
+      intentOutput: intentOut,
+      competitorOutput: competitorOut,
+      userPreferences,
+      enqueue
+    }),
+    runBudgetAgent({ url, connectedAccounts: activeAccounts, userPreferences, authorizedPlatforms, brandCountry: brandOut.country, enqueue })
   ]);
 
-  // Phase 3: Strategy agent synthesizes all outputs
+  // Phase 4: Strategy — synthesises all outputs
   const mediaPlan = await runStrategyAgent({
     url,
     organizationId,
-    connectedAccounts,
+    connectedAccounts: activeAccounts,
     userPreferences,
+    authorizedPlatforms,
     brandOut,
     lpuOut,
     intentOut,
