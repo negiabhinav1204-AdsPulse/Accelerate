@@ -27,7 +27,7 @@ type ToolBlock =
   | { name: 'show_metrics'; input: { title: string; metrics: { label: string; value: string; change?: string; trend?: 'up' | 'down' | 'neutral' }[] } }
   | { name: 'show_campaigns'; input: { title: string; campaigns: { name: string; status: 'active' | 'paused' | 'ended'; budget?: string; spend?: string; impressions?: string; clicks?: string; ctr?: string; conversions?: string }[] } }
   | { name: 'show_chart'; input: { title: string; metric: string; data: { date: string; value: number }[] } }
-  | { name: 'navigate_to'; input: { label: string; description: string; path: 'campaign-manager' | 'analytics' | 'connectors' | 'settings' | 'accelera-ai' } }
+  | { name: 'navigate_to'; input: { label: string; description: string; path: 'create-campaign' | 'campaigns' | 'reporting' | 'connectors' | 'settings' | 'accelera-ai' } }
   | { name: 'connect_accounts_prompt'; input: { message: string } };
 
 type MessagePart =
