@@ -146,10 +146,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   oauth_missing_params: 'OAuth authorisation was incomplete. Please try again.',
   oauth_state_mismatch: 'Security check failed. Please try again.',
   no_accounts_found: 'No ad accounts were found on this connection. Check your developer token and ensure your Microsoft Ads account is active.',
-  oauth_token_error: 'Token exchange failed. Please try again.',
+  oauth_token_error: 'Could not retrieve access token. Check your platform credentials.',
   oauth_invalid_state: 'Invalid OAuth state. Please try again.',
   oauth_user_mismatch: 'Session mismatch. Please sign in again.',
-  oauth_token_error: 'Could not retrieve access token. Check your platform credentials.',
   org_not_found: 'Organisation not found.',
   not_member: 'You are not a member of this organisation.'
 };

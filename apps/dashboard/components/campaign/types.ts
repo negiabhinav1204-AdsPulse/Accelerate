@@ -11,7 +11,7 @@ export type AgentName =
 export type AgentStatus = 'idle' | 'running' | 'complete' | 'error';
 
 export type AgentOutput = {
-  capabilities: { title: string; description: string }[];
+  capabilities?: { title: string; description?: string }[];
   summary?: string;
 };
 
@@ -26,6 +26,15 @@ export type AgentState = {
   timeTaken?: number;
   confidence?: 'High' | 'Medium' | 'Low';
   expanded: boolean;
+};
+
+export type KpiForecastScenario = {
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  conversions: number;
+  costPerResult: number;
+  roas: number;
 };
 
 export type MediaPlan = {
@@ -49,6 +58,29 @@ export type MediaPlan = {
     brandName: string;
     tagline: string;
   };
+  // Enhanced strategy fields (optional — populated when strategy agent runs)
+  executiveSummary?: string;
+  kpiForecast?: {
+    conservative: KpiForecastScenario;
+    moderate: KpiForecastScenario;
+    aggressive: KpiForecastScenario;
+  };
+  prerequisites?: {
+    item: string;
+    priority: 'blocker' | 'high' | 'medium' | 'low';
+    description: string;
+  }[];
+  audienceStrategy?: {
+    prospectingPercentage: number;
+    retargetingPercentage: number;
+    prospectingAudiences: string[];
+    retargetingAudiences: string[];
+  };
+  riskFlags?: {
+    risk: string;
+    severity: 'high' | 'medium' | 'low';
+    mitigation: string;
+  }[];
 };
 
 export type PlatformPlan = {
@@ -61,6 +93,8 @@ export type PlatformPlan = {
 export type AdTypePlan = {
   adType: string;
   adCount: number;
+  budget?: number;
+  budgetPercent?: number;
   targeting: {
     locations: string[];
     ageRange: string;
@@ -102,4 +136,12 @@ export type SSEEvent =
       questionId: string;
     }
   | { type: 'media_plan'; plan: MediaPlan }
-  | { type: 'error'; message: string };
+  | { type: 'image_update'; platformAdTypeKey: string; imageUrls: string[] }
+  | { type: 'error'; message: string }
+  | {
+      type: 'conflict_check';
+      conflictId: string;
+      message: string;
+      question: string;
+      options: string[];
+    };

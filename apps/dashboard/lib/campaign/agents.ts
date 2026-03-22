@@ -1317,7 +1317,7 @@ ${userPreferences?.notes ? `User Instructions (MUST follow): ${userPreferences.n
 
 PLATFORM RULE — STRICTLY ENFORCED: Only generate platforms that are in this exact list: [${connectedPlatforms.join(', ')}]. Do NOT include any other platform. This is non-negotiable.
 
-For Search/RSA ad types (Google search, Bing search): generate exactly 1 ad object with EXACTLY 15 headlines (each max 30 chars) and EXACTLY 4 descriptions (each max 90 chars). Each headline must be unique and specific to the brand/product — NOT generic filler. For all other ad types: generate exactly 3 ad objects with different creative angles (product benefit, social proof, urgency), each with 3-5 headlines and 2 descriptions.
+Do NOT include an "ads" array inside adTypes — ad creatives will be populated separately from the creative agent. Leave adTypes[].ads as an empty array [].
 
 Generate a complete media plan. Include:
 1. Executive summary: 3-5 sentence natural language overview of the plan, the rationale, and expected outcomes
@@ -1367,35 +1367,7 @@ Return a JSON object matching this exact structure:
             "keywords": ["string"]
           },
           "bidStrategy": "string",
-          "ads": [
-            {
-              "id": "string (unique, e.g. ad-1)",
-              "headlines": ["string — 3-15 headlines depending on ad type (for RSA: exactly 15 headlines max 30 chars; for image ads: 3 variations)"],
-              "descriptions": ["string — for RSA: exactly 4 descriptions max 90 chars; for image ads: 2-3 variations"],
-              "imageUrls": [],
-              "videoUrl": null,
-              "ctaText": "string",
-              "destinationUrl": "string (the landing page URL)"
-            },
-            {
-              "id": "string (unique, e.g. ad-2)",
-              "headlines": ["string — different combination than ad-1"],
-              "descriptions": ["string — different angle than ad-1"],
-              "imageUrls": [],
-              "videoUrl": null,
-              "ctaText": "string",
-              "destinationUrl": "string"
-            },
-            {
-              "id": "string (unique, e.g. ad-3)",
-              "headlines": ["string — third variation, different messaging angle"],
-              "descriptions": ["string"],
-              "imageUrls": [],
-              "videoUrl": null,
-              "ctaText": "string",
-              "destinationUrl": "string"
-            }
-          ]
+          "ads": []
         }
       ]
     }
@@ -1541,6 +1513,32 @@ FINAL REMINDER: The "platforms" array in your JSON MUST contain ONLY these platf
     },
     connectedAccounts
   );
+
+  // Populate ads in each platform from creativeOut (strategy agent no longer generates them)
+  for (const platform of mediaPlan.platforms) {
+    for (const adType of platform.adTypes) {
+      if (!adType.ads || adType.ads.length === 0) {
+        const isSearch = adType.adType === 'search' || adType.adType === 'rsa';
+        if (isSearch) {
+          adType.ads = [{
+            headlines: creativeOut.rsaHeadlines.slice(0, 15).map((h) => h.text),
+            descriptions: creativeOut.descriptions.slice(0, 4),
+            imageUrls: [],
+            ctaText: creativeOut.adVariations[0]?.cta ?? 'Learn More',
+            destinationUrl: url
+          }];
+        } else {
+          adType.ads = creativeOut.adVariations.slice(0, 3).map((v) => ({
+            headlines: [v.headline, ...creativeOut.headlines.slice(0, 4)],
+            descriptions: [v.description, ...creativeOut.descriptions.slice(0, 2)],
+            imageUrls: [],
+            ctaText: v.cta,
+            destinationUrl: url
+          }));
+        }
+      }
+    }
+  }
 
   const timeTaken = Date.now() - start;
   enqueue({

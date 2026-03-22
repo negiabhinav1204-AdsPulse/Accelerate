@@ -43,6 +43,8 @@ export type AdCreative = {
 export type AdTypePlan = {
   adType: string;
   adCount: number;
+  budget: number;
+  budgetPercent: number;
   targeting: TargetingSettings;
   bidStrategy: string;
   ads: AdCreative[];
@@ -53,6 +55,15 @@ export type PlatformPlan = {
   budget: number;
   budgetPercent: number;
   adTypes: AdTypePlan[];
+};
+
+export type KpiForecastScenario = {
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  conversions: number;
+  costPerResult: number;
+  roas: number;
 };
 
 export type MediaPlan = {
@@ -77,6 +88,29 @@ export type MediaPlan = {
     tagline: string;
     primaryObjective: string;
   };
+  // Enhanced strategy fields
+  executiveSummary?: string;
+  kpiForecast?: {
+    conservative: KpiForecastScenario;
+    moderate: KpiForecastScenario;
+    aggressive: KpiForecastScenario;
+  };
+  prerequisites?: {
+    item: string;
+    priority: 'blocker' | 'high' | 'medium' | 'low';
+    description: string;
+  }[];
+  audienceStrategy?: {
+    prospectingPercentage: number;
+    retargetingPercentage: number;
+    prospectingAudiences: string[];
+    retargetingAudiences: string[];
+  };
+  riskFlags?: {
+    risk: string;
+    severity: 'high' | 'medium' | 'low';
+    mitigation: string;
+  }[];
 };
 
 export type ConnectedAccount = {
@@ -404,8 +438,8 @@ export function transformLocation(llmLocation: string): NormalizedLocation {
     if (country) {
       return { country, state: null, city: null, raw };
     }
-    // Assume it's a city in the US
-    return { country: 'US', state: null, city: parts[0] ?? null, raw };
+    // Unknown country — keep raw, do not default to US
+    return { country: '', state: null, city: parts[0] ?? null, raw };
   }
 
   if (parts.length === 2) {
@@ -414,22 +448,22 @@ export function transformLocation(llmLocation: string): NormalizedLocation {
     if (possibleCountry) {
       return { country: possibleCountry, state: null, city: parts[0] ?? null, raw };
     }
-    // Assume "City, State" in US
-    return { country: 'US', state: parts[1] ?? null, city: parts[0] ?? null, raw };
+    // Unknown country — keep raw, do not default to US
+    return { country: '', state: parts[1] ?? null, city: parts[0] ?? null, raw };
   }
 
   if (parts.length >= 3) {
     // "City, State, Country"
     const possibleCountry = COUNTRY_ALIASES[parts[parts.length - 1]!.toLowerCase()];
     return {
-      country: possibleCountry ?? parts[parts.length - 1] ?? 'US',
+      country: possibleCountry ?? parts[parts.length - 1] ?? '',
       state: parts[1] ?? null,
       city: parts[0] ?? null,
       raw
     };
   }
 
-  return { country: 'US', state: null, city: null, raw };
+  return { country: '', state: null, city: null, raw };
 }
 
 // ---------------------------------------------------------------------------
@@ -524,10 +558,12 @@ export function transformMediaPlan(
           return d.toISOString().split('T')[0]!;
         })();
 
-  // Determine currency from connected accounts (prefer first connected account's currency)
+  // Determine currency: trust the LLM's output first (it's informed by userPreferences),
+  // fall back to connected account currency, then USD.
   const defaultCurrency =
-    connectedAccounts.find((a) => a.currency)?.currency ??
-    safeString(raw.currency, 'USD');
+    safeString(raw.currency, '') ||
+    connectedAccounts.find((a) => a.currency)?.currency ||
+    'USD';
 
   // Build platforms — filter to only platforms with connected accounts when possible
   const connectedPlatformNames = [
@@ -605,6 +641,8 @@ export function transformMediaPlan(
           return {
             adType,
             adCount: safeNumber(at.adCount, Math.max(ads.length, 1)),
+            budget: safeNumber(at.budget, 0),
+            budgetPercent: safeNumber(at.budgetPercent, 0),
             targeting,
             bidStrategy,
             ads
@@ -615,6 +653,69 @@ export function transformMediaPlan(
     });
 
   const rawAudience = isRecord(raw.targetAudience) ? raw.targetAudience : {};
+
+  // Parse kpiForecast if present
+  let kpiForecast: MediaPlan['kpiForecast'] | undefined;
+  if (isRecord(raw.kpiForecast)) {
+    const parseScenario = (s: unknown): KpiForecastScenario => {
+      const sc = isRecord(s) ? s : {};
+      return {
+        impressions: safeNumber(sc.impressions, 0),
+        clicks: safeNumber(sc.clicks, 0),
+        ctr: safeNumber(sc.ctr, 0),
+        conversions: safeNumber(sc.conversions, 0),
+        costPerResult: safeNumber(sc.costPerResult, 0),
+        roas: safeNumber(sc.roas, 0)
+      };
+    };
+    kpiForecast = {
+      conservative: parseScenario(raw.kpiForecast.conservative),
+      moderate: parseScenario(raw.kpiForecast.moderate),
+      aggressive: parseScenario(raw.kpiForecast.aggressive)
+    };
+  }
+
+  // Parse prerequisites if present
+  let prerequisites: MediaPlan['prerequisites'] | undefined;
+  if (Array.isArray(raw.prerequisites)) {
+    prerequisites = (raw.prerequisites as unknown[])
+      .filter(isRecord)
+      .map((p) => ({
+        item: safeString(p.item, ''),
+        priority: (['blocker', 'high', 'medium', 'low'].includes(safeString(p.priority))
+          ? safeString(p.priority)
+          : 'medium') as 'blocker' | 'high' | 'medium' | 'low',
+        description: safeString(p.description, '')
+      }))
+      .filter((p) => p.item.length > 0);
+  }
+
+  // Parse audienceStrategy if present
+  let audienceStrategy: MediaPlan['audienceStrategy'] | undefined;
+  if (isRecord(raw.audienceStrategy)) {
+    const as = raw.audienceStrategy;
+    audienceStrategy = {
+      prospectingPercentage: safeNumber(as.prospectingPercentage, 70),
+      retargetingPercentage: safeNumber(as.retargetingPercentage, 30),
+      prospectingAudiences: safeStringArray(as.prospectingAudiences),
+      retargetingAudiences: safeStringArray(as.retargetingAudiences)
+    };
+  }
+
+  // Parse riskFlags if present
+  let riskFlags: MediaPlan['riskFlags'] | undefined;
+  if (Array.isArray(raw.riskFlags)) {
+    riskFlags = (raw.riskFlags as unknown[])
+      .filter(isRecord)
+      .map((r) => ({
+        risk: safeString(r.risk, ''),
+        severity: (['high', 'medium', 'low'].includes(safeString(r.severity))
+          ? safeString(r.severity)
+          : 'medium') as 'high' | 'medium' | 'low',
+        mitigation: safeString(r.mitigation, '')
+      }))
+      .filter((r) => r.risk.length > 0);
+  }
 
   return {
     campaignName: safeString(raw.campaignName, 'New Campaign'),
@@ -646,6 +747,11 @@ export function transformMediaPlan(
         isRecord(raw.summary) ? raw.summary.primaryObjective : undefined,
         'Drive conversions'
       )
-    }
+    },
+    ...(safeString(raw.executiveSummary) && { executiveSummary: safeString(raw.executiveSummary) }),
+    ...(kpiForecast && { kpiForecast }),
+    ...(prerequisites && { prerequisites }),
+    ...(audienceStrategy && { audienceStrategy }),
+    ...(riskFlags && { riskFlags })
   };
 }

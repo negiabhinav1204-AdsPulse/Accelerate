@@ -15,13 +15,40 @@ import {
 import { Button } from '@workspace/ui/components/button';
 import { cn } from '@workspace/ui/lib/utils';
 
+import { AgentProgressPanel } from '../campaign/agent-progress-panel';
+import { MediaPlanCard } from '../campaign/media-plan-card';
+import type { AgentName, AgentState, MediaPlan, SSEEvent } from '../campaign/types';
 import { ChatCampaignTable } from './chat-campaign-table';
 import { ChatConnectPrompt } from './chat-connect-prompt';
 import { ChatMetricCard } from './chat-metric-card';
 import { ChatNavSuggestion } from './chat-nav-suggestion';
 import { ChatPerformanceChart } from './chat-performance-chart';
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const INITIAL_AGENTS: AgentState[] = [
+  { name: 'brand', label: 'Brand Analysis Agent', icon: '🎨', status: 'idle', currentMessage: 'Waiting to start...', expanded: false },
+  { name: 'lpu', label: 'Landing Page Agent', icon: '📄', status: 'idle', currentMessage: 'Waiting to start...', expanded: false },
+  { name: 'intent', label: 'Intent Analysis Agent', icon: '🎯', status: 'idle', currentMessage: 'Waiting to start...', expanded: false },
+  { name: 'trend', label: 'Trend Analysis Agent', icon: '📈', status: 'idle', currentMessage: 'Waiting to start...', expanded: false },
+  { name: 'competitor', label: 'Competitor Analysis Agent', icon: '🔍', status: 'idle', currentMessage: 'Waiting to start...', expanded: false },
+  { name: 'creative', label: 'Creative Agent', icon: '✨', status: 'idle', currentMessage: 'Waiting to start...', expanded: false },
+  { name: 'budget', label: 'Budget Agent', icon: '💰', status: 'idle', currentMessage: 'Waiting to start...', expanded: false },
+  { name: 'strategy', label: 'Strategy Agent', icon: '🚀', status: 'idle', currentMessage: 'Waiting to start...', expanded: false }
+];
+
+const URL_REGEX = /https?:\/\/[^\s]+/;
+
 // ── Types ────────────────────────────────────────────────────────────────────
+
+type CampaignMessageData = {
+  id: string;
+  role: 'campaign';
+  url: string;
+  agents: AgentState[];
+  mediaPlan: MediaPlan | null;
+  done: boolean;
+};
 
 type ToolBlock =
   | { name: 'show_metrics'; input: { title: string; metrics: { label: string; value: string; change?: string; trend?: 'up' | 'down' | 'neutral' }[] } }
@@ -34,12 +61,14 @@ type MessagePart =
   | { type: 'text'; text: string }
   | { type: 'tool'; tool: ToolBlock };
 
-type Message = {
+type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   parts: MessagePart[];
   streaming?: boolean;
 };
+
+type Message = ChatMessage | CampaignMessageData;
 
 type QuickAction = {
   id: string;
@@ -126,6 +155,7 @@ export function AcceleraAiHome({
   const inputRef = React.useRef<HTMLInputElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const abortRef = React.useRef<AbortController | null>(null);
+  const campaignAbortRef = React.useRef<AbortController | null>(null);
 
   // Load most recent session on mount
   React.useEffect(() => {
@@ -162,18 +192,125 @@ export function AcceleraAiHome({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Inline campaign creation — triggered when user pastes a URL
+  const startInlineCampaign = React.useCallback(
+    async (url: string, userText: string) => {
+      if (loading) return;
+      setLoading(true);
+
+      const campaignMsgId = crypto.randomUUID();
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text: userText }] } as ChatMessage,
+        { id: campaignMsgId, role: 'campaign', url, agents: INITIAL_AGENTS.map((a) => ({ ...a })), mediaPlan: null, done: false } as CampaignMessageData
+      ]);
+      setInput('');
+
+      const updateCampaignMsg = (updater: (prev: CampaignMessageData) => CampaignMessageData) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === campaignMsgId && m.role === 'campaign' ? updater(m as CampaignMessageData) : m))
+        );
+      };
+      const updateAgent = (name: AgentName, update: Partial<AgentState>) => {
+        updateCampaignMsg((prev) => ({
+          ...prev,
+          agents: prev.agents.map((a) => (a.name === name ? { ...a, ...update } : a))
+        }));
+      };
+
+      try {
+        const controller = new AbortController();
+        campaignAbortRef.current = controller;
+
+        const connectedPlatforms = [...new Set(connectedAccounts.map((a) => a.platform))];
+        const response = await fetch('/api/campaign/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url,
+            organizationId,
+            userPreferences: {
+              notes: userText,
+              ...(connectedPlatforms.length > 0 ? { platforms: connectedPlatforms, primaryPlatform: connectedPlatforms[0] } : {})
+            }
+          }),
+          signal: controller.signal
+        });
+
+        if (!response.ok || !response.body) throw new Error('Failed to start campaign analysis');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim() || !line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') break;
+            try {
+              const event = JSON.parse(jsonStr) as SSEEvent;
+              switch (event.type) {
+                case 'agent_start':
+                  updateAgent(event.agent, { status: 'running', currentMessage: event.message });
+                  break;
+                case 'agent_progress':
+                  updateAgent(event.agent, { currentMessage: event.message });
+                  break;
+                case 'agent_complete':
+                  updateAgent(event.agent, { status: 'complete', currentMessage: event.message, output: event.output, timeTaken: event.timeTaken, confidence: event.confidence });
+                  break;
+                case 'media_plan':
+                  updateCampaignMsg((prev) => ({ ...prev, mediaPlan: event.plan, done: true }));
+                  break;
+                case 'error':
+                  updateCampaignMsg((prev) => ({ ...prev, done: true }));
+                  setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', parts: [{ type: 'text', text: `Campaign analysis failed: ${event.message}` }] } as ChatMessage]);
+                  break;
+              }
+            } catch {
+              // skip malformed lines
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          updateCampaignMsg((prev) => ({ ...prev, done: true }));
+        }
+      } finally {
+        setLoading(false);
+        campaignAbortRef.current = null;
+        inputRef.current?.focus();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loading, organizationId, connectedAccounts]
+  );
+
   const sendMessage = React.useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || loading) return;
 
-      const userMsg: Message = {
+      // If message contains a URL, run inline campaign creation instead
+      const urlMatch = trimmed.match(URL_REGEX);
+      if (urlMatch) {
+        void startInlineCampaign(urlMatch[0], trimmed);
+        return;
+      }
+
+      const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'user',
         parts: [{ type: 'text', text: trimmed }]
       };
       const assistantId = crypto.randomUUID();
-      const assistantMsg: Message = {
+      const assistantMsg: ChatMessage = {
         id: assistantId,
         role: 'assistant',
         parts: [],
@@ -184,9 +321,9 @@ export function AcceleraAiHome({
       setInput('');
       setLoading(true);
 
-      // Build history for the API (text only — tools are not re-sent)
+      // Build history for the API (text only — tools and campaign messages are not re-sent)
       const history = [
-        ...messages,
+        ...messages.filter((m): m is ChatMessage => m.role !== 'campaign'),
         { role: 'user' as const, parts: [{ type: 'text' as const, text: trimmed }] }
       ].map((m) => ({
         role: m.role,
@@ -242,8 +379,9 @@ export function AcceleraAiHome({
               if (chunk.type === 'text') {
                 setMessages((prev) =>
                   prev.map((m) => {
-                    if (m.id !== assistantId) return m;
-                    const parts = [...m.parts];
+                    if (m.id !== assistantId || m.role === 'campaign') return m;
+                    const cm = m as ChatMessage;
+                    const parts = [...cm.parts];
                     const lastPart = parts[parts.length - 1];
                     if (lastPart?.type === 'text') {
                       parts[parts.length - 1] = {
@@ -253,17 +391,18 @@ export function AcceleraAiHome({
                     } else {
                       parts.push({ type: 'text', text: chunk.text });
                     }
-                    return { ...m, parts };
+                    return { ...cm, parts };
                   })
                 );
               } else if (chunk.type === 'tool') {
                 setMessages((prev) =>
                   prev.map((m) => {
-                    if (m.id !== assistantId) return m;
+                    if (m.id !== assistantId || m.role === 'campaign') return m;
+                    const cm = m as ChatMessage;
                     return {
-                      ...m,
+                      ...cm,
                       parts: [
-                        ...m.parts,
+                        ...cm.parts,
                         {
                           type: 'tool' as const,
                           tool: {
@@ -286,42 +425,36 @@ export function AcceleraAiHome({
 
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, streaming: false } : m
+            m.id === assistantId && m.role !== 'campaign' ? { ...(m as ChatMessage), streaming: false } : m
           )
         );
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? {
-                    ...m,
-                    parts:
-                      m.parts.length > 0
-                        ? m.parts
-                        : [{ type: 'text', text: '_Stopped._' }],
-                    streaming: false
-                  }
-                : m
-            )
+            prev.map((m) => {
+              if (m.id !== assistantId || m.role === 'campaign') return m;
+              const cm = m as ChatMessage;
+              return {
+                ...cm,
+                parts: cm.parts.length > 0 ? cm.parts : [{ type: 'text', text: '_Stopped._' }],
+                streaming: false
+              };
+            })
           );
         } else {
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? {
-                    ...m,
-                    parts: [
-                      ...m.parts,
-                      {
-                        type: 'text',
-                        text: '\n\n_Something went wrong. Please try again._'
-                      }
-                    ],
-                    streaming: false
-                  }
-                : m
-            )
+            prev.map((m) => {
+              if (m.id !== assistantId || m.role === 'campaign') return m;
+              const cm = m as ChatMessage;
+              return {
+                ...cm,
+                parts: [
+                  ...cm.parts,
+                  { type: 'text', text: '\n\n_Something went wrong. Please try again._' }
+                ],
+                streaming: false
+              };
+            })
           );
         }
       } finally {
@@ -330,7 +463,7 @@ export function AcceleraAiHome({
         inputRef.current?.focus();
       }
     },
-    [messages, loading, organizationId, sessionId]
+    [messages, loading, organizationId, sessionId, startInlineCampaign]
   );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -394,13 +527,17 @@ export function AcceleraAiHome({
           />
         ) : (
           <div className="flex flex-col gap-6 px-4 py-6 max-w-3xl mx-auto w-full">
-            {messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                orgSlug={orgSlug}
-              />
-            ))}
+            {messages.map((message) =>
+              message.role === 'campaign' ? (
+                <CampaignInlineBubble key={message.id} message={message as CampaignMessageData} />
+              ) : (
+                <MessageBubble
+                  key={message.id}
+                  message={message as ChatMessage}
+                  orgSlug={orgSlug}
+                />
+              )
+            )}
             <div ref={bottomRef} />
           </div>
         )}
@@ -476,7 +613,7 @@ export function AcceleraAiHome({
                 size="sm"
                 variant="ghost"
                 className="gap-2 shrink-0 text-muted-foreground"
-                onClick={() => abortRef.current?.abort()}
+                onClick={() => { abortRef.current?.abort(); campaignAbortRef.current?.abort(); }}
               >
                 Stop
               </Button>
@@ -564,11 +701,32 @@ function EmptyState({
   );
 }
 
+function CampaignInlineBubble({ message }: { message: CampaignMessageData }) {
+  return (
+    <div className="flex justify-start w-full">
+      <div className="flex-1 min-w-0 space-y-3">
+        {!message.mediaPlan && (
+          <AgentProgressPanel
+            agents={message.agents}
+            onClose={() => undefined}
+          />
+        )}
+        {message.mediaPlan && (
+          <MediaPlanCard
+            plan={message.mediaPlan}
+            onPreview={() => undefined}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   orgSlug
 }: {
-  message: Message;
+  message: ChatMessage;
   orgSlug: string;
 }) {
   if (message.role === 'user') {
@@ -577,7 +735,7 @@ function MessageBubble({
       .map((p) => p.text)
       .join('');
     return (
-      <div className="flex gap-3 justify-end">
+      <div className="flex justify-end">
         <div className="rounded-xl px-4 py-3 max-w-[80%] text-sm bg-primary text-primary-foreground">
           <p className="whitespace-pre-wrap">{text}</p>
         </div>
@@ -586,18 +744,18 @@ function MessageBubble({
   }
 
   // Assistant message: may contain text + tool blocks
-  const hasContent = message.parts.length > 0;
-  const isOnlyStreaming = message.streaming && !hasContent;
+  // Only show the cursor dot while waiting for first content — no empty container
+  const hasContent = message.parts.some((p) => p.type !== 'text' || (p as { type: 'text'; text: string }).text.length > 0);
+  const isWaiting = message.streaming && !hasContent;
 
   return (
-    <div className="flex gap-3 justify-start">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary mt-0.5">
-        <SparklesIcon className="size-4" />
-      </div>
-      <div className="flex-1 min-w-0 space-y-1">
-        {isOnlyStreaming && (
-          <div className="rounded-xl px-4 py-3 max-w-[80%] text-sm bg-card border border-border text-foreground">
-            <span className="inline-block h-4 w-0.5 bg-current animate-pulse" />
+    <div className="flex justify-start">
+      <div className="flex-1 min-w-0 space-y-1 max-w-[80%]">
+        {isWaiting && (
+          <div className="flex items-center gap-1.5 h-8 px-1">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse" />
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse [animation-delay:200ms]" />
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse [animation-delay:400ms]" />
           </div>
         )}
         {message.parts.map((part, i) => {
@@ -607,7 +765,7 @@ function MessageBubble({
             return (
               <div
                 key={i}
-                className="rounded-xl px-4 py-3 max-w-[80%] text-sm bg-card border border-border text-foreground"
+                className="rounded-xl px-4 py-3 text-sm bg-card border border-border text-foreground"
               >
                 <MarkdownContent
                   content={part.text}

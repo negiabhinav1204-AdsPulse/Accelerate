@@ -5,22 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@workspace/auth';
 import { symmetricEncrypt } from '@workspace/auth/encryption';
 
-/**
- * Derive the base URL from the incoming request origin so that the
- * redirect_uri we send to each OAuth provider exactly matches the
- * URI registered in that provider's developer console — regardless
- * of whether the developer is running on localhost:3000 or
- * 127.0.0.1:3000 (both need to be registered in each platform's
- * console for local development).
- *
- * In production NEXT_PUBLIC_DASHBOARD_URL is used instead.
- */
-function getBaseUrl(request: NextRequest): string {
-  if (process.env.NODE_ENV === 'production') {
-    return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? 'https://accelerate.inmobi.com';
-  }
-  // Local dev: derive from actual request so localhost and 127.0.0.1 both work
-  return `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+function getBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? 'https://accelerate.inmobi.com';
 }
 
 const GOOGLE_SCOPE = [
@@ -58,7 +44,7 @@ export async function GET(
     return new NextResponse('Unknown platform', { status: 400 });
   }
 
-  const baseUrl = getBaseUrl(request);
+  const baseUrl = getBaseUrl();
   const userEmail = session.user.email ?? '';
   const returnTo = request.nextUrl.searchParams.get('return') ?? '/onboarding';
   const orgSlug = request.nextUrl.searchParams.get('org') ?? '';
@@ -135,16 +121,20 @@ export async function GET(
     const redirectUri = `${baseUrl}/oauth/msads/callback`;
 
     if (isInmobiUser) {
-      // InMobi users: admin consent flow using the InMobi Azure AD tenant.
-      // Microsoft returns admin_consent=True to the callback (no code).
-      // The callback then initiates a second OAuth authorize step to get user tokens.
+      // InMobi users: tenant-specific authorize with custom api:// permission scope
       const tenantId = process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7';
-      const adminConsentParams = new URLSearchParams({
+      const permissionScope = process.env.BING_PERMISSION_SCOPE ?? 'dev.accelerate.inmobi.com';
+      const internalScope = `api://${permissionScope}/msads.manage offline_access`;
+      const bingInternalParams = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
-        state: encryptedState
+        response_type: 'code',
+        response_mode: 'query',
+        scope: internalScope,
+        state: encryptedState,
+        prompt: 'consent'
       });
-      authUrlString = `https://login.microsoftonline.com/${tenantId}/adminconsent?${adminConsentParams.toString()}`;
+      authUrlString = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${bingInternalParams.toString()}`;
     } else {
       // External users: standard Microsoft common OAuth flow
       const bingParams = new URLSearchParams({

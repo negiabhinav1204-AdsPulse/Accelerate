@@ -1,12 +1,13 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = []
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector")]
 }
 
 // ---- Enumerations ---- //
@@ -401,6 +402,7 @@ model Organization {
   orders              Order[]
   subscriptions       Subscription[]
   webhooks            Webhook[]
+  memoryNodes         OrgMemoryNode[]
 
   @@index([billingCustomerId], map: "IX_Organization_billingCustomerId")
 }
@@ -576,6 +578,7 @@ model User {
   notifications                Notification[]
   pageVisits                   ContactPageVisit[]
   sessions                     Session[]
+  memoryNodes                  OrgMemoryNode[]
 }
 
 model UserImage {
@@ -712,4 +715,31 @@ model Ad {
   adGroup        AdGroup   @relation(fields: [adGroupId], references: [id], onDelete: Cascade)
 
   @@index([adGroupId])
+}
+
+// ---- Contextual Memory (self-learning vector store) ---- //
+
+model OrgMemoryNode {
+  id          String    @id @default(uuid()) @db.Uuid
+  orgId       String    @db.Uuid
+  userId      String?   @db.Uuid
+  type        String    @db.VarChar(64)
+  key         String    @db.VarChar(512)
+  summary     String    @db.Text
+  content     Json
+  embedding   Unsupported("vector(768)")?
+  confidence  Float     @default(1.0)
+  accessCount Int       @default(0)
+  sourceUrl   String?   @db.VarChar(2048)
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([orgId, userId, type, key], name: "memory_node_unique")
+  @@index([orgId, type])
+  @@index([orgId, userId, type])
+  @@map("OrgMemoryNode")
 }

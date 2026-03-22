@@ -6,16 +6,8 @@ import { prisma } from '@workspace/database/client';
 
 import { runPlatformSync } from '~/lib/data-pipeline/sync';
 
-/**
- * The redirect_uri sent in the token exchange MUST exactly match the one
- * sent in the authorize request. We derive it from the request origin so
- * it works correctly for localhost:3000 AND 127.0.0.1:3000.
- */
-function getBaseUrl(request: NextRequest): string {
-  if (process.env.NODE_ENV === 'production') {
-    return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? 'https://accelerate.inmobi.com';
-  }
-  return `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+function getBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? 'https://accelerate.inmobi.com';
 }
 
 const KNOWN_PLATFORMS = ['google', 'meta', 'bing'] as const;
@@ -86,14 +78,13 @@ async function fetchGoogleAccounts(
   accessToken: string
 ): Promise<AdAccount[]> {
   try {
-    const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? '';
+    // Do NOT send login-customer-id on listAccessibleCustomers — it's a user-level endpoint
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       'developer-token': process.env.GOOGLE_DEVELOPER_TOKEN ?? ''
     };
-    if (loginCustomerId) headers['login-customer-id'] = loginCustomerId;
     const res = await fetch(
-      'https://googleads.googleapis.com/v17/customers:listAccessibleCustomers',
+      'https://googleads.googleapis.com/v21/customers:listAccessibleCustomers',
       { headers }
     );
     const body = await res.text();
@@ -101,10 +92,42 @@ async function fetchGoogleAccounts(
     console.log('[google] listAccessibleCustomers body:', body.slice(0, 600));
     if (!res.ok) return [];
     const data = JSON.parse(body) as { resourceNames?: string[] };
-    return (data.resourceNames ?? []).map((name) => {
-      const id = name.replace('customers/', '');
-      return { id, name: `Google Ads Account ${id}` };
-    });
+    const customerIds = (data.resourceNames ?? []).map((name) => name.replace('customers/', ''));
+
+    // Fetch descriptive names in parallel via GAQL; fall back to generic name on failure
+    const nameResults = await Promise.allSettled(
+      customerIds.map(async (id) => {
+        try {
+          const nameRes = await fetch(
+            `https://googleads.googleapis.com/v21/customers/${id}/googleAds:search`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'developer-token': process.env.GOOGLE_DEVELOPER_TOKEN ?? '',
+                'login-customer-id': process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? '4796796847',
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                query: 'SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1'
+              })
+            }
+          );
+          if (!nameRes.ok) return { id, name: `Google Ads Account ${id}` };
+          const nameData = (await nameRes.json()) as {
+            results?: { customer?: { descriptiveName?: string } }[];
+          };
+          const descriptiveName = nameData.results?.[0]?.customer?.descriptiveName;
+          return { id, name: descriptiveName ?? `Google Ads Account ${id}` };
+        } catch {
+          return { id, name: `Google Ads Account ${id}` };
+        }
+      })
+    );
+
+    return nameResults
+      .map((r) => (r.status === 'fulfilled' ? r.value : null))
+      .filter((a): a is AdAccount => a !== null);
   } catch (e) {
     console.error('[google] fetchGoogleAccounts error:', e);
     return [];
@@ -260,7 +283,7 @@ export async function GET(
     return new NextResponse('Unknown platform', { status: 400 });
   }
 
-  const baseUrl = getBaseUrl(request);
+  const baseUrl = getBaseUrl();
 
   const code = request.nextUrl.searchParams.get('code');
   const stateParam = request.nextUrl.searchParams.get('state');
@@ -343,6 +366,11 @@ export async function GET(
       redirect_uri: config.redirectUri,
       grant_type: 'authorization_code'
     });
+    // Bing requires scope in the token exchange body; both internal and external
+    // users use the standard Microsoft Ads scope regardless of authorize scope used
+    if (platform === 'bing') {
+      body.set('scope', 'https://ads.microsoft.com/msads.manage offline_access');
+    }
     const res = await fetch(config.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

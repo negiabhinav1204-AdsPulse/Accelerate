@@ -174,9 +174,9 @@ function AgentCard({ agent }: { agent: AgentState }): React.JSX.Element {
       {expanded && (
         <div className="border-t border-border px-3 pb-3 pt-2 space-y-3">
           {/* Capability list */}
-          {agent.output && agent.output.capabilities.length > 0 && (
+          {(agent.output?.capabilities?.length ?? 0) > 0 && (
             <div className="space-y-1.5">
-              {agent.output.capabilities.map((cap, i) => (
+              {agent.output!.capabilities!.map((cap, i) => (
                 <div key={i} className="flex gap-2 text-xs">
                   <span className="shrink-0 font-medium text-muted-foreground w-4">
                     {i + 1}.
@@ -210,7 +210,7 @@ function AgentCard({ agent }: { agent: AgentState }): React.JSX.Element {
                       Time Taken
                     </p>
                     <p className="text-xs font-semibold text-foreground">
-                      {agent.timeTaken.toFixed(1)}s
+                      {(agent.timeTaken / 1000).toFixed(1)}s
                     </p>
                   </div>
                 </div>
