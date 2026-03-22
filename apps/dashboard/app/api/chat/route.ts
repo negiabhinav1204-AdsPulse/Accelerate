@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { searchMemory, upsertMemoryNode } from '~/lib/memory/memory-service';
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -12,6 +13,7 @@ function buildSystemPrompt(ctx: {
   userName: string;
   orgName: string;
   connectedPlatforms: string[];
+  memories?: string;
 }): string {
   const platformList =
     ctx.connectedPlatforms.length > 0
@@ -24,6 +26,7 @@ function buildSystemPrompt(ctx: {
 - User: ${ctx.userName}
 - Organisation: ${ctx.orgName}
 - Connected ad platforms: ${platformList}
+${ctx.memories ? `\n## What you already know about this organisation\n${ctx.memories}\n(Use this to personalise responses — do not repeat it back verbatim.)` : ''}
 
 ## Your Role
 Help users with:
@@ -176,6 +179,72 @@ const TOOLS: Anthropic.Tool[] = [
   }
 ];
 
+// ---------------------------------------------------------------------------
+// Memory extraction — saves learnt facts from each conversation turn
+// ---------------------------------------------------------------------------
+
+async function extractAndSaveMemory(params: {
+  orgId: string;
+  userId: string;
+  userMessage: string;
+  assistantMessage: string;
+}): Promise<void> {
+  const { orgId, userId, userMessage, assistantMessage } = params;
+  const combined = `User: ${userMessage}\nAssistant: ${assistantMessage}`;
+
+  // Campaign preference signals
+  const budgetMatch = userMessage.match(/(?:budget|spend)[^\d]*(\d[\d,]*)\s*(INR|USD|GBP|AED|₹|\$)?/i);
+  if (budgetMatch) {
+    await upsertMemoryNode({
+      orgId, userId, type: 'campaign_preference',
+      key: 'budget_preference',
+      summary: `Preferred budget: ${budgetMatch[0]}`,
+      content: { raw: budgetMatch[0], message: userMessage.slice(0, 200) },
+      confidenceDelta: 0.1
+    });
+  }
+
+  // Platform preferences
+  const platformSignals: string[] = [];
+  if (/\bmeta\b|facebook|instagram/i.test(combined)) platformSignals.push('meta');
+  if (/\bgoogle\b/i.test(combined)) platformSignals.push('google');
+  if (/\bbing\b|microsoft ads/i.test(combined)) platformSignals.push('bing');
+  if (platformSignals.length > 0) {
+    await upsertMemoryNode({
+      orgId, userId, type: 'campaign_preference',
+      key: 'platform_preference',
+      summary: `Mentioned platforms: ${platformSignals.join(', ')}`,
+      content: { platforms: platformSignals },
+      confidenceDelta: 0.05
+    });
+  }
+
+  // Brand / URL context
+  const urlMatch = userMessage.match(/https?:\/\/([^\s/]+)/);
+  if (urlMatch) {
+    await upsertMemoryNode({
+      orgId, userId: undefined, type: 'brand_profile',
+      key: urlMatch[1]!,
+      summary: `Brand URL used: ${urlMatch[0]}`,
+      content: { url: urlMatch[0], domain: urlMatch[1] },
+      sourceUrl: urlMatch[0],
+      confidenceDelta: 0.1
+    });
+  }
+
+  // Objective / campaign theme
+  const objectiveMatch = userMessage.match(/\b(awareness|leads?|sales|traffic|conversions?|installs?|diwali|holi|christmas|launch|sale)\b/i);
+  if (objectiveMatch) {
+    await upsertMemoryNode({
+      orgId, userId, type: 'campaign_preference',
+      key: 'objective_preference',
+      summary: `Campaign objective mentioned: ${objectiveMatch[1]}`,
+      content: { objective: objectiveMatch[1]!.toLowerCase() },
+      confidenceDelta: 0.05
+    });
+  }
+}
+
 type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
@@ -236,7 +305,24 @@ export async function POST(request: NextRequest): Promise<Response> {
     console.error('[chat] context fetch failed:', e);
   }
 
-  const systemPrompt = buildSystemPrompt({ userName, orgName, connectedPlatforms });
+  // Fetch relevant memories for this conversation turn (non-blocking on failure)
+  let memories = '';
+  if (body.organizationId) {
+    try {
+      const lastUserMsg = body.messages[body.messages.length - 1];
+      const query = lastUserMsg?.content ?? orgName;
+      const nodes = await searchMemory(body.organizationId, session.user.id, query, 6);
+      if (nodes.length > 0) {
+        memories = nodes
+          .map((n) => `[${n.type}] ${n.summary}`)
+          .join('\n');
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
+  const systemPrompt = buildSystemPrompt({ userName, orgName, connectedPlatforms, memories });
 
   // Streaming response — we use a custom JSON-lines format so the client can
   // distinguish text chunks from tool-call results
@@ -328,6 +414,16 @@ export async function POST(request: NextRequest): Promise<Response> {
               }
             }
           }
+        }
+
+        // Extract and save memory facts from the conversation (fire-and-forget)
+        if (body.organizationId && assistantText && session.user?.id) {
+          void extractAndSaveMemory({
+            orgId: body.organizationId,
+            userId: session.user.id as string,
+            userMessage: body.messages[body.messages.length - 1]?.content ?? '',
+            assistantMessage: assistantText
+          });
         }
 
         // Persist assistant response
