@@ -14,13 +14,13 @@ export const metadata: Metadata = {
 export default async function CampaignsPage(props: {
   params: Promise<{ slug: string }>;
 }): Promise<React.JSX.Element> {
-  await getAuthOrganizationContext();
+  const ctx = await getAuthOrganizationContext();
   const { slug } = await props.params;
 
   return (
     <Page>
       <PageBody>
-        <CampaignListClient orgSlug={slug} />
+        <CampaignListClient orgSlug={slug} orgId={ctx.organization.id} />
       </PageBody>
     </Page>
   );

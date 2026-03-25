@@ -54,6 +54,8 @@ type CampaignListItem = {
   currency: string;
   updatedAt: string;
   platformCampaigns: PlatformCampaignItem[];
+  platformCampaignId?: string;
+  adAccountId?: string;
 };
 
 type FilterState = {
@@ -66,175 +68,8 @@ type FilterState = {
 };
 
 // ---------------------------------------------------------------------------
-// Mock data
+// (Mock data removed — real data fetched from API)
 // ---------------------------------------------------------------------------
-
-const MOCK_CAMPAIGNS: CampaignListItem[] = [
-  {
-    id: 'camp-001',
-    acceId: 'ACCE-01',
-    name: 'Summer Sale 2026',
-    source: 'accelerate',
-    objective: 'CONVERSIONS',
-    status: null,
-    totalBudget: 5000,
-    currency: 'USD',
-    updatedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    platformCampaigns: [
-      {
-        id: 'pc-001',
-        platform: 'google',
-        status: 'live',
-        budget: 3000,
-        currency: 'USD',
-        platformCampaignId: '12345678',
-        adGroups: [
-          { id: 'ag-001', name: 'Search — Brand Keywords', adType: 'SEARCH', status: 'live' },
-          { id: 'ag-002', name: 'Search — Category Terms', adType: 'SEARCH', status: 'live' }
-        ]
-      },
-      {
-        id: 'pc-002',
-        platform: 'meta',
-        status: 'paused',
-        budget: 2000,
-        currency: 'USD',
-        platformCampaignId: '987654321',
-        adGroups: [
-          { id: 'ag-003', name: 'Feed — Retargeting', adType: 'DISPLAY', status: 'paused' },
-          { id: 'ag-004', name: 'Stories — Prospecting', adType: 'VIDEO', status: 'paused' }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'camp-002',
-    acceId: 'ACCE-02',
-    name: 'Q2 Brand Awareness',
-    source: 'accelerate',
-    objective: 'AWARENESS',
-    status: null,
-    totalBudget: 3000,
-    currency: 'USD',
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
-    platformCampaigns: [
-      {
-        id: 'pc-003',
-        platform: 'google',
-        status: 'live',
-        budget: 1500,
-        currency: 'USD',
-        platformCampaignId: '11111111',
-        adGroups: [{ id: 'ag-005', name: 'Display — All Users', adType: 'DISPLAY', status: 'live' }]
-      },
-      {
-        id: 'pc-004',
-        platform: 'bing',
-        status: 'live',
-        budget: 1500,
-        currency: 'USD',
-        platformCampaignId: '22222222',
-        adGroups: [{ id: 'ag-006', name: 'Search — Brand', adType: 'SEARCH', status: 'live' }]
-      }
-    ]
-  },
-  {
-    id: 'camp-003',
-    acceId: null,
-    name: 'Competitor Keywords',
-    source: 'external',
-    objective: 'TRAFFIC',
-    status: 'live',
-    totalBudget: 800,
-    currency: 'USD',
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
-    platformCampaigns: [
-      {
-        id: 'pc-005',
-        platform: 'google',
-        status: 'live',
-        budget: 800,
-        currency: 'USD',
-        platformCampaignId: '33333333',
-        adGroups: [
-          { id: 'ag-007', name: 'Exact Match', adType: 'SEARCH', status: 'live' },
-          { id: 'ag-008', name: 'Phrase Match', adType: 'SEARCH', status: 'live' }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'camp-004',
-    acceId: null,
-    name: 'Facebook Retargeting — Website Visitors',
-    source: 'external',
-    objective: 'CONVERSIONS',
-    status: 'paused',
-    totalBudget: 600,
-    currency: 'USD',
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
-    platformCampaigns: [
-      {
-        id: 'pc-006',
-        platform: 'meta',
-        status: 'paused',
-        budget: 600,
-        currency: 'USD',
-        platformCampaignId: '44444444',
-        adGroups: [
-          { id: 'ag-009', name: 'Website Visitors — 30d', adType: 'DISPLAY', status: 'paused' },
-          { id: 'ag-010', name: 'Cart Abandoners', adType: 'DISPLAY', status: 'paused' }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'camp-005',
-    acceId: 'ACCE-03',
-    name: 'Holiday Flash Sale',
-    source: 'accelerate',
-    objective: 'CONVERSIONS',
-    status: null,
-    totalBudget: 8000,
-    currency: 'USD',
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
-    platformCampaigns: [
-      {
-        id: 'pc-007',
-        platform: 'google',
-        status: 'ended',
-        budget: 3000,
-        currency: 'USD',
-        platformCampaignId: '55555555',
-        adGroups: [
-          { id: 'ag-011', name: 'Shopping — All Products', adType: 'SHOPPING', status: 'ended' }
-        ]
-      },
-      {
-        id: 'pc-008',
-        platform: 'meta',
-        status: 'ended',
-        budget: 3000,
-        currency: 'USD',
-        platformCampaignId: '66666666',
-        adGroups: [
-          { id: 'ag-012', name: 'Video — Prospecting', adType: 'VIDEO', status: 'ended' }
-        ]
-      },
-      {
-        id: 'pc-009',
-        platform: 'bing',
-        status: 'failed',
-        budget: 2000,
-        currency: 'USD',
-        platformCampaignId: '77777777',
-        adGroups: [
-          { id: 'ag-013', name: 'Search — Brand', adType: 'SEARCH', status: 'failed' }
-        ]
-      }
-    ]
-  }
-];
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -472,13 +307,72 @@ function Select({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function CampaignListClient({ orgSlug }: { orgSlug: string }) {
-  const [campaigns] = React.useState<CampaignListItem[]>(MOCK_CAMPAIGNS);
+export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId: string }) {
+  const [campaigns, setCampaigns] = React.useState<CampaignListItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [lastSyncAt, setLastSyncAt] = React.useState<string | null>(null);
+  const [syncing, setSyncing] = React.useState(false);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [showBanner, setShowBanner] = React.useState(true);
   const [page, setPage] = React.useState(1);
   const perPage = 10;
+
+  React.useEffect(() => {
+    void loadCampaigns();
+  }, [orgId]);
+
+  async function loadCampaigns() {
+    setLoading(true);
+    try {
+      const [internalRes, externalRes] = await Promise.all([
+        fetch(`/api/campaigns?orgId=${orgId}&perPage=100`),
+        fetch(`/api/campaigns/external?orgId=${orgId}`)
+      ]);
+      const internalData = internalRes.ok ? await internalRes.json() : { campaigns: [] };
+      const externalData = externalRes.ok ? await externalRes.json() : { campaigns: [], lastSyncAt: null };
+
+      const merged = [
+        ...(internalData.campaigns as CampaignListItem[]),
+        ...(externalData.campaigns as CampaignListItem[])
+      ];
+      setCampaigns(merged);
+      if (externalData.lastSyncAt) setLastSyncAt(externalData.lastSyncAt as string);
+    } catch {
+      // keep empty state
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      await fetch('/api/sync/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId })
+      });
+      await loadCampaigns();
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleStatusChange(c: CampaignListItem, action: 'pause' | 'resume') {
+    const platformCampaignId = c.source === 'external'
+      ? (c.platformCampaignId ?? c.platformCampaigns[0]?.platformCampaignId ?? '')
+      : (c.platformCampaigns[0]?.platformCampaignId ?? '');
+    const adAccountId = c.adAccountId ?? '';
+    const platform = c.platformCampaigns[0]?.platform ?? 'meta';
+
+    await fetch(`/api/campaigns/${c.id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, source: c.source, platform, platformCampaignId, adAccountId, orgId })
+    });
+    await loadCampaigns();
+  }
 
   const [filters, setFilters] = React.useState<FilterState>({
     search: '',
@@ -777,7 +671,7 @@ export function CampaignListClient({ orgSlug }: { orgSlug: string }) {
                 <MenuItem
                   icon={pc.status === 'live' ? <PauseIcon className="size-3" /> : <PlayIcon className="size-3" />}
                   label={pc.status === 'live' ? 'Pause' : 'Resume'}
-                  onClick={() => {/* placeholder */}}
+                  onClick={() => {/* platform-level status change via parent campaign */}}
                 />
               )}
             </DropdownMenu>
@@ -849,9 +743,16 @@ export function CampaignListClient({ orgSlug }: { orgSlug: string }) {
               )}
 
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground truncate max-w-[240px]">
+                <a
+                  href={`/organizations/${orgSlug}/campaigns/${
+                    c.source === 'external'
+                      ? (c.platformCampaigns[0]?.platformCampaignId ?? c.id)
+                      : c.id
+                  }?source=${c.source}&platform=${c.platformCampaigns[0]?.platform ?? 'meta'}&orgId=${orgId}`}
+                  className="text-sm font-semibold text-foreground hover:text-primary truncate max-w-[240px] block"
+                >
                   {c.name}
-                </p>
+                </a>
                 {c.acceId && (
                   <p className="text-[11px] text-muted-foreground mt-0.5">{c.acceId}</p>
                 )}
@@ -932,14 +833,14 @@ export function CampaignListClient({ orgSlug }: { orgSlug: string }) {
                 <MenuItem
                   icon={<PauseIcon className="size-3" />}
                   label="Pause"
-                  onClick={() => {/* placeholder */}}
+                  onClick={() => void handleStatusChange(c, 'pause')}
                 />
               )}
               {campaignAction === 'resume' && (
                 <MenuItem
                   icon={<PlayIcon className="size-3" />}
                   label="Resume"
-                  onClick={() => {/* placeholder */}}
+                  onClick={() => void handleStatusChange(c, 'resume')}
                 />
               )}
               <MenuItem
@@ -1004,6 +905,28 @@ export function CampaignListClient({ orgSlug }: { orgSlug: string }) {
   const fromIdx = Math.min((page - 1) * perPage + 1, filteredCampaigns.length);
   const toIdx = Math.min(page * perPage, filteredCampaigns.length);
 
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-4 p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Campaigns</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Loading campaigns...</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-4 border-b border-border last:border-0 animate-pulse">
+              <div className="h-4 w-48 rounded bg-muted" />
+              <div className="h-4 w-16 rounded bg-muted" />
+              <div className="h-4 w-20 rounded bg-muted" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 p-6 pb-24">
       {/* Header */}
@@ -1015,12 +938,19 @@ export function CampaignListClient({ orgSlug }: { orgSlug: string }) {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {lastSyncAt && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Last synced {timeAgo(lastSyncAt)}
+            </span>
+          )}
           <button
             type="button"
-            className="inline-flex items-center justify-center size-8 rounded-md border border-border text-muted-foreground hover:bg-muted transition-colors"
-            title="Refresh"
+            onClick={() => void handleSync()}
+            disabled={syncing}
+            className="inline-flex items-center justify-center size-8 rounded-md border border-border text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            title={syncing ? 'Syncing...' : 'Sync now'}
           >
-            <RefreshCwIcon className="size-4" />
+            <RefreshCwIcon className={cn('size-4', syncing && 'animate-spin')} />
           </button>
           <a
             href={`/organizations/${orgSlug}/create-campaign`}

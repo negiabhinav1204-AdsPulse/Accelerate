@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { headers } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { getRedirectToSignIn } from '@workspace/auth/redirect';
@@ -10,9 +10,14 @@ import { routes } from '@workspace/routes';
 import { dedupedAuth, signOut } from '.';
 
 const dedupedGetActiveOrganization = cache(async function () {
-  // Read organization slug from the HTTP header
+  // Read organization slug from the HTTP header (set by middleware for page routes)
+  // or fall back to the organizationSlug cookie (sent with API route requests)
   const headerList = await headers();
-  const organizationSlug = headerList.get('x-organization-slug');
+  const cookieStore = await cookies();
+  const organizationSlug =
+    headerList.get('x-organization-slug') ??
+    cookieStore.get('organizationSlug')?.value ??
+    null;
   if (!organizationSlug) {
     // Instead of not-found we can just redirect.
     console.warn('No organization slug in headers. Check middleware.');
