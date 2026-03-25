@@ -6,6 +6,7 @@ import {
   CheckCircle2Icon,
   ClockIcon,
   Loader2Icon,
+  RefreshCwIcon,
   ZapIcon
 } from 'lucide-react';
 
@@ -84,6 +85,7 @@ export type ConnectedPlatformData = {
 export type ConnectorsClientProps = {
   connected: ConnectedPlatformData[];
   orgSlug: string;
+  orgId: string;
   isAdmin: boolean;
   initialConnected?: string;
   initialError?: string;
@@ -285,16 +287,19 @@ function ConnectedTile({
   platform,
   config,
   data,
+  orgId,
   isAdmin
 }: {
   platform: string;
   config: PlatformConfig;
   data: ConnectedPlatformData;
   orgSlug: string;
+  orgId: string;
   isAdmin: boolean;
 }): React.JSX.Element {
   const router = useRouter();
   const [disconnectState, setDisconnectState] = React.useState<'idle' | 'confirming' | 'loading'>('idle');
+  const [syncing, setSyncing] = React.useState(false);
 
   const lastSync = data.defaultAccount?.lastSyncAt
     ? new Date(data.defaultAccount.lastSyncAt).toLocaleString(undefined, {
@@ -312,6 +317,24 @@ function ConnectedTile({
     } catch {
       toast.error(`Failed to disconnect ${config.label}`);
       setDisconnectState('idle');
+    }
+  }
+
+  async function handleSync(): Promise<void> {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/sync/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId })
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`${config.label} sync complete`);
+      router.refresh();
+    } catch {
+      toast.error(`Failed to sync ${config.label}`);
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -342,6 +365,16 @@ function ConnectedTile({
 
       {isAdmin && (
         <div className="space-y-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-2"
+            onClick={() => void handleSync()}
+            disabled={syncing || disconnectState === 'loading'}
+          >
+            <RefreshCwIcon className={`size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing…' : 'Sync now'}
+          </Button>
           {disconnectState === 'idle' && (
             <Button
               variant="outline"
@@ -449,6 +482,7 @@ function ComingSoonTile({ label, description, icon: Icon }: { label: string; des
 export function ConnectorsClient({
   connected,
   orgSlug,
+  orgId,
   isAdmin,
   initialConnected,
   initialError,
@@ -506,7 +540,7 @@ export function ConnectorsClient({
             {Object.entries(MAIN_PLATFORMS).map(([platform, config]) => {
               const data = connectedByPlatform[platform] ?? null;
               return data ? (
-                <ConnectedTile key={platform} platform={platform} config={config} data={data} orgSlug={orgSlug} isAdmin={isAdmin} />
+                <ConnectedTile key={platform} platform={platform} config={config} data={data} orgSlug={orgSlug} orgId={orgId} isAdmin={isAdmin} />
               ) : (
                 <UnconnectedTile key={platform} platform={platform} config={config} orgSlug={orgSlug} isAdmin={isAdmin} />
               );

@@ -15,7 +15,6 @@
 import type { SyncResult } from './types';
 
 const META_API_VERSION = 'v23.0';
-const DATE_RANGE_DAYS = 30;
 
 function getDatePreset(): string {
   return 'last_30d';
@@ -145,66 +144,14 @@ async function fetchMetaReport(
     if (!res.ok) {
       const err = await res.text();
       console.warn(`[meta-sync] ${report.reportType} API error:`, err.slice(0, 200));
-      return { rows: getMockRows(report.reportType), source: 'mock' };
+      return { rows: [], source: 'api' };
     }
 
     const data = (await res.json()) as { data?: unknown[] };
     return { rows: data.data ?? [], source: 'api' };
-  } catch {
-    return { rows: getMockRows(report.reportType), source: 'mock' };
-  }
-}
-
-function getMockRows(reportType: string): unknown[] {
-  const today = new Date().toISOString().split('T')[0];
-  switch (reportType) {
-    case 'campaigns':
-      return [
-        { id: 'mock-camp-1', name: 'Summer Sale 2026', status: 'ACTIVE', objective: 'CONVERSIONS', daily_budget: '5000', created_time: today },
-        { id: 'mock-camp-2', name: 'Brand Awareness Q1', status: 'ACTIVE', objective: 'REACH', daily_budget: '3000', created_time: today }
-      ];
-    case 'adsets':
-      return [
-        { id: 'mock-as-1', name: 'Lookalike 1% India', status: 'ACTIVE', campaign_id: 'mock-camp-1', optimization_goal: 'PURCHASE', daily_budget: '2500' },
-        { id: 'mock-as-2', name: 'Retargeting - 30d visitors', status: 'ACTIVE', campaign_id: 'mock-camp-1', optimization_goal: 'PURCHASE', daily_budget: '2500' }
-      ];
-    case 'ads':
-      return [
-        { id: 'mock-ad-1', name: 'Carousel - Product A', status: 'ACTIVE', adset_id: 'mock-as-1', campaign_id: 'mock-camp-1' },
-        { id: 'mock-ad-2', name: 'Single Image - Hero', status: 'ACTIVE', adset_id: 'mock-as-1', campaign_id: 'mock-camp-1' }
-      ];
-    case 'adcreatives':
-      return [
-        { id: 'mock-cr-1', name: 'Carousel Creative', title: 'Shop Now', body: 'Up to 50% off', call_to_action_type: 'SHOP_NOW' },
-        { id: 'mock-cr-2', name: 'Hero Image Creative', title: 'New Arrivals', body: 'Explore our latest collection', call_to_action_type: 'LEARN_MORE' }
-      ];
-    case 'campaign_insights_daily':
-      return [
-        { date_start: today, date_stop: today, campaign_id: 'mock-camp-1', campaign_name: 'Summer Sale 2026', impressions: '8420', reach: '6200', spend: '1840.50', clicks: '312', ctr: '3.71', cpc: '5.90', purchase_roas: [{ action_type: 'omni_purchase', value: '4.2' }] },
-        { date_start: today, date_stop: today, campaign_id: 'mock-camp-2', campaign_name: 'Brand Awareness Q1', impressions: '24800', reach: '21000', spend: '980.00', clicks: '148', ctr: '0.60', cpc: '6.62' }
-      ];
-    case 'adset_insights_daily':
-      return [
-        { date_start: today, date_stop: today, adset_id: 'mock-as-1', adset_name: 'Lookalike 1% India', impressions: '4800', spend: '1020.00', clicks: '192', ctr: '4.00', cpc: '5.31', actions: [{ action_type: 'purchase', value: '14' }] },
-        { date_start: today, date_stop: today, adset_id: 'mock-as-2', adset_name: 'Retargeting - 30d visitors', impressions: '3620', spend: '820.50', clicks: '120', ctr: '3.31', cpc: '6.84', actions: [{ action_type: 'purchase', value: '9' }] }
-      ];
-    case 'ad_insights_daily':
-      return [
-        { date_start: today, date_stop: today, ad_id: 'mock-ad-1', ad_name: 'Carousel - Product A', impressions: '2800', spend: '610.00', clicks: '124', ctr: '4.43', quality_ranking: 'ABOVE_AVERAGE', engagement_rate_ranking: 'AVERAGE', conversion_rate_ranking: 'ABOVE_AVERAGE' }
-      ];
-    case 'insights_by_age_gender':
-      return [
-        { date_start: today, date_stop: today, age: '25-34', gender: 'female', impressions: '3200', spend: '740.00', clicks: '128', actions: [{ action_type: 'purchase', value: '8' }] },
-        { date_start: today, date_stop: today, age: '18-24', gender: 'male', impressions: '2400', spend: '520.00', clicks: '84', actions: [{ action_type: 'purchase', value: '4' }] }
-      ];
-    case 'insights_by_platform_placement':
-      return [
-        { date_start: today, date_stop: today, publisher_platform: 'facebook', platform_position: 'feed', impressions: '5200', spend: '1100.00', clicks: '188', actions: [{ action_type: 'purchase', value: '11' }] },
-        { date_start: today, date_stop: today, publisher_platform: 'instagram', platform_position: 'stream', impressions: '3800', spend: '740.50', clicks: '124', actions: [{ action_type: 'purchase', value: '7' }] },
-        { date_start: today, date_stop: today, publisher_platform: 'instagram', platform_position: 'story', impressions: '2800', spend: '480.00', clicks: '82', actions: [{ action_type: 'purchase', value: '4' }] }
-      ];
-    default:
-      return [];
+  } catch (e) {
+    console.warn(`[meta-sync] ${report.reportType} fetch failed:`, e);
+    return { rows: [], source: 'api' };
   }
 }
 

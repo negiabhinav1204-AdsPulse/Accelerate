@@ -96,6 +96,7 @@ export default async function ConnectorsPage({
           <ConnectorsClient
             connected={connectedPlatforms}
             orgSlug={ctx.organization.slug}
+            orgId={ctx.organization.id}
             isAdmin={isAdmin}
             initialConnected={connected}
             initialError={connector_error}
