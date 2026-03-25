@@ -1,0 +1,13 @@
+{
+  "name": "accelerate-dashboard",
+  "framework": "nextjs",
+  "buildCommand": "pnpm turbo run build --filter=dashboard",
+  "outputDirectory": "apps/dashboard/.next",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "crons": [
+    {
+      "path": "/api/sync/cron",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}
