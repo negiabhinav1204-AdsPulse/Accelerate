@@ -16,6 +16,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@workspace/auth'
 import { prisma } from '@workspace/database/client'
 
+type AgeGenderRow = {
+  age: string
+  gender: string
+  impressions: string
+  spend: string
+  clicks: string
+  date_start: string
+}
+
+type PlatformRow = {
+  publisher_platform: string
+  platform_position: string
+  impressions: string
+  spend: string
+  clicks: string
+  date_start: string
+}
+
 type MetaInsightRow = {
   date_start: string
   date_stop: string
@@ -78,7 +96,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     dateFrom = toISODate(from)
   }
 
-  const [reports, latestAccount] = await Promise.all([
+  const [reports, latestAccount, ageGenderReports, platformReports] = await Promise.all([
     prisma.adPlatformReport.findMany({
       where: {
         organizationId: orgId,
@@ -101,6 +119,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
       orderBy: { lastSyncAt: 'desc' },
       select: { lastSyncAt: true }
+    }),
+    prisma.adPlatformReport.findMany({
+      where: {
+        organizationId: orgId,
+        reportType: 'insights_by_age_gender'
+      }
+    }),
+    prisma.adPlatformReport.findMany({
+      where: {
+        organizationId: orgId,
+        reportType: 'insights_by_platform_placement'
+      }
     })
   ])
 
@@ -222,7 +252,56 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }))
     .sort((a, b) => b.spend - a.spend)
 
+  // ageGender — group by age, sum clicks by gender
+  const ageGenderMap = new Map<string, { female: number; male: number; others: number }>()
+  for (const report of ageGenderReports) {
+    const reportRows = (report.data as AgeGenderRow[]) ?? []
+    for (const row of reportRows) {
+      if (row.date_start >= dateFrom && row.date_start <= dateTo) {
+        const existing = ageGenderMap.get(row.age) ?? { female: 0, male: 0, others: 0 }
+        const clicks = parseInt(row.clicks || '0', 10)
+        const gender = row.gender?.toLowerCase() ?? ''
+        if (gender === 'female') {
+          ageGenderMap.set(row.age, { ...existing, female: existing.female + clicks })
+        } else if (gender === 'male') {
+          ageGenderMap.set(row.age, { ...existing, male: existing.male + clicks })
+        } else {
+          ageGenderMap.set(row.age, { ...existing, others: existing.others + clicks })
+        }
+      }
+    }
+  }
+  const ageGender = Array.from(ageGenderMap.entries())
+    .map(([age, counts]) => ({ age, ...counts }))
+    .sort((a, b) => a.age.localeCompare(b.age))
+
+  // platformBreakdown — group by publisher_platform + platform_position, sum clicks
+  const platformMap = new Map<string, { region: string; conversions: number }>()
+  for (const report of platformReports) {
+    const reportRows = (report.data as PlatformRow[]) ?? []
+    for (const row of reportRows) {
+      if (row.date_start >= dateFrom && row.date_start <= dateTo) {
+        const publisherCapitalized =
+          (row.publisher_platform ?? '').charAt(0).toUpperCase() +
+          (row.publisher_platform ?? '').slice(1).toLowerCase()
+        const positionTitleCase = (row.platform_position ?? '')
+          .replace(/_/g, ' ')
+          .replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        const region = `${publisherCapitalized} ${positionTitleCase}`.trim()
+        const key = region
+        const existing = platformMap.get(key) ?? { region, conversions: 0 }
+        platformMap.set(key, {
+          region,
+          conversions: existing.conversions + parseInt(row.clicks || '0', 10)
+        })
+      }
+    }
+  }
+  const platformBreakdown = Array.from(platformMap.values())
+    .sort((a, b) => b.conversions - a.conversions)
+    .slice(0, 5)
+
   const lastSyncAt = latestAccount?.lastSyncAt?.toISOString() ?? null
 
-  return NextResponse.json({ dailyMetrics, summaryTotals, perCampaign, lastSyncAt })
+  return NextResponse.json({ dailyMetrics, summaryTotals, perCampaign, ageGender, platformBreakdown, lastSyncAt })
 }

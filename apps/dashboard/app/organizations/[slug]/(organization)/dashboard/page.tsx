@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage(): Promise<React.JSX.Element> {
-  await getAuthOrganizationContext();
+  const ctx = await getAuthOrganizationContext();
 
   return (
     <Page>
@@ -32,7 +32,7 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
         </PagePrimaryBar>
       </PageHeader>
       <PageBody>
-        <DashboardClient />
+        <DashboardClient orgId={ctx.organization.id} />
       </PageBody>
     </Page>
   );

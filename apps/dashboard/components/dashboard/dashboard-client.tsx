@@ -6,6 +6,7 @@ import {
   ArrowDownIcon,
   CalendarIcon,
   GripVerticalIcon,
+  Loader2Icon,
   Maximize2Icon,
   MegaphoneIcon,
   MoreHorizontalIcon,
@@ -62,99 +63,20 @@ const DATE_FILTERS: { label: string; value: DateRangeKey }[] = [
   { label: 'Custom', value: 'custom' }
 ];
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
+// ── Reporting data types ──────────────────────────────────────────────────────
 
-type RangeData = {
-  metrics: {
-    campaigns: number;
-    totalSpend: number;
-    impressions: number;
-    clicks: number;
-    conversions: number;
-    spendChange: number;
-    impressionsChange: number;
-    clicksChange: number;
-    conversionsChange: number;
-  };
-  spendConversions: { label: string; spend: number; conversions: number }[];
-  geography: { region: string; conversions: number }[];
-  ageGender: { age: string; female: number; male: number; others: number }[];
-  topCampaigns: { name: string; conversions: number; change: number }[];
-};
+type DailyMetric = { date: string; spend: number; impressions: number; clicks: number; conversions: number };
+type PerCampaign = { campaignId: string; campaignName: string; spend: number; impressions: number; clicks: number; conversions: number };
+type AgeGenderItem = { age: string; female: number; male: number; others: number };
+type PlatformItem = { region: string; conversions: number };
 
-const MOCK: Record<DateRangeKey, RangeData> = {
-  today: {
-    metrics: { campaigns: 233, totalSpend: 1240, impressions: 9800, clicks: 4120, conversions: 310, spendChange: 3.2, impressionsChange: 2.1, clicksChange: 4.5, conversionsChange: 5.1 },
-    spendConversions: [
-      { label: '6am', spend: 180, conversions: 12 }, { label: '9am', spend: 340, conversions: 22 },
-      { label: '12pm', spend: 520, conversions: 38 }, { label: '3pm', spend: 690, conversions: 51 },
-      { label: '6pm', spend: 810, conversions: 63 }, { label: '9pm', spend: 920, conversions: 71 },
-      { label: '12am', spend: 1240, conversions: 89 }
-    ],
-    geography: [{ region: 'CalifF', conversions: 52 }, { region: 'BosDA', conversions: 38 }, { region: 'Canada', conversions: 28 }, { region: 'Phoenix', conversions: 19 }, { region: 'MexDE', conversions: 12 }],
-    ageGender: [{ age: '18-24', female: 28, male: 35, others: 4 }, { age: '25-34', female: 44, male: 30, others: 2 }, { age: '35-44', female: 38, male: 28, others: 6 }, { age: '45+', female: 22, male: 18, others: 3 }],
-    topCampaigns: [{ name: 'Frozen Lab Gaming', conversions: 52, change: 12 }, { name: 'Summer Blast Offer', conversions: 38, change: 8 }, { name: 'Winter Campaign', conversions: 64, change: 15 }, { name: 'Midday Social Boost', conversions: 35, change: -3 }]
-  },
-  '7d': {
-    metrics: { campaigns: 233, totalSpend: 7657, impressions: 6353, clicks: 36563, conversions: 36563, spendChange: 8.5, impressionsChange: 8.5, clicksChange: 8.5, conversionsChange: 8.5 },
-    spendConversions: [
-      { label: 'Mon', spend: 47000, conversions: 44 }, { label: 'Tue', spend: 45000, conversions: 37 },
-      { label: 'Wed', spend: 42000, conversions: 33 }, { label: 'Thu', spend: 33000, conversions: 28 },
-      { label: 'Fri', spend: 52000, conversions: 48 }, { label: 'Sat', spend: 49000, conversions: 43 },
-      { label: 'Sun', spend: 46000, conversions: 41 }
-    ],
-    geography: [{ region: 'CalifF', conversions: 51 }, { region: 'BosDA', conversions: 37 }, { region: 'Canada', conversions: 63 }, { region: 'Phoenix', conversions: 34 }, { region: 'MexDE', conversions: 22 }],
-    ageGender: [{ age: '18-24', female: 35, male: 38, others: 3 }, { age: '25-34', female: 52, male: 28, others: 4 }, { age: '35-44', female: 55, male: 30, others: 14 }, { age: '45+', female: 42, male: 20, others: 2 }],
-    topCampaigns: [{ name: 'Frozen Lab Gaming', conversions: 52, change: 12 }, { name: 'Summer Blast Offer', conversions: 38, change: 8 }, { name: 'Winter Campaign', conversions: 64, change: 15 }, { name: 'Midday Social Boost', conversions: 35, change: -3 }]
-  },
-  '15d': {
-    metrics: { campaigns: 233, totalSpend: 15320, impressions: 128400, clicks: 74200, conversions: 5810, spendChange: 11.2, impressionsChange: 9.7, clicksChange: 13.4, conversionsChange: 7.8 },
-    spendConversions: [
-      { label: 'D1', spend: 900, conversions: 38 }, { label: 'D2', spend: 1050, conversions: 43 }, { label: 'D3', spend: 870, conversions: 36 }, { label: 'D4', spend: 1200, conversions: 52 },
-      { label: 'D5', spend: 1100, conversions: 47 }, { label: 'D6', spend: 950, conversions: 40 }, { label: 'D7', spend: 1300, conversions: 56 }, { label: 'D8', spend: 1150, conversions: 49 },
-      { label: 'D9', spend: 980, conversions: 41 }, { label: 'D10', spend: 1060, conversions: 45 }, { label: 'D11', spend: 1240, conversions: 53 }, { label: 'D12', spend: 1080, conversions: 46 },
-      { label: 'D13', spend: 1190, conversions: 51 }, { label: 'D14', spend: 1020, conversions: 44 }, { label: 'D15', spend: 1380, conversions: 59 }
-    ],
-    geography: [{ region: 'CalifF', conversions: 62 }, { region: 'BosDA', conversions: 45 }, { region: 'Canada', conversions: 71 }, { region: 'Phoenix', conversions: 40 }, { region: 'MexDE', conversions: 29 }],
-    ageGender: [{ age: '18-24', female: 40, male: 45, others: 5 }, { age: '25-34', female: 58, male: 33, others: 6 }, { age: '35-44', female: 62, male: 35, others: 16 }, { age: '45+', female: 48, male: 24, others: 4 }],
-    topCampaigns: [{ name: 'Frozen Lab Gaming', conversions: 78, change: 18 }, { name: 'Summer Blast Offer', conversions: 64, change: 12 }, { name: 'Winter Campaign', conversions: 91, change: 22 }, { name: 'Midday Social Boost', conversions: 55, change: -1 }]
-  },
-  '30d': {
-    metrics: { campaigns: 233, totalSpend: 31800, impressions: 264000, clicks: 148600, conversions: 11900, spendChange: 5.3, impressionsChange: 7.1, clicksChange: 6.8, conversionsChange: 9.2 },
-    spendConversions: [
-      { label: 'W1', spend: 7200, conversions: 280 }, { label: 'W2', spend: 8100, conversions: 310 },
-      { label: 'W3', spend: 7600, conversions: 295 }, { label: 'W4', spend: 8900, conversions: 345 }
-    ],
-    geography: [{ region: 'CalifF', conversions: 128 }, { region: 'BosDA', conversions: 94 }, { region: 'Canada', conversions: 143 }, { region: 'Phoenix', conversions: 82 }, { region: 'MexDE', conversions: 57 }],
-    ageGender: [{ age: '18-24', female: 82, male: 91, others: 11 }, { age: '25-34', female: 118, male: 68, others: 12 }, { age: '35-44', female: 127, male: 71, others: 32 }, { age: '45+', female: 96, male: 49, others: 8 }],
-    topCampaigns: [{ name: 'Frozen Lab Gaming', conversions: 156, change: 9 }, { name: 'Summer Blast Offer', conversions: 128, change: 6 }, { name: 'Winter Campaign', conversions: 183, change: 17 }, { name: 'Midday Social Boost', conversions: 109, change: -5 }]
-  },
-  year: {
-    metrics: { campaigns: 233, totalSpend: 382000, impressions: 3180000, clicks: 1780000, conversions: 143000, spendChange: 22.4, impressionsChange: 18.7, clicksChange: 24.1, conversionsChange: 31.5 },
-    spendConversions: [
-      { label: 'Jan', spend: 28000, conversions: 1100 }, { label: 'Feb', spend: 25000, conversions: 980 },
-      { label: 'Mar', spend: 30000, conversions: 1240 }, { label: 'Apr', spend: 33000, conversions: 1380 },
-      { label: 'May', spend: 31000, conversions: 1290 }, { label: 'Jun', spend: 35000, conversions: 1470 },
-      { label: 'Jul', spend: 38000, conversions: 1620 }, { label: 'Aug', spend: 36000, conversions: 1510 },
-      { label: 'Sep', spend: 32000, conversions: 1350 }, { label: 'Oct', spend: 34000, conversions: 1440 },
-      { label: 'Nov', spend: 40000, conversions: 1710 }, { label: 'Dec', spend: 20000, conversions: 900 }
-    ],
-    geography: [{ region: 'CalifF', conversions: 1540 }, { region: 'BosDA', conversions: 1120 }, { region: 'Canada', conversions: 1720 }, { region: 'Phoenix', conversions: 980 }, { region: 'MexDE', conversions: 690 }],
-    ageGender: [{ age: '18-24', female: 980, male: 1090, others: 130 }, { age: '25-34', female: 1420, male: 810, others: 140 }, { age: '35-44', female: 1520, male: 850, others: 380 }, { age: '45+', female: 1150, male: 590, others: 95 }],
-    topCampaigns: [{ name: 'Frozen Lab Gaming', conversions: 1870, change: 35 }, { name: 'Summer Blast Offer', conversions: 1540, change: 28 }, { name: 'Winter Campaign', conversions: 2190, change: 42 }, { name: 'Midday Social Boost', conversions: 1310, change: -8 }]
-  },
-  custom: {
-    metrics: { campaigns: 233, totalSpend: 7657, impressions: 6353, clicks: 36563, conversions: 36563, spendChange: 8.5, impressionsChange: 8.5, clicksChange: 8.5, conversionsChange: 8.5 },
-    spendConversions: [
-      { label: 'Mon', spend: 47000, conversions: 44 }, { label: 'Tue', spend: 45000, conversions: 37 },
-      { label: 'Wed', spend: 42000, conversions: 33 }, { label: 'Thu', spend: 33000, conversions: 28 },
-      { label: 'Fri', spend: 52000, conversions: 48 }, { label: 'Sat', spend: 49000, conversions: 43 },
-      { label: 'Sun', spend: 46000, conversions: 41 }
-    ],
-    geography: [{ region: 'CalifF', conversions: 51 }, { region: 'BosDA', conversions: 37 }, { region: 'Canada', conversions: 63 }, { region: 'Phoenix', conversions: 34 }, { region: 'MexDE', conversions: 22 }],
-    ageGender: [{ age: '18-24', female: 35, male: 38, others: 3 }, { age: '25-34', female: 52, male: 28, others: 4 }, { age: '35-44', female: 55, male: 30, others: 14 }, { age: '45+', female: 42, male: 20, others: 2 }],
-    topCampaigns: [{ name: 'Frozen Lab Gaming', conversions: 52, change: 12 }, { name: 'Summer Blast Offer', conversions: 38, change: 8 }, { name: 'Winter Campaign', conversions: 64, change: 15 }, { name: 'Midday Social Boost', conversions: 35, change: -3 }]
-  }
+type ReportingData = {
+  dailyMetrics: DailyMetric[];
+  summaryTotals: { spend: number; impressions: number; clicks: number; conversions: number; ctr: number; cpc: number; roas: number };
+  perCampaign: PerCampaign[];
+  ageGender: AgeGenderItem[];
+  platformBreakdown: PlatformItem[];
+  lastSyncAt: string | null;
 };
 
 // ── Chart registry ────────────────────────────────────────────────────────────
@@ -163,7 +85,7 @@ type ChartId = 'spend-conversions' | 'geography' | 'age-gender' | 'top-campaigns
 
 const CHART_META: Record<ChartId, { title: string; subtitle: string }> = {
   'spend-conversions': { title: 'Spend vs. Conversions', subtitle: 'Multi-axis view showing spend and conversion correlation' },
-  geography: { title: 'Geography Breakdown', subtitle: 'Conversion location by region' },
+  geography: { title: 'Platform Breakdown', subtitle: 'Clicks by publisher platform and placement' },
   'age-gender': { title: 'Age and Gender Breakdown', subtitle: 'Conversion statistics by demographic' },
   'top-campaigns': { title: 'Top Performing Campaigns', subtitle: 'Ad campaign ranking with +70 conversions' }
 };
@@ -182,6 +104,13 @@ function formatCurrency(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
   return `$${n.toLocaleString()}`;
+}
+
+function formatDateLabel(dateStr: string, range: DateRangeKey): string {
+  const d = new Date(dateStr);
+  if (range === 'today') return d.toLocaleDateString('en-US', { hour: '2-digit' });
+  if (range === 'year') return d.toLocaleDateString('en-US', { month: 'short' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 // ── Metric card ───────────────────────────────────────────────────────────────
@@ -278,7 +207,7 @@ function ChartCard({
 
 // ── Individual charts ─────────────────────────────────────────────────────────
 
-function SpendConversionsChart({ data }: { data: RangeData['spendConversions'] }): React.JSX.Element {
+function SpendConversionsChart({ data }: { data: { label: string; spend: number; conversions: number }[] }): React.JSX.Element {
   return (
     <ResponsiveContainer width="100%" height={280}>
       <LineChart data={data} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
@@ -298,7 +227,7 @@ function SpendConversionsChart({ data }: { data: RangeData['spendConversions'] }
   );
 }
 
-function GeographyChart({ data }: { data: RangeData['geography'] }): React.JSX.Element {
+function GeographyChart({ data }: { data: { region: string; conversions: number }[] }): React.JSX.Element {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
@@ -315,7 +244,7 @@ function GeographyChart({ data }: { data: RangeData['geography'] }): React.JSX.E
   );
 }
 
-function AgeGenderChart({ data }: { data: RangeData['ageGender'] }): React.JSX.Element {
+function AgeGenderChart({ data }: { data: { age: string; female: number; male: number; others: number }[] }): React.JSX.Element {
   return (
     <>
       <ResponsiveContainer width="100%" height={180}>
@@ -344,7 +273,7 @@ function AgeGenderChart({ data }: { data: RangeData['ageGender'] }): React.JSX.E
   );
 }
 
-function TopCampaignsTable({ data }: { data: RangeData['topCampaigns'] }): React.JSX.Element {
+function TopCampaignsTable({ data }: { data: { name: string; conversions: number; change: number }[] }): React.JSX.Element {
   return (
     <div>
       <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 pb-2 border-b border-border">
@@ -374,11 +303,17 @@ function TopCampaignsTable({ data }: { data: RangeData['topCampaigns'] }): React
 function ExpandedChartModal({
   chartId,
   onClose,
-  data
+  spendConversions,
+  geography,
+  ageGender,
+  topCampaigns
 }: {
   chartId: ChartId | null;
   onClose: () => void;
-  data: RangeData;
+  spendConversions: { label: string; spend: number; conversions: number }[];
+  geography: { region: string; conversions: number }[];
+  ageGender: { age: string; female: number; male: number; others: number }[];
+  topCampaigns: { name: string; conversions: number; change: number }[];
 }): React.JSX.Element | null {
   if (!chartId) return null;
   const meta = CHART_META[chartId];
@@ -391,10 +326,10 @@ function ExpandedChartModal({
           <p className="text-sm text-muted-foreground">{meta.subtitle}</p>
         </DialogHeader>
         <div className="mt-2">
-          {chartId === 'spend-conversions' && <SpendConversionsChart data={data.spendConversions} />}
+          {chartId === 'spend-conversions' && <SpendConversionsChart data={spendConversions} />}
           {chartId === 'geography' && (
             <ResponsiveContainer width="100%" height={360}>
-              <BarChart data={data.geography} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+              <BarChart data={geography} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal vertical={false} />
                 <XAxis dataKey="region" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
@@ -406,7 +341,7 @@ function ExpandedChartModal({
           {chartId === 'age-gender' && (
             <div className="space-y-3">
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={data.ageGender} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                <BarChart data={ageGender} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal vertical={false} />
                   <XAxis dataKey="age" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
@@ -433,7 +368,7 @@ function ExpandedChartModal({
                 <span className="text-sm font-medium text-muted-foreground">Conversions</span>
                 <span className="text-sm font-medium text-muted-foreground">Change</span>
               </div>
-              {data.topCampaigns.map((row) => (
+              {topCampaigns.map((row) => (
                 <div key={row.name} className="grid grid-cols-[1fr_auto_auto] gap-x-6 py-3 items-center">
                   <span className="text-sm text-foreground">{row.name}</span>
                   <span className="text-sm font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded text-center">
@@ -493,14 +428,48 @@ function AddViewPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function DashboardClient(): React.JSX.Element {
+export function DashboardClient({ orgId }: { orgId: string }): React.JSX.Element {
+  // state
   const [activeRange, setActiveRange] = React.useState<DateRangeKey>('7d');
   const [activeCharts, setActiveCharts] = React.useState<ChartId[]>([...DEFAULT_CHARTS]);
   const [expandedChart, setExpandedChart] = React.useState<ChartId | null>(null);
   const [customFrom, setCustomFrom] = React.useState('');
   const [customTo, setCustomTo] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
+  const [data, setData] = React.useState<ReportingData | null>(null);
 
-  const data = MOCK[activeRange];
+  // fetch on range/custom date change
+  React.useEffect(() => {
+    void fetchData();
+  }, [activeRange, customFrom, customTo]);
+
+  async function fetchData() {
+    setLoading(true);
+    try {
+      let url = `/api/reporting?orgId=${orgId}`;
+      if (activeRange === 'today') {
+        const today = new Date().toISOString().split('T')[0];
+        url += `&dateRange=custom&dateFrom=${today}&dateTo=${today}`;
+      } else if (activeRange === 'year') {
+        const to = new Date().toISOString().split('T')[0];
+        const from = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        url += `&dateRange=custom&dateFrom=${from}&dateTo=${to}`;
+      } else if (activeRange === 'custom' && customFrom && customTo) {
+        url += `&dateRange=custom&dateFrom=${customFrom}&dateTo=${customTo}`;
+      } else if (activeRange !== 'custom') {
+        url += `&dateRange=${activeRange}`;
+      } else {
+        return; // custom but dates not set yet
+      }
+      const res = await fetch(url);
+      if (res.ok) {
+        setData(await res.json() as ReportingData);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const removedCharts = DEFAULT_CHARTS.filter((id) => !activeCharts.includes(id));
 
   function removeChart(id: ChartId): void {
@@ -516,6 +485,44 @@ export function DashboardClient(): React.JSX.Element {
   }
 
   const smallCharts = activeCharts.filter((id) => id !== 'spend-conversions');
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center w-full py-32">
+        <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Empty state
+  if (!loading && !data) {
+    return (
+      <div className="p-6 max-w-[1400px]">
+        <div className="rounded-xl border border-dashed border-border bg-muted/20 flex flex-col items-center justify-center py-20 gap-3">
+          <BarChart3Icon className="size-8 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            No campaign data yet. Connect a platform and run a sync to see your dashboard.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Transform real data for charts
+  const spendConversions = (data?.dailyMetrics ?? []).map((d) => ({
+    label: formatDateLabel(d.date, activeRange),
+    spend: d.spend,
+    conversions: d.conversions
+  }));
+
+  const topCampaigns = [...(data?.perCampaign ?? [])]
+    .sort((a, b) => b.spend - a.spend)
+    .slice(0, 5)
+    .map((c) => ({ name: c.campaignName, conversions: c.conversions, change: 0 }));
+
+  const ageGender = data?.ageGender ?? [];
+  const geography = data?.platformBreakdown ?? [];
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px]">
@@ -559,11 +566,11 @@ export function DashboardClient(): React.JSX.Element {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">Performance overview</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <MetricCard label="Campaigns" value={String(data.metrics.campaigns)} icon={MegaphoneIcon} />
-          <MetricCard label="Total Spend" value={formatCurrency(data.metrics.totalSpend)} change={data.metrics.spendChange} icon={WalletIcon} />
-          <MetricCard label="Impressions" value={formatNumber(data.metrics.impressions)} change={data.metrics.impressionsChange} icon={BarChart3Icon} />
-          <MetricCard label="Clicks" value={formatNumber(data.metrics.clicks)} change={data.metrics.clicksChange} icon={MousePointerClickIcon} />
-          <MetricCard label="Conversions" value={formatNumber(data.metrics.conversions)} change={data.metrics.conversionsChange} icon={TrendingUpIcon} />
+          <MetricCard label="Active Campaigns" value={String(data?.perCampaign.length ?? 0)} icon={MegaphoneIcon} />
+          <MetricCard label="Total Spend" value={formatCurrency(data?.summaryTotals.spend ?? 0)} icon={WalletIcon} />
+          <MetricCard label="Impressions" value={formatNumber(data?.summaryTotals.impressions ?? 0)} icon={BarChart3Icon} />
+          <MetricCard label="Clicks" value={formatNumber(data?.summaryTotals.clicks ?? 0)} icon={MousePointerClickIcon} />
+          <MetricCard label="Conversions" value={formatNumber(data?.summaryTotals.conversions ?? 0)} icon={TrendingUpIcon} />
         </div>
       </div>
 
@@ -589,7 +596,7 @@ export function DashboardClient(): React.JSX.Element {
                 onExpand={setExpandedChart}
                 fullWidth
               >
-                <SpendConversionsChart data={data.spendConversions} />
+                <SpendConversionsChart data={spendConversions} />
               </ChartCard>
             )}
 
@@ -604,7 +611,7 @@ export function DashboardClient(): React.JSX.Element {
                     onRemove={removeChart}
                     onExpand={setExpandedChart}
                   >
-                    <GeographyChart data={data.geography} />
+                    <GeographyChart data={geography} />
                   </ChartCard>
                 )}
                 {smallCharts.includes('age-gender') && (
@@ -615,7 +622,7 @@ export function DashboardClient(): React.JSX.Element {
                     onRemove={removeChart}
                     onExpand={setExpandedChart}
                   >
-                    <AgeGenderChart data={data.ageGender} />
+                    <AgeGenderChart data={ageGender} />
                   </ChartCard>
                 )}
                 {smallCharts.includes('top-campaigns') && (
@@ -626,7 +633,7 @@ export function DashboardClient(): React.JSX.Element {
                     onRemove={removeChart}
                     onExpand={setExpandedChart}
                   >
-                    <TopCampaignsTable data={data.topCampaigns} />
+                    <TopCampaignsTable data={topCampaigns} />
                   </ChartCard>
                 )}
               </div>
@@ -656,7 +663,10 @@ export function DashboardClient(): React.JSX.Element {
       <ExpandedChartModal
         chartId={expandedChart}
         onClose={() => setExpandedChart(null)}
-        data={data}
+        spendConversions={spendConversions}
+        geography={geography}
+        ageGender={ageGender}
+        topCampaigns={topCampaigns}
       />
     </div>
   );
