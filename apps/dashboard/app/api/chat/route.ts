@@ -14,6 +14,7 @@ function buildSystemPrompt(ctx: {
   orgName: string;
   connectedPlatforms: string[];
   memories?: string;
+  performanceData?: string;
 }): string {
   const platformList =
     ctx.connectedPlatforms.length > 0
@@ -27,6 +28,7 @@ function buildSystemPrompt(ctx: {
 - Organisation: ${ctx.orgName}
 - Connected ad platforms: ${platformList}
 ${ctx.memories ? `\n## What you already know about this organisation\n${ctx.memories}\n(Use this to personalise responses — do not repeat it back verbatim.)` : ''}
+${ctx.performanceData ? `\n## Live Campaign Performance Data (last 30 days from synced ad accounts)\nUse this real data when answering questions about performance, spend, campaigns, or results. Do NOT invent numbers — only use what is provided here.\n${ctx.performanceData}` : ''}
 
 ## Your Role
 Help users with:
@@ -245,6 +247,111 @@ async function extractAndSaveMemory(params: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Fetch real campaign performance data from DB to ground the AI
+// ---------------------------------------------------------------------------
+
+type InsightRow = {
+  date_start: string;
+  campaign_id: string;
+  campaign_name: string;
+  impressions: string;
+  spend: string;
+  clicks: string;
+  actions?: { action_type: string; value: string }[];
+  purchase_roas?: { action_type: string; value: string }[];
+};
+
+async function fetchPerformanceContext(orgId: string): Promise<string> {
+  try {
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const sinceStr = since.toISOString().split('T')[0]!;
+
+    const [insightReports, lastSync] = await Promise.all([
+      prisma.adPlatformReport.findMany({
+        where: { organizationId: orgId, reportType: 'campaign_insights_daily' }
+      }),
+      prisma.connectedAdAccount.findFirst({
+        where: { organizationId: orgId, archivedAt: null },
+        orderBy: { lastSyncAt: 'desc' },
+        select: { lastSyncAt: true, platform: true, accountName: true }
+      })
+    ]);
+
+    // Flatten rows and filter to last 30 days
+    const rows: InsightRow[] = [];
+    for (const report of insightReports) {
+      for (const row of (report.data as InsightRow[]) ?? []) {
+        if (row.date_start >= sinceStr) rows.push(row);
+      }
+    }
+
+    if (rows.length === 0) {
+      return lastSync
+        ? `No campaign insights data found for the last 30 days. Last sync: ${lastSync.lastSyncAt?.toISOString() ?? 'unknown'}. Ask the user to run a sync from the Connectors page.`
+        : 'No ad accounts synced yet. Suggest the user connects and syncs their ad account from the Connectors page.';
+    }
+
+    // Aggregate totals
+    let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0;
+    const campaignMap = new Map<string, { name: string; spend: number; impressions: number; clicks: number; conversions: number }>();
+
+    for (const row of rows) {
+      const spend = parseFloat(row.spend || '0');
+      const impressions = parseInt(row.impressions || '0', 10);
+      const clicks = parseInt(row.clicks || '0', 10);
+      const conversions = (row.actions ?? [])
+        .filter((a) => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase')
+        .reduce((s, a) => s + parseFloat(a.value || '0'), 0);
+
+      totalSpend += spend;
+      totalImpressions += impressions;
+      totalClicks += clicks;
+      totalConversions += conversions;
+
+      const existing = campaignMap.get(row.campaign_id) ?? { name: row.campaign_name, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
+      campaignMap.set(row.campaign_id, {
+        name: existing.name,
+        spend: existing.spend + spend,
+        impressions: existing.impressions + impressions,
+        clicks: existing.clicks + clicks,
+        conversions: existing.conversions + conversions
+      });
+    }
+
+    const ctr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : '0';
+    const cpc = totalClicks > 0 ? (totalSpend / totalClicks).toFixed(2) : '0';
+
+    const topCampaigns = [...campaignMap.values()]
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 10);
+
+    const campaignLines = topCampaigns.map((c) => {
+      const cCtr = c.impressions > 0 ? ((c.clicks / c.impressions) * 100).toFixed(2) : '0';
+      return `  - "${c.name}": spend=$${c.spend.toFixed(2)}, impressions=${c.impressions.toLocaleString()}, clicks=${c.clicks.toLocaleString()}, CTR=${cCtr}%, conversions=${c.conversions.toFixed(0)}`;
+    }).join('\n');
+
+    return `Last sync: ${lastSync?.lastSyncAt?.toISOString() ?? 'unknown'} (${lastSync?.platform ?? ''} — ${lastSync?.accountName ?? ''})
+Date range: last 30 days
+
+Totals:
+  - Total spend: $${totalSpend.toFixed(2)}
+  - Impressions: ${totalImpressions.toLocaleString()}
+  - Clicks: ${totalClicks.toLocaleString()}
+  - CTR: ${ctr}%
+  - CPC: $${cpc}
+  - Conversions: ${totalConversions.toFixed(0)}
+  - Active campaigns: ${campaignMap.size}
+
+Top campaigns by spend:
+${campaignLines}`;
+  } catch (e) {
+    console.error('[chat] performance context fetch failed:', e);
+    return '';
+  }
+}
+
 type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
@@ -305,24 +412,22 @@ export async function POST(request: NextRequest): Promise<Response> {
     console.error('[chat] context fetch failed:', e);
   }
 
-  // Fetch relevant memories for this conversation turn (non-blocking on failure)
-  let memories = '';
-  if (body.organizationId) {
-    try {
-      const lastUserMsg = body.messages[body.messages.length - 1];
-      const query = lastUserMsg?.content ?? orgName;
-      const nodes = await searchMemory(body.organizationId, session.user.id, query, 6);
-      if (nodes.length > 0) {
-        memories = nodes
-          .map((n) => `[${n.type}] ${n.summary}`)
-          .join('\n');
-      }
-    } catch {
-      // non-fatal
-    }
-  }
+  // Fetch real performance data and memories in parallel
+  const [performanceData, memories] = await Promise.all([
+    body.organizationId ? fetchPerformanceContext(body.organizationId) : Promise.resolve(''),
+    body.organizationId
+      ? (async () => {
+          try {
+            const lastUserMsg = body.messages[body.messages.length - 1];
+            const query = lastUserMsg?.content ?? orgName;
+            const nodes = await searchMemory(body.organizationId!, session.user.id, query, 6);
+            return nodes.length > 0 ? nodes.map((n) => `[${n.type}] ${n.summary}`).join('\n') : '';
+          } catch { return ''; }
+        })()
+      : Promise.resolve('')
+  ]);
 
-  const systemPrompt = buildSystemPrompt({ userName, orgName, connectedPlatforms, memories });
+  const systemPrompt = buildSystemPrompt({ userName, orgName, connectedPlatforms, memories, performanceData });
 
   // Streaming response — we use a custom JSON-lines format so the client can
   // distinguish text chunks from tool-call results
