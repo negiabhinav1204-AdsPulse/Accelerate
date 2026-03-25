@@ -126,6 +126,17 @@ function buildReports(adAccountId: string): MetaReport[] {
         fields: 'impressions,reach,spend,clicks,ctr,cpc,actions,action_values,purchase_roas,date_start,date_stop',
         limit: '500'
       }
+    },
+    {
+      reportType: 'insights_by_country',
+      endpoint: `/${actId}/insights`,
+      params: {
+        level: 'campaign',
+        date_preset: getDatePreset(),
+        breakdowns: 'country',
+        fields: 'impressions,reach,spend,clicks,ctr,cpc,actions,action_values,purchase_roas,date_start,date_stop',
+        limit: '500'
+      }
     }
   ];
 }

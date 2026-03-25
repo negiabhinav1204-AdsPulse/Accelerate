@@ -262,15 +262,29 @@ type InsightRow = {
   purchase_roas?: { action_type: string; value: string }[];
 };
 
+type AgeGenderRow = { age: string; gender: string; impressions: string; spend: string; clicks: string; date_start: string; actions?: { action_type: string; value: string }[] };
+type PlacementRow = { publisher_platform: string; platform_position: string; impressions: string; spend: string; clicks: string; date_start: string };
+type CountryRow = { country: string; impressions: string; spend: string; clicks: string; date_start: string; actions?: { action_type: string; value: string }[] };
+type AdInsightRow = { ad_id: string; ad_name: string; impressions: string; spend: string; clicks: string; date_start: string; quality_ranking?: string; engagement_rate_ranking?: string; actions?: { action_type: string; value: string }[] };
+
+function sumConversions(actions?: { action_type: string; value: string }[]): number {
+  return (actions ?? [])
+    .filter((a) => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase')
+    .reduce((s, a) => s + parseFloat(a.value || '0'), 0);
+}
+
 async function fetchPerformanceContext(orgId: string): Promise<string> {
   try {
     const since = new Date();
     since.setDate(since.getDate() - 30);
     const sinceStr = since.toISOString().split('T')[0]!;
 
-    const [insightReports, lastSync] = await Promise.all([
+    const [allReports, lastSync] = await Promise.all([
       prisma.adPlatformReport.findMany({
-        where: { organizationId: orgId, reportType: 'campaign_insights_daily' }
+        where: {
+          organizationId: orgId,
+          reportType: { in: ['campaign_insights_daily', 'ad_insights_daily', 'insights_by_age_gender', 'insights_by_platform_placement', 'insights_by_country'] }
+        }
       }),
       prisma.connectedAdAccount.findFirst({
         where: { organizationId: orgId, archivedAt: null },
@@ -279,63 +293,117 @@ async function fetchPerformanceContext(orgId: string): Promise<string> {
       })
     ]);
 
-    // Flatten rows and filter to last 30 days
-    const rows: InsightRow[] = [];
-    for (const report of insightReports) {
-      for (const row of (report.data as InsightRow[]) ?? []) {
-        if (row.date_start >= sinceStr) rows.push(row);
+    const byType = (type: string) => allReports.filter((r) => r.reportType === type);
+
+    // ── Campaign totals ───────────────────────────────────────────────────────
+    const campaignRows: InsightRow[] = [];
+    for (const r of byType('campaign_insights_daily')) {
+      for (const row of (r.data as InsightRow[]) ?? []) {
+        if (row.date_start >= sinceStr) campaignRows.push(row);
       }
     }
 
-    if (rows.length === 0) {
+    if (campaignRows.length === 0) {
       return lastSync
-        ? `No campaign insights data found for the last 30 days. Last sync: ${lastSync.lastSyncAt?.toISOString() ?? 'unknown'}. Ask the user to run a sync from the Connectors page.`
-        : 'No ad accounts synced yet. Suggest the user connects and syncs their ad account from the Connectors page.';
+        ? `No campaign data for the last 30 days. Last sync: ${lastSync.lastSyncAt?.toISOString() ?? 'unknown'}. Tell the user to run a sync from the Connectors page.`
+        : 'No ad accounts synced yet. Tell the user to connect and sync their ad account from the Connectors page.';
     }
 
-    // Aggregate totals
     let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0;
     const campaignMap = new Map<string, { name: string; spend: number; impressions: number; clicks: number; conversions: number }>();
-
-    for (const row of rows) {
+    for (const row of campaignRows) {
       const spend = parseFloat(row.spend || '0');
       const impressions = parseInt(row.impressions || '0', 10);
       const clicks = parseInt(row.clicks || '0', 10);
-      const conversions = (row.actions ?? [])
-        .filter((a) => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase')
-        .reduce((s, a) => s + parseFloat(a.value || '0'), 0);
-
-      totalSpend += spend;
-      totalImpressions += impressions;
-      totalClicks += clicks;
-      totalConversions += conversions;
-
-      const existing = campaignMap.get(row.campaign_id) ?? { name: row.campaign_name, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
-      campaignMap.set(row.campaign_id, {
-        name: existing.name,
-        spend: existing.spend + spend,
-        impressions: existing.impressions + impressions,
-        clicks: existing.clicks + clicks,
-        conversions: existing.conversions + conversions
-      });
+      const conversions = sumConversions(row.actions);
+      totalSpend += spend; totalImpressions += impressions; totalClicks += clicks; totalConversions += conversions;
+      const ex = campaignMap.get(row.campaign_id) ?? { name: row.campaign_name, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
+      campaignMap.set(row.campaign_id, { name: ex.name, spend: ex.spend + spend, impressions: ex.impressions + impressions, clicks: ex.clicks + clicks, conversions: ex.conversions + conversions });
     }
-
     const ctr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : '0';
     const cpc = totalClicks > 0 ? (totalSpend / totalClicks).toFixed(2) : '0';
-
-    const topCampaigns = [...campaignMap.values()]
-      .sort((a, b) => b.spend - a.spend)
-      .slice(0, 10);
-
+    const topCampaigns = [...campaignMap.values()].sort((a, b) => b.spend - a.spend).slice(0, 10);
     const campaignLines = topCampaigns.map((c) => {
       const cCtr = c.impressions > 0 ? ((c.clicks / c.impressions) * 100).toFixed(2) : '0';
       return `  - "${c.name}": spend=$${c.spend.toFixed(2)}, impressions=${c.impressions.toLocaleString()}, clicks=${c.clicks.toLocaleString()}, CTR=${cCtr}%, conversions=${c.conversions.toFixed(0)}`;
     }).join('\n');
 
-    return `Last sync: ${lastSync?.lastSyncAt?.toISOString() ?? 'unknown'} (${lastSync?.platform ?? ''} — ${lastSync?.accountName ?? ''})
+    // ── Ad/asset performance ──────────────────────────────────────────────────
+    const adMap = new Map<string, { name: string; spend: number; impressions: number; clicks: number; conversions: number; quality?: string; engagement?: string }>();
+    for (const r of byType('ad_insights_daily')) {
+      for (const row of (r.data as AdInsightRow[]) ?? []) {
+        if (row.date_start < sinceStr) continue;
+        const ex = adMap.get(row.ad_id) ?? { name: row.ad_name, spend: 0, impressions: 0, clicks: 0, conversions: 0, quality: row.quality_ranking, engagement: row.engagement_rate_ranking };
+        adMap.set(row.ad_id, { ...ex, spend: ex.spend + parseFloat(row.spend || '0'), impressions: ex.impressions + parseInt(row.impressions || '0', 10), clicks: ex.clicks + parseInt(row.clicks || '0', 10), conversions: ex.conversions + sumConversions(row.actions) });
+      }
+    }
+    const topAds = [...adMap.values()].sort((a, b) => b.spend - a.spend).slice(0, 10);
+    const adLines = topAds.length > 0
+      ? topAds.map((a) => {
+          const aCtr = a.impressions > 0 ? ((a.clicks / a.impressions) * 100).toFixed(2) : '0';
+          const q = a.quality ? `, quality=${a.quality}` : '';
+          return `  - "${a.name}": spend=$${a.spend.toFixed(2)}, CTR=${aCtr}%${q}, conversions=${a.conversions.toFixed(0)}`;
+        }).join('\n')
+      : '  (not synced yet — run a sync to get asset data)';
+
+    // ── Age/gender breakdown ──────────────────────────────────────────────────
+    const ageGenderMap = new Map<string, { female: number; male: number; unknown: number; fSpend: number; mSpend: number }>();
+    for (const r of byType('insights_by_age_gender')) {
+      for (const row of (r.data as AgeGenderRow[]) ?? []) {
+        if (row.date_start < sinceStr) continue;
+        const ex = ageGenderMap.get(row.age) ?? { female: 0, male: 0, unknown: 0, fSpend: 0, mSpend: 0 };
+        const clicks = parseInt(row.clicks || '0', 10);
+        const spend = parseFloat(row.spend || '0');
+        if (row.gender === 'female') { ex.female += clicks; ex.fSpend += spend; }
+        else if (row.gender === 'male') { ex.male += clicks; ex.mSpend += spend; }
+        else ex.unknown += clicks;
+        ageGenderMap.set(row.age, ex);
+      }
+    }
+    const ageLines = ageGenderMap.size > 0
+      ? [...ageGenderMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([age, d]) => {
+          const total = d.female + d.male + d.unknown || 1;
+          return `  - Age ${age}: female=${d.female.toLocaleString()} clicks (${((d.female/total)*100).toFixed(0)}%), male=${d.male.toLocaleString()} clicks (${((d.male/total)*100).toFixed(0)}%), female spend=$${d.fSpend.toFixed(2)}, male spend=$${d.mSpend.toFixed(2)}`;
+        }).join('\n')
+      : '  (not synced yet)';
+
+    // ── Platform/placement breakdown ──────────────────────────────────────────
+    const platformMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
+    for (const r of byType('insights_by_platform_placement')) {
+      for (const row of (r.data as PlacementRow[]) ?? []) {
+        if (row.date_start < sinceStr) continue;
+        const key = `${row.publisher_platform} / ${row.platform_position}`.replace(/_/g, ' ');
+        const ex = platformMap.get(key) ?? { impressions: 0, clicks: 0, spend: 0 };
+        platformMap.set(key, { impressions: ex.impressions + parseInt(row.impressions || '0', 10), clicks: ex.clicks + parseInt(row.clicks || '0', 10), spend: ex.spend + parseFloat(row.spend || '0') });
+      }
+    }
+    const platformLines = platformMap.size > 0
+      ? [...platformMap.entries()].sort((a, b) => b[1].spend - a[1].spend).map(([plat, d]) => {
+          const pCtr = d.impressions > 0 ? ((d.clicks / d.impressions) * 100).toFixed(2) : '0';
+          return `  - ${plat}: spend=$${d.spend.toFixed(2)}, impressions=${d.impressions.toLocaleString()}, CTR=${pCtr}%`;
+        }).join('\n')
+      : '  (not synced yet)';
+
+    // ── Country/location breakdown ────────────────────────────────────────────
+    const countryMap = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
+    for (const r of byType('insights_by_country')) {
+      for (const row of (r.data as CountryRow[]) ?? []) {
+        if (row.date_start < sinceStr) continue;
+        const ex = countryMap.get(row.country) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
+        countryMap.set(row.country, { impressions: ex.impressions + parseInt(row.impressions || '0', 10), clicks: ex.clicks + parseInt(row.clicks || '0', 10), spend: ex.spend + parseFloat(row.spend || '0'), conversions: ex.conversions + sumConversions(row.actions) });
+      }
+    }
+    const countryLines = countryMap.size > 0
+      ? [...countryMap.entries()].sort((a, b) => b[1].spend - a[1].spend).slice(0, 15).map(([country, d]) => {
+          const cCtr = d.impressions > 0 ? ((d.clicks / d.impressions) * 100).toFixed(2) : '0';
+          return `  - ${country}: spend=$${d.spend.toFixed(2)}, clicks=${d.clicks.toLocaleString()}, CTR=${cCtr}%, conversions=${d.conversions.toFixed(0)}`;
+        }).join('\n')
+      : '  (not synced yet — will appear after next sync)';
+
+    return `Last sync: ${lastSync?.lastSyncAt?.toISOString() ?? 'unknown'} | Account: ${lastSync?.accountName ?? ''} (${lastSync?.platform ?? ''})
 Date range: last 30 days
 
-Totals:
+## Overall Totals
   - Total spend: $${totalSpend.toFixed(2)}
   - Impressions: ${totalImpressions.toLocaleString()}
   - Clicks: ${totalClicks.toLocaleString()}
@@ -344,8 +412,20 @@ Totals:
   - Conversions: ${totalConversions.toFixed(0)}
   - Active campaigns: ${campaignMap.size}
 
-Top campaigns by spend:
-${campaignLines}`;
+## Top Campaigns by Spend
+${campaignLines}
+
+## Top Ads/Assets by Spend
+${adLines}
+
+## Age & Gender Breakdown (clicks + spend)
+${ageLines}
+
+## Platform & Placement Breakdown
+${platformLines}
+
+## Country / Location Breakdown
+${countryLines}`;
   } catch (e) {
     console.error('[chat] performance context fetch failed:', e);
     return '';
