@@ -166,6 +166,7 @@ export function OnboardingWizard({
             businessName: '',
             contactEmail: metadata?.user?.email ?? '',
             location: '',
+            currency: '',
             category: ''
           }
         : undefined,
@@ -212,21 +213,27 @@ export function OnboardingWizard({
   const isLastStep = currentStepIndex === activeSteps.length - 1;
   const formValues = methods.getValues();
   const isCurrentStepValid = validateStep(currentStep, formValues);
-  const canSubmit =
-    !methods.formState.isSubmitting && methods.formState.isValid;
+  const canSubmit = !methods.formState.isSubmitting;
   const onSubmit: SubmitHandler<CompleteOnboardingSchema> = async (values) => {
     if (!canSubmit || !isCurrentStepValid || !isLastStep) {
       return;
     }
 
-    const result = await completeOnboarding(values);
-    if (!result?.serverError && !result?.validationErrors) {
-      toast.success('Completed and ready to go!');
-      router.push(
-        result?.data?.redirect ?? routes.dashboard.organizations.Index
-      );
-    } else {
-      toast.error("Couldn't complete request");
+    try {
+      const result = await completeOnboarding(values);
+      if (!result?.serverError && !result?.validationErrors) {
+        toast.success('Completed and ready to go!');
+        const redirectUrl =
+          result?.data?.redirect ?? routes.dashboard.organizations.Index;
+        window.location.href = redirectUrl;
+      } else {
+        const errMsg = result?.serverError ?? JSON.stringify(result?.validationErrors);
+        console.error('[onboarding] completeOnboarding error:', errMsg);
+        toast.error(errMsg ?? "Couldn't complete request");
+      }
+    } catch (e) {
+      console.error('[onboarding] completeOnboarding threw:', e);
+      toast.error(e instanceof Error ? e.message : "Couldn't complete request");
     }
   };
   const handleNext = async (): Promise<void> => {
