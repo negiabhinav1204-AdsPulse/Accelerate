@@ -10,6 +10,7 @@ import {
 } from '@workspace/ui/components/page';
 
 import { DashboardClient } from '~/components/dashboard/dashboard-client';
+import { getOrganizationDetails } from '~/data/organization/get-organization-details';
 import { createTitle } from '~/lib/formatters';
 
 export const metadata: Metadata = {
@@ -18,6 +19,7 @@ export const metadata: Metadata = {
 
 export default async function DashboardPage(): Promise<React.JSX.Element> {
   const ctx = await getAuthOrganizationContext();
+  const orgDetails = await getOrganizationDetails();
 
   return (
     <Page>
@@ -32,7 +34,7 @@ export default async function DashboardPage(): Promise<React.JSX.Element> {
         </PagePrimaryBar>
       </PageHeader>
       <PageBody>
-        <DashboardClient orgId={ctx.organization.id} />
+        <DashboardClient orgId={ctx.organization.id} orgCurrency={orgDetails.currency} />
       </PageBody>
     </Page>
   );

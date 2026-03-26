@@ -100,10 +100,13 @@ function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
-function formatCurrency(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toLocaleString()}`;
+function formatCurrency(n: number, currency = 'USD'): string {
+  const sym = new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+    .formatToParts(0)
+    .find(p => p.type === 'currency')?.value ?? '';
+  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}K`;
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
 }
 
 function formatDateLabel(dateStr: string, range: DateRangeKey): string {
@@ -207,7 +210,7 @@ function ChartCard({
 
 // ── Individual charts ─────────────────────────────────────────────────────────
 
-function SpendConversionsChart({ data }: { data: { label: string; spend: number; conversions: number }[] }): React.JSX.Element {
+function SpendConversionsChart({ data, currency = 'USD' }: { data: { label: string; spend: number; conversions: number }[]; currency?: string }): React.JSX.Element {
   return (
     <ResponsiveContainer width="100%" height={280}>
       <LineChart data={data} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
@@ -217,7 +220,7 @@ function SpendConversionsChart({ data }: { data: { label: string; spend: number;
         <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
         <Tooltip
           contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-          formatter={(value: number, name: string) => [name === 'spend' ? formatCurrency(value) : value, name === 'spend' ? 'Total Spend' : 'Total Conversions']}
+          formatter={(value: number, name: string) => [name === 'spend' ? formatCurrency(value, currency) : value, name === 'spend' ? 'Total Spend' : 'Total Conversions']}
         />
         <Legend iconType="circle" iconSize={8} formatter={(v) => v === 'spend' ? 'Total Spend' : 'Total Conversions'} wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
         <Line yAxisId="left" type="monotone" dataKey="spend" stroke="#3B82F6" strokeWidth={2} dot={{ fill: '#3B82F6', r: 4 }} activeDot={{ r: 6 }} />
@@ -306,7 +309,8 @@ function ExpandedChartModal({
   spendConversions,
   geography,
   ageGender,
-  topCampaigns
+  topCampaigns,
+  currency = 'USD'
 }: {
   chartId: ChartId | null;
   onClose: () => void;
@@ -314,6 +318,7 @@ function ExpandedChartModal({
   geography: { region: string; conversions: number }[];
   ageGender: { age: string; female: number; male: number; others: number }[];
   topCampaigns: { name: string; conversions: number; change: number }[];
+  currency?: string;
 }): React.JSX.Element | null {
   if (!chartId) return null;
   const meta = CHART_META[chartId];
@@ -326,7 +331,7 @@ function ExpandedChartModal({
           <p className="text-sm text-muted-foreground">{meta.subtitle}</p>
         </DialogHeader>
         <div className="mt-2">
-          {chartId === 'spend-conversions' && <SpendConversionsChart data={spendConversions} />}
+          {chartId === 'spend-conversions' && <SpendConversionsChart data={spendConversions} currency={currency} />}
           {chartId === 'geography' && (
             <ResponsiveContainer width="100%" height={360}>
               <BarChart data={geography} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
@@ -428,7 +433,7 @@ function AddViewPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function DashboardClient({ orgId }: { orgId: string }): React.JSX.Element {
+export function DashboardClient({ orgId, orgCurrency = 'USD' }: { orgId: string; orgCurrency?: string }): React.JSX.Element {
   // state
   const [activeRange, setActiveRange] = React.useState<DateRangeKey>('7d');
   const [activeCharts, setActiveCharts] = React.useState<ChartId[]>([...DEFAULT_CHARTS]);
@@ -567,7 +572,7 @@ export function DashboardClient({ orgId }: { orgId: string }): React.JSX.Element
         <h2 className="text-sm font-semibold text-foreground">Performance overview</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <MetricCard label="Active Campaigns" value={String(data?.perCampaign.length ?? 0)} icon={MegaphoneIcon} />
-          <MetricCard label="Total Spend" value={formatCurrency(data?.summaryTotals.spend ?? 0)} icon={WalletIcon} />
+          <MetricCard label="Total Spend" value={formatCurrency(data?.summaryTotals.spend ?? 0, orgCurrency)} icon={WalletIcon} />
           <MetricCard label="Impressions" value={formatNumber(data?.summaryTotals.impressions ?? 0)} icon={BarChart3Icon} />
           <MetricCard label="Clicks" value={formatNumber(data?.summaryTotals.clicks ?? 0)} icon={MousePointerClickIcon} />
           <MetricCard label="Conversions" value={formatNumber(data?.summaryTotals.conversions ?? 0)} icon={TrendingUpIcon} />
@@ -596,7 +601,7 @@ export function DashboardClient({ orgId }: { orgId: string }): React.JSX.Element
                 onExpand={setExpandedChart}
                 fullWidth
               >
-                <SpendConversionsChart data={spendConversions} />
+                <SpendConversionsChart data={spendConversions} currency={orgCurrency} />
               </ChartCard>
             )}
 
@@ -667,6 +672,7 @@ export function DashboardClient({ orgId }: { orgId: string }): React.JSX.Element
         geography={geography}
         ageGender={ageGender}
         topCampaigns={topCampaigns}
+        currency={orgCurrency}
       />
     </div>
   );

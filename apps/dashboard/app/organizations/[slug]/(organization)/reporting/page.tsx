@@ -5,6 +5,7 @@ import { getAuthOrganizationContext } from '@workspace/auth/context';
 import { Page, PageBody, PageHeader, PagePrimaryBar } from '@workspace/ui/components/page';
 
 import { ReportingClient } from '~/components/reporting/reporting-client';
+import { getOrganizationDetails } from '~/data/organization/get-organization-details';
 import { createTitle } from '~/lib/formatters';
 
 export const metadata: Metadata = { title: createTitle('Reporting') };
@@ -14,6 +15,7 @@ export default async function ReportingPage(props: {
 }): Promise<React.JSX.Element> {
   const ctx = await getAuthOrganizationContext();
   const { slug } = await props.params;
+  const orgDetails = await getOrganizationDetails();
 
   return (
     <Page>
@@ -23,7 +25,7 @@ export default async function ReportingPage(props: {
         </PagePrimaryBar>
       </PageHeader>
       <PageBody>
-        <ReportingClient orgId={ctx.organization.id} orgSlug={slug} />
+        <ReportingClient orgId={ctx.organization.id} orgSlug={slug} orgCurrency={orgDetails.currency} />
       </PageBody>
     </Page>
   );

@@ -2658,9 +2658,9 @@ function CreateCampaignModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Daily budget (USD)</label>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Daily budget ({store?.currency ?? orgCurrency})</label>
                 <div className="flex">
-                  <span className="flex items-center px-3 rounded-l-lg border border-r-0 border-border bg-muted text-sm text-muted-foreground">$</span>
+                  <span className="flex items-center px-3 rounded-l-lg border border-r-0 border-border bg-muted text-sm text-muted-foreground">{store?.currency ?? orgCurrency}</span>
                   <Input
                     type="number"
                     min="1"
@@ -3016,10 +3016,12 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export function ShoppingFeedsClient({
   orgId,
-  orgSlug
+  orgSlug,
+  orgCurrency = 'USD'
 }: {
   orgId: string;
   orgSlug: string;
+  orgCurrency?: string;
 }): React.JSX.Element {
   const { permissions } = useRole();
   const [activeTab, setActiveTab] = React.useState<Tab>('products');

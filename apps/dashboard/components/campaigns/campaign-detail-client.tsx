@@ -67,10 +67,10 @@ function toTitleCase(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
-function formatBudget(amount: number): string {
+function formatBudget(amount: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(amount / 100); // Meta budget is in cents
@@ -226,7 +226,7 @@ function AdSetCard({ adSet }: { adSet: AdSetItem }) {
           <p className="text-[11px] text-muted-foreground mt-0.5">ID: {adSet.id}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-xs font-semibold text-foreground">{formatBudget(adSet.dailyBudget)}<span className="font-normal text-muted-foreground">/day</span></p>
+          <p className="text-xs font-semibold text-foreground">{formatBudget(adSet.dailyBudget, orgCurrency)}<span className="font-normal text-muted-foreground">/day</span></p>
           <p className="text-[10px] text-muted-foreground mt-0.5">{adSet.optimizationGoal.replace(/_/g, ' ')}</p>
         </div>
       </div>
@@ -339,13 +339,15 @@ export function CampaignDetailClient({
   orgId,
   campaignId,
   source,
-  platform
+  platform,
+  orgCurrency = 'USD'
 }: {
   orgSlug: string;
   orgId: string;
   campaignId: string;
   source: string;
   platform: string;
+  orgCurrency?: string;
 }) {
   const [data, setData] = React.useState<DetailData | null>(null);
   const [loading, setLoading] = React.useState(true);

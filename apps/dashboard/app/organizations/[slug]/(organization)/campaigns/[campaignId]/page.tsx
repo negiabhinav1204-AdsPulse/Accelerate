@@ -5,6 +5,7 @@ import { getAuthOrganizationContext } from '@workspace/auth/context';
 import { Page, PageBody } from '@workspace/ui/components/page';
 
 import { CampaignDetailClient } from '~/components/campaigns/campaign-detail-client';
+import { getOrganizationDetails } from '~/data/organization/get-organization-details';
 import { createTitle } from '~/lib/formatters';
 
 export const metadata: Metadata = { title: createTitle('Campaign Detail') };
@@ -18,6 +19,7 @@ export default async function CampaignDetailPage(props: {
   const sp = await props.searchParams;
   const source = sp.source ?? 'external';
   const platform = sp.platform ?? 'meta';
+  const orgDetails = await getOrganizationDetails();
 
   return (
     <Page>
@@ -28,6 +30,7 @@ export default async function CampaignDetailPage(props: {
           campaignId={campaignId}
           source={source}
           platform={platform}
+          orgCurrency={orgDetails.currency}
         />
       </PageBody>
     </Page>

@@ -76,10 +76,10 @@ function fmtDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function fmtMoney(n: number): string {
+function fmtMoney(n: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(n);
@@ -173,11 +173,13 @@ function LoadingSkeleton() {
 function LineChartTooltip({
   active,
   payload,
-  label
+  label,
+  currency = 'USD'
 }: {
   active?: boolean;
   payload?: { name: string; value: number; color: string }[];
   label?: string;
+  currency?: string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
@@ -185,7 +187,7 @@ function LineChartTooltip({
       <p className="font-medium text-foreground mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.name} style={{ color: p.color }}>
-          {p.name}: {p.name === 'Spend' ? fmtMoney(p.value) : fmtNum(p.value)}
+          {p.name}: {p.name === 'Spend' ? fmtMoney(p.value, currency) : fmtNum(p.value)}
         </p>
       ))}
     </div>
@@ -196,7 +198,7 @@ function LineChartTooltip({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ReportingClient({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
+export function ReportingClient({ orgId, orgSlug, orgCurrency = 'USD' }: { orgId: string; orgSlug: string; orgCurrency?: string }) {
   const [dateRange, setDateRange] = React.useState<'7d' | '15d' | '30d'>('7d');
   const [data, setData] = React.useState<ReportingData | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -311,11 +313,11 @@ export function ReportingClient({ orgId, orgSlug }: { orgId: string; orgSlug: st
 
       {/* 2. Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        <SummaryCard label="Spend" value={fmtMoney(t.spend)} />
+        <SummaryCard label="Spend" value={fmtMoney(t.spend, orgCurrency)} />
         <SummaryCard label="Impressions" value={fmtNum(t.impressions)} />
         <SummaryCard label="Clicks" value={fmtNum(t.clicks)} />
         <SummaryCard label="CTR" value={fmtPct(t.ctr)} />
-        <SummaryCard label="CPC" value={fmtMoney(t.cpc)} />
+        <SummaryCard label="CPC" value={fmtMoney(t.cpc, orgCurrency)} />
         <SummaryCard label="Conversions" value={fmtNum(t.conversions)} />
         <SummaryCard label="ROAS" value={fmtRoas(t.roas)} />
       </div>
@@ -355,7 +357,7 @@ export function ReportingClient({ orgId, orgSlug }: { orgId: string; orgSlug: st
                 tickLine={false}
                 tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))}
               />
-              <Tooltip content={<LineChartTooltip />} />
+              <Tooltip content={<LineChartTooltip currency={orgCurrency} />} />
               <Legend
                 wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
               />
@@ -410,7 +412,7 @@ export function ReportingClient({ orgId, orgSlug }: { orgId: string; orgSlug: st
                 tickFormatter={(v: number) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
               />
               <Tooltip
-                formatter={(value: number) => [fmtMoney(value), 'Spend']}
+                formatter={(value: number) => [fmtMoney(value, orgCurrency), 'Spend']}
                 contentStyle={{
                   fontSize: 11,
                   borderRadius: 8,
@@ -491,7 +493,7 @@ export function ReportingClient({ orgId, orgSlug }: { orgId: string; orgSlug: st
                       <span className="block truncate">{c.campaignName}</span>
                     </td>
                     <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">
-                      {fmtMoney(c.spend)}
+                      {fmtMoney(c.spend, orgCurrency)}
                     </td>
                     <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">
                       {fmtNum(c.impressions)}
@@ -503,7 +505,7 @@ export function ReportingClient({ orgId, orgSlug }: { orgId: string; orgSlug: st
                       {fmtPct(c.ctr)}
                     </td>
                     <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">
-                      {fmtMoney(c.cpc)}
+                      {fmtMoney(c.cpc, orgCurrency)}
                     </td>
                     <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">
                       {fmtNum(c.conversions)}

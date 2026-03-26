@@ -147,6 +147,7 @@ type AcceleraAiHomeProps = {
   organizationId: string;
   orgSlug: string;
   connectedAccounts: ConnectedAccount[];
+  orgCurrency?: string;
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -155,7 +156,8 @@ export function AcceleraAiHome({
   firstName,
   organizationId,
   orgSlug,
-  connectedAccounts
+  connectedAccounts,
+  orgCurrency
 }: AcceleraAiHomeProps): React.JSX.Element {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
@@ -281,6 +283,7 @@ export function AcceleraAiHome({
             organizationId,
             userPreferences: {
               notes: userText,
+              ...(orgCurrency ? { currency: orgCurrency } : {}),
               ...(connectedPlatforms.length > 0 ? { platforms: connectedPlatforms, primaryPlatform: connectedPlatforms[0] } : {})
             }
           }),
