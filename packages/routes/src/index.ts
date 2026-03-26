@@ -69,6 +69,7 @@ export const routes = {
         Home: `${baseUrl.Dashboard}/organizations/[slug]/home`,
         Index: `${baseUrl.Dashboard}/organizations/[slug]`,
         Reporting: `${baseUrl.Dashboard}/organizations/[slug]/reporting`,
+        ShoppingFeeds: `${baseUrl.Dashboard}/organizations/[slug]/shopping-feeds`,
         settings: {
           account: {
             Index: `${baseUrl.Dashboard}/organizations/[slug]/settings/account`,

@@ -9,6 +9,7 @@ import {
   PlusCircleIcon,
   PlugIcon,
   BarChart3Icon,
+  ShoppingCartIcon,
   StoreIcon,
   UserIcon,
   UserPlus2Icon
@@ -46,6 +47,11 @@ export function createMainNavItems(slug: string): NavItem[] {
       title: 'Reporting',
       href: replaceOrgSlug(routes.dashboard.organizations.slug.Reporting, slug),
       icon: BarChart3Icon
+    },
+    {
+      title: 'Shopping Feeds',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.ShoppingFeeds, slug),
+      icon: ShoppingCartIcon
     },
     {
       title: 'Connectors',

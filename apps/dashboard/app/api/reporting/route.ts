@@ -100,7 +100,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     prisma.adPlatformReport.findMany({
       where: {
         organizationId: orgId,
-        reportType: 'campaign_insights_daily'
+        reportType: 'campaign_insights_daily',
+        archivedAt: null
       },
       include: {
         connectedAccount: {
@@ -123,13 +124,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     prisma.adPlatformReport.findMany({
       where: {
         organizationId: orgId,
-        reportType: 'insights_by_age_gender'
+        reportType: 'insights_by_age_gender',
+        archivedAt: null
       }
     }),
     prisma.adPlatformReport.findMany({
       where: {
         organizationId: orgId,
-        reportType: 'insights_by_platform_placement'
+        reportType: 'insights_by_platform_placement',
+        archivedAt: null
       }
     })
   ])

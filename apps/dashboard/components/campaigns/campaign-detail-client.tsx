@@ -6,10 +6,14 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
-  ImageIcon
+  ImageIcon,
+  PencilIcon,
+  SparklesIcon
 } from 'lucide-react';
 
 import { cn } from '@workspace/ui/lib/utils';
+
+import { CampaignAgentsView } from './campaign-agents-view';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -346,6 +350,9 @@ export function CampaignDetailClient({
   const [data, setData] = React.useState<DetailData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [activeTab, setActiveTab] = React.useState<'adsets' | 'agents'>('adsets');
+
+  const isAccelerate = source === 'accelerate';
 
   React.useEffect(() => {
     void loadDetail();
@@ -391,39 +398,88 @@ export function CampaignDetailClient({
         </h1>
         <PlatformBadge platform={data?.platform ?? platform} />
         <span className="text-xs text-muted-foreground">ID: {campaignId}</span>
+        {isAccelerate && (
+          <a
+            href={`/organizations/${orgSlug}/campaigns/${campaignId}/edit`}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            <PencilIcon className="size-3.5" />
+            Edit
+          </a>
+        )}
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+      {/* Tabs — only shown for Accelerate-created campaigns */}
+      {isAccelerate && (
+        <div className="flex gap-1 border-b border-border">
+          <button
+            type="button"
+            onClick={() => setActiveTab('adsets')}
+            className={cn(
+              'px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
+              activeTab === 'adsets'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Ad Sets
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('agents')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
+              activeTab === 'agents'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <SparklesIcon className="size-3.5" />
+            Agent Analysis
+          </button>
         </div>
       )}
 
-      {/* Ad sets */}
-      {!error && data && data.adSets.length === 0 && (
-        <div className="rounded-xl border border-border bg-card py-16 flex flex-col items-center justify-center gap-2">
-          <p className="text-sm font-medium text-foreground">No ad sets found</p>
-          <p className="text-xs text-muted-foreground">This campaign has no ad sets, or they could not be loaded.</p>
-        </div>
+      {/* Agent Analysis tab */}
+      {activeTab === 'agents' && isAccelerate && (
+        <CampaignAgentsView campaignId={campaignId} orgId={orgId} />
       )}
 
-      {!error && data && data.adSets.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-            Ad Sets ({data.adSets.length})
-          </p>
-          {data.adSets.map((adSet) => (
-            <AdSetCard key={adSet.id} adSet={adSet} />
-          ))}
-        </div>
-      )}
+      {/* Ad Sets tab (default) */}
+      {activeTab === 'adsets' && (
+        <>
+          {/* Error */}
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
 
-      {!error && !data && !loading && (
-        <div className="rounded-xl border border-border bg-card py-16 flex flex-col items-center justify-center gap-2">
-          <p className="text-sm font-medium text-foreground">Campaign not found</p>
-          <p className="text-xs text-muted-foreground">Could not load data for this campaign.</p>
-        </div>
+          {!error && data && data.adSets.length === 0 && (
+            <div className="rounded-xl border border-border bg-card py-16 flex flex-col items-center justify-center gap-2">
+              <p className="text-sm font-medium text-foreground">No ad sets found</p>
+              <p className="text-xs text-muted-foreground">This campaign has no ad sets, or they could not be loaded.</p>
+            </div>
+          )}
+
+          {!error && data && data.adSets.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                Ad Sets ({data.adSets.length})
+              </p>
+              {data.adSets.map((adSet) => (
+                <AdSetCard key={adSet.id} adSet={adSet} />
+              ))}
+            </div>
+          )}
+
+          {!error && !data && !loading && (
+            <div className="rounded-xl border border-border bg-card py-16 flex flex-col items-center justify-center gap-2">
+              <p className="text-sm font-medium text-foreground">Campaign not found</p>
+              <p className="text-xs text-muted-foreground">Could not load data for this campaign.</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

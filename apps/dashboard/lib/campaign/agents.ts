@@ -189,6 +189,17 @@ export type AgentRawOutput =
   | BudgetOutput
   | MediaPlan;
 
+// All agent outputs bundled together for DB storage + workflow history re-hydration
+export type StoredAgentOutputs = {
+  brand: BrandOutput;
+  lpu: LpuOutput;
+  intent: IntentOutput;
+  competitor: CompetitorOutput;
+  trend: TrendOutput;
+  creative: CreativeOutput;
+  budget: BudgetOutput;
+};
+
 // UI-compatible output sent to the client via SSE
 export type AgentOutput = {
   capabilities?: { title: string; description?: string }[];
@@ -279,6 +290,74 @@ async function scrapeUrl(url: string): Promise<string> {
   return '';
 }
 
+/**
+ * Extract the actual product images from the page.
+ * Priority order:
+ *  1. Shopify product JSON API ({url}.json) — exact product images, no HTML parsing needed
+ *  2. JSON-LD Product schema from Firecrawl HTML
+ *  3. og:image from Firecrawl metadata (last resort — often shows a different product)
+ */
+async function scrapeProductImages(url: string): Promise<string[]> {
+  // 1. Shopify product JSON API — standard on all Shopify stores, returns exact images
+  try {
+    const productJsonUrl = url.replace(/\?.*$/, '') + '.json';
+    const res = await fetch(productJsonUrl, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { product?: { images?: { src: string }[] } };
+      const imgs = data.product?.images ?? [];
+      if (imgs.length > 0) {
+        return imgs.slice(0, 5).map((i) => i.src);
+      }
+    }
+  } catch { /* not a Shopify store or request failed */ }
+
+  // 2. Firecrawl HTML — JSON-LD Product schema + og:image fallback
+  try {
+    const firecrawl = getFirecrawlClient();
+    const result = (await firecrawl.scrape(url, { formats: ['html', 'markdown'] })) as Record<string, unknown>;
+    const html = typeof result.html === 'string' ? result.html : '';
+    const images: string[] = [];
+
+    // JSON-LD Product schema
+    if (html) {
+      const jsonLdMatches = html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+      for (const m of jsonLdMatches) {
+        try {
+          const data = JSON.parse(m[1]!) as Record<string, unknown>;
+          const nodes = Array.isArray(data['@graph']) ? data['@graph'] as Record<string, unknown>[] : [data];
+          for (const node of nodes) {
+            if (String(node['@type']).toLowerCase() === 'product') {
+              const img = node['image'];
+              if (typeof img === 'string' && img.startsWith('http')) images.push(img);
+              else if (Array.isArray(img)) {
+                for (const i of img) {
+                  const src = typeof i === 'string' ? i : (i as Record<string,unknown>)['url'];
+                  if (typeof src === 'string' && src.startsWith('http') && !images.includes(src)) images.push(src);
+                }
+              }
+            }
+          }
+        } catch { /* ignore malformed JSON-LD */ }
+        if (images.length >= 3) break;
+      }
+    }
+
+    if (images.length > 0) return images;
+
+    // og:image fallback
+    const meta = result.metadata as Record<string, unknown> | undefined;
+    for (const key of ['ogImage', 'og:image', 'twitterImage', 'twitter:image']) {
+      const v = meta?.[key];
+      if (typeof v === 'string' && v.startsWith('http')) return [v];
+    }
+  } catch { /* non-fatal */ }
+
+  return [];
+}
+
 // ---------------------------------------------------------------------------
 // Helper: call Claude claude-sonnet-4-6 (non-streaming)
 // ---------------------------------------------------------------------------
@@ -307,13 +386,15 @@ async function callClaude(
 
 async function callGemini(
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  maxTokens?: number
 ): Promise<string> {
   try {
     const genAI = getGeminiClient();
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash',
-      systemInstruction: systemPrompt
+      systemInstruction: systemPrompt,
+      ...(maxTokens ? { generationConfig: { maxOutputTokens: maxTokens } } : {})
     });
     const result = await model.generateContent(userPrompt);
     return result.response.text();
@@ -438,7 +519,7 @@ Return a JSON object with these exact fields:
   "confidenceScore": number
 }`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const hostname = (() => {
     try { return new URL(url).hostname.replace('www.', ''); } catch { return url; }
@@ -585,7 +666,7 @@ Return a JSON object with these exact fields:
   "confidenceScore": number
 }`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<LpuOutput>(rawOutput, {
     pageType: 'homepage',
@@ -741,7 +822,7 @@ Return a JSON object with these exact fields:
   "confidenceScore": number
 }`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<IntentOutput>(rawOutput, {
     primaryIntent: 'consideration',
@@ -850,7 +931,7 @@ Return a JSON object with these exact fields:
   ]
 }`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<CompetitorOutput>(rawOutput, {
     competitors: [],
@@ -932,7 +1013,7 @@ Return a JSON object with these exact fields:
   "opportunities": ["string — specific actionable opportunity for this brand"]
 }`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<TrendOutput>(rawOutput, {
     trends: ['Performance marketing growth: Brands shifting budgets toward measurable channels'],
@@ -1036,7 +1117,8 @@ Instructions:
    - Each concept: headline (40 chars for Meta/30 for Google), bodyText (125 chars for Meta), cta, imageDirection
    - Score each concept for brand alignment (0-1) and competitive differentiation (0-1)
 4. Generate ad extensions: 4 sitelinks, 6 callouts, 1 structured snippet
-5. Generate 5 image prompts that are specific, brand-aligned, and visually compelling for digital ads
+5. Generate 5 image generation prompts that are specific, brand-aligned, and visually compelling for digital ads.
+   CRITICAL: If the user's Campaign Notes mention a seasonal event, festival, or occasion (e.g. Holi, Diwali, Christmas), ALL image prompts MUST be set in that context — show the product being used/displayed in that festive setting. Example for Holi: "Hand-painted Chumbak bar tool set surrounded by vibrant Holi powder colors — pink, yellow, green — in a joyful celebration scene, professional product photography"
 
 Return a JSON object with these exact fields:
 {
@@ -1175,7 +1257,7 @@ Provide budget recommendations. Return a JSON object with these exact fields:
 }
 CRITICAL: Platform percentages must sum to 100. ONLY include the platforms listed above: ${(connectedPlatforms.length > 0 ? connectedPlatforms : ['google', 'meta']).join(', ')}. Do NOT add any other platforms.`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const defaultTotal = monthlyBudgetHint ?? 3000;
   const output = parseJsonFromLlm<BudgetOutput>(rawOutput, {
@@ -1422,7 +1504,7 @@ Return a JSON object matching this exact structure:
 
 FINAL REMINDER: The "platforms" array in your JSON MUST contain ONLY these platforms: [${connectedPlatforms.join(', ')}]. Any platform not in this list will be rejected. Use the creative assets and insights above to populate headlines, descriptions, targeting, and ad variations.`;
 
-  const [rawOutput] = await Promise.all([callClaude(systemPrompt, userPrompt, 8192), progressPromise]);
+  const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt, 8192), progressPromise]);
 
   type RawPlan = { platforms?: { platform: string }[] } & Record<string, unknown>;
   let rawMediaPlan = parseJsonFromLlm<RawPlan>(rawOutput, {} as RawPlan);
@@ -1568,7 +1650,7 @@ export async function runCampaignAgents(params: {
   connectedAccounts: ConnectedAccountInfo[];
   userPreferences?: UserPreferences;
   enqueue: (event: AgentEvent) => void;
-}): Promise<MediaPlan> {
+}): Promise<{ mediaPlan: MediaPlan; agentOutputs: StoredAgentOutputs }> {
   const { url, organizationId, connectedAccounts, userPreferences, enqueue } = params;
 
   // Filter connected accounts to user-specified platforms (e.g. "only in META")
@@ -1587,10 +1669,12 @@ export async function runCampaignAgents(params: {
       : ['google', 'meta'];
 
   // Scrape both the given URL and the homepage (for brand detection)
+  // Also extract real product images so ads use them instead of AI-generated images
   const homepage = homepageUrl(url);
-  const [pageContent, homepageContent] = await Promise.all([
+  const [pageContent, homepageContent, productImages] = await Promise.all([
     scrapeUrl(url),
-    homepage !== url ? scrapeUrl(homepage) : Promise.resolve('')
+    homepage !== url ? scrapeUrl(homepage) : Promise.resolve(''),
+    scrapeProductImages(url)
   ]);
   // Combine homepage + product page content for brand agent (homepage has stronger brand signals)
   const brandPageContent = homepageContent
@@ -1662,5 +1746,34 @@ export async function runCampaignAgents(params: {
     enqueue
   });
 
-  return mediaPlan;
+  // When the user specifies a seasonal/event theme, let the Creative agent's
+  // Always use real product images when available — they look better than AI-generated ones.
+  // The ad copy (headlines/descriptions) already carries any seasonal/theme context.
+  if (productImages.length > 0) {
+    for (const platform of mediaPlan.platforms) {
+      for (const adType of platform.adTypes) {
+        const t = adType.adType.toLowerCase();
+        if (t === 'search' || t === 'rsa') continue;
+        for (let i = 0; i < adType.ads.length; i++) {
+          const ad = adType.ads[i];
+          if (ad && ad.imageUrls.length === 0) {
+            ad.imageUrls = [productImages[i % productImages.length]!];
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    mediaPlan,
+    agentOutputs: {
+      brand: brandOut,
+      lpu: lpuOut,
+      intent: intentOut,
+      competitor: competitorOut,
+      trend: trendOut,
+      creative: creativeOut,
+      budget: budgetOut
+    }
+  };
 }

@@ -85,6 +85,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ? { platformCampaigns: { some: { platform } } }
     : undefined;
 
+  // Fetch active (non-archived) platforms so we can hide disconnected external campaigns
+  const connectedAccounts = await prisma.connectedAdAccount.findMany({
+    where: { organizationId: orgId, archivedAt: null },
+    select: { platform: true },
+    distinct: ['platform']
+  });
+  const activePlatforms = connectedAccounts.map((a) => a.platform.toLowerCase());
+
+  // External campaigns from disconnected platforms should not be shown.
+  // Accelerate-created campaigns are always shown regardless of connector state.
+  const connectorFilter =
+    source === 'accelerate'
+      ? undefined
+      : {
+          OR: [
+            { source: 'accelerate' as const },
+            { platformCampaigns: { some: { platform: { in: activePlatforms } } } }
+          ]
+        };
+
   // Build status filter
   let statusFilter: Record<string, unknown> | undefined;
   if (statusParam) {
@@ -113,7 +133,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ...(updatedAtFilter ? { updatedAt: updatedAtFilter } : {}),
     ...(searchFilter ?? {}),
     ...(platformFilter ?? {}),
-    ...(statusFilter ?? {})
+    ...(statusFilter ?? {}),
+    ...(connectorFilter ?? {})
   };
 
   const [total, campaigns] = await Promise.all([

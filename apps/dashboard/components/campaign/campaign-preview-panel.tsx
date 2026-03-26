@@ -11,7 +11,6 @@ import {
   PencilIcon,
   PhoneIcon,
   PinIcon,
-  RocketIcon,
   SearchIcon,
   ShoppingBagIcon,
   SparklesIcon,
@@ -65,17 +64,6 @@ function PlatformIcon({ platform }: { platform: string }): React.JSX.Element {
   return <MicrosoftIcon />;
 }
 
-function AdTypeIcon({ type }: { type: string }): React.JSX.Element {
-  switch (type.toLowerCase().replace(/[_ ]/g, '')) {
-    case 'search': return <SearchIcon className="size-3" />;
-    case 'display': return <ImageIcon className="size-3" />;
-    case 'pmax': case 'performancemax': return <ZapIcon className="size-3" />;
-    case 'shopping': return <ShoppingBagIcon className="size-3" />;
-    case 'demandgen': case 'demand_gen': return <SparklesIcon className="size-3" />;
-    default: return <SparklesIcon className="size-3" />;
-  }
-}
-
 function platformLabel(platform: string): string {
   switch (platform) {
     case 'google': return 'Google';
@@ -95,6 +83,17 @@ function adTypeLabel(adType: string): string {
     audience: 'Audience',
   };
   return map[adType.toLowerCase()] ?? adType;
+}
+
+function adTypeEmoji(adType: string): string {
+  const map: Record<string, string> = {
+    search: '🔍', display: '🖼️', pmax: '🎯', performance_max: '🎯',
+    shopping: '🛍️', demand_gen: '✨', feed: '📰', stories: '📱',
+    reels: '🎬', video: '▶️', awareness: '📢', traffic: '🚦',
+    engagement: '💬', leads: '🎯', app_promotion: '📲', sales: '💰',
+    audience: '👥',
+  };
+  return map[adType.toLowerCase()] ?? '📋';
 }
 
 function locationDisplay(loc: unknown): string {
@@ -308,20 +307,20 @@ export function CampaignPreviewPanel({
   return (
     <div
       className={cn(
-        'flex flex-col bg-background border-l border-border',
+        'flex flex-col bg-white border-l border-[#e5e7eb]',
         fullscreen ? 'fixed inset-0 z-50' : 'h-full'
       )}
     >
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
-        <p className="text-sm font-semibold text-foreground">Campaign Preview</p>
+      <div className="shrink-0 flex items-center justify-between px-6 py-3 border-b border-[#e5e7eb]">
+        <p className="text-sm font-semibold text-[#101828]">Campaign Preview</p>
         <div className="flex items-center gap-1">
           {onToggleFullscreen && (
             <button
               type="button"
               onClick={onToggleFullscreen}
               title={fullscreen ? 'Minimize' : 'Expand'}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[#6a7282] hover:bg-gray-100 hover:text-[#364153] transition-colors"
             >
               {fullscreen ? <MinimizeIcon className="size-3.5" /> : <MaximizeIcon className="size-3.5" />}
             </button>
@@ -329,7 +328,7 @@ export function CampaignPreviewPanel({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[#6a7282] hover:bg-gray-100 hover:text-[#364153] transition-colors"
           >
             <XIcon className="size-4" />
           </button>
@@ -337,29 +336,25 @@ export function CampaignPreviewPanel({
       </div>
 
       {/* Platform pills row */}
-      <div className="shrink-0 px-3 py-2 border-b border-border">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Platforms</p>
+      <div className="shrink-0 px-6 pt-4 pb-4 border-b border-[#e5e7eb]">
         <div className="flex items-center gap-2 flex-wrap">
           {mediaPlan.platforms.map((p, i) => (
             <div key={p.platform} className="relative shrink-0">
               <div
                 className={cn(
-                  'flex items-center gap-0.5 rounded-full border transition-colors',
+                  'flex items-center gap-0.5 h-9 rounded-[50px] border transition-all',
                   i === selectedPlatformIdx
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border bg-card hover:bg-accent'
+                    ? 'bg-[#fef3c7] border-[#1677ff]'
+                    : 'bg-white border-[#e5e7eb] hover:bg-gray-50 hover:border-[#9ca3af]'
                 )}
               >
                 <button
                   type="button"
                   onClick={() => { setSelectedPlatformIdx(i); setSelectedAdTypeIdx(0); }}
-                  className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5"
+                  className="flex items-center gap-1.5 pl-[13px] pr-1 h-full"
                 >
                   <PlatformIcon platform={p.platform} />
-                  <span className={cn(
-                    'text-xs font-medium',
-                    i === selectedPlatformIdx ? 'text-primary' : 'text-foreground'
-                  )}>
+                  <span className={cn('text-sm font-medium', i === selectedPlatformIdx ? 'text-[#1677ff]' : 'text-[#364153]')}>
                     {platformLabel(p.platform)}
                   </span>
                 </button>
@@ -370,7 +365,7 @@ export function CampaignPreviewPanel({
                       ? null
                       : { type: 'platform', platformIdx: i }
                   )}
-                  className="flex h-6 w-5 items-center justify-center rounded-r-full text-muted-foreground hover:text-foreground transition-colors pr-1"
+                  className="flex h-6 w-5 items-center justify-center rounded-r-[18px] text-[#6a7282] hover:text-[#364153] transition-colors pr-1"
                 >
                   <MoreHorizontalIcon className="size-3" />
                 </button>
@@ -387,35 +382,27 @@ export function CampaignPreviewPanel({
         </div>
       </div>
 
-      {/* Campaign type grid */}
+      {/* Ad type pills row */}
       {selectedPlatform && (
-        <div className="shrink-0 px-3 py-2 border-b border-border">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Campaign Types</p>
-          <div className="grid grid-cols-2 gap-1.5">
+        <div className="shrink-0 px-6 pt-4 pb-4 border-b border-[#e5e7eb]">
+          <div className="flex items-center gap-2 flex-wrap">
             {selectedPlatform.adTypes.map((at, i) => (
-              <div key={at.adType} className="relative">
+              <div key={at.adType} className="relative shrink-0">
                 <div
                   className={cn(
-                    'flex items-center justify-between rounded-lg border px-2 py-2 transition-colors',
+                    'flex items-center gap-0.5 h-8 rounded-2xl border transition-all',
                     i === selectedAdTypeIdx
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border bg-card hover:bg-accent'
+                      ? 'bg-[#eff6ff] border-[#1677ff]'
+                      : 'bg-white border-[#e5e7eb] hover:bg-gray-50 hover:border-[#9ca3af]'
                   )}
                 >
                   <button
                     type="button"
                     onClick={() => setSelectedAdTypeIdx(i)}
-                    className="flex items-center gap-1.5 flex-1 min-w-0"
+                    className="flex items-center gap-1.5 pl-[11px] pr-1 h-full"
                   >
-                    <span className={cn(
-                      i === selectedAdTypeIdx ? 'text-primary' : 'text-muted-foreground'
-                    )}>
-                      <AdTypeIcon type={at.adType} />
-                    </span>
-                    <span className={cn(
-                      'text-xs font-medium truncate',
-                      i === selectedAdTypeIdx ? 'text-primary' : 'text-foreground'
-                    )}>
+                    <span className="text-base leading-none">{adTypeEmoji(at.adType)}</span>
+                    <span className={cn('text-xs font-medium', i === selectedAdTypeIdx ? 'text-[#1677ff]' : 'text-[#4a5565]')}>
                       {adTypeLabel(at.adType)}
                     </span>
                   </button>
@@ -426,7 +413,7 @@ export function CampaignPreviewPanel({
                         ? null
                         : { type: 'adType', platformIdx: selectedPlatformIdx, adTypeIdx: i }
                     )}
-                    className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+                    className="flex h-6 w-5 items-center justify-center text-[#6a7282] hover:text-[#364153] transition-colors pr-1"
                   >
                     <MoreHorizontalIcon className="size-3" />
                   </button>
@@ -444,36 +431,38 @@ export function CampaignPreviewPanel({
         </div>
       )}
 
-      {/* Tab switcher — underline style */}
-      <div className="shrink-0 flex items-center gap-4 px-3 border-b border-border">
+      {/* Tab switcher */}
+      <div className="shrink-0 flex items-center border-b border-[#e5e7eb] h-12 px-6">
         <button
           type="button"
           onClick={() => setActiveTab('targeting')}
           className={cn(
-            'py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px',
-            activeTab === 'targeting'
-              ? 'border-primary text-foreground'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
+            'relative mr-12 font-semibold text-sm leading-5 h-full transition-colors',
+            activeTab === 'targeting' ? 'text-[#1677ff]' : 'text-[#4a5565] hover:text-[#364153]'
           )}
         >
           Targeting
+          {activeTab === 'targeting' && (
+            <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#1677ff]" />
+          )}
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('creatives')}
           className={cn(
-            'py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px',
-            activeTab === 'creatives'
-              ? 'border-primary text-foreground'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
+            'relative font-semibold text-sm leading-5 h-full transition-colors',
+            activeTab === 'creatives' ? 'text-[#1677ff]' : 'text-[#4a5565] hover:text-[#364153]'
           )}
         >
           Creatives ({totalCreatives})
+          {activeTab === 'creatives' && (
+            <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#1677ff]" />
+          )}
         </button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-3 py-3">
+      <div className="flex-1 overflow-y-auto px-6 pt-6">
         {activeTab === 'targeting' && selectedAdType && (
           <TargetingTab
             targeting={selectedAdType.targeting}
@@ -493,17 +482,16 @@ export function CampaignPreviewPanel({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-3 border-t border-border">
-        <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => onEdit()}>
-          Edit Campaign
+      <div className="shrink-0 grid grid-cols-2 gap-3 px-4 py-3 border-t border-[#e5e7eb] bg-white min-h-[72px] items-center">
+        <Button variant="outline" className="flex items-center justify-center gap-2 py-5" onClick={() => onEdit()}>
+          <PencilIcon className="size-4" />
+          Edit Details
         </Button>
         <Button
-          size="sm"
-          className="flex-1 text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white border-0"
+          className="flex items-center justify-center gap-2 py-5 bg-blue-600 hover:bg-blue-700 text-white"
           onClick={onPublish}
         >
-          <RocketIcon className="size-3 mr-1" />
-          Publish Campaign
+          Publish
         </Button>
       </div>
     </div>
@@ -522,82 +510,103 @@ function TargetingTab({
   expanded: boolean;
   onToggleExpand: () => void;
 }): React.JSX.Element {
-  const locationStrings = (targeting.locations as unknown[])
+  const locations = (targeting.locations as unknown[])
     .map(locationDisplay)
-    .filter(Boolean)
-    .join(', ') || 'All locations';
+    .filter(Boolean);
+
+  const keywords = targeting.keywords ?? [];
+  const interests = (targeting as { interests?: string[] }).interests ?? [];
+  const deviceTargeting = (targeting as { deviceTargeting?: string[] }).deviceTargeting ?? [];
+  const bidStrategy = (targeting as { bidStrategy?: string }).bidStrategy ?? 'Auto';
+
+  const items: { icon: React.ReactNode; label: string; value: string | string[] }[] = [
+    {
+      icon: <PinIcon className="size-5 text-[#6a7282]" />,
+      label: 'LOCATION',
+      value: locations.length > 0 ? locations : 'All locations'
+    },
+    {
+      icon: <UserRoundIcon className="size-5 text-[#6a7282]" />,
+      label: 'AGE & GENDER',
+      value: `${targeting.ageRange} • ${targeting.gender}`
+    },
+    {
+      icon: <PhoneIcon className="size-5 text-[#6a7282]" />,
+      label: 'DEVICE TARGETING',
+      value: deviceTargeting.length > 0 ? deviceTargeting : 'All devices'
+    },
+    {
+      icon: <GlobeIcon className="size-5 text-[#6a7282]" />,
+      label: 'LANGUAGE',
+      value: targeting.languages.length > 0 ? targeting.languages : 'All languages'
+    },
+  ];
+
+  const expandedItems: { icon: React.ReactNode; label: string; value: string | string[] }[] = [];
+  if (keywords.length > 0) {
+    expandedItems.push({ icon: <SearchIcon className="size-5 text-[#6a7282]" />, label: 'KEYWORDS', value: keywords });
+  }
+  if (interests.length > 0) {
+    expandedItems.push({ icon: <SparklesIcon className="size-5 text-[#6a7282]" />, label: 'INTERESTS', value: interests });
+  }
+  expandedItems.push({ icon: <ZapIcon className="size-5 text-[#6a7282]" />, label: 'BID STRATEGY', value: bidStrategy });
 
   return (
-    <div className="space-y-1">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-        Basic &amp; Advanced targeting settings
-      </p>
+    <div className="pb-6">
+      <div className="space-y-1">
+        {items.map((item, idx) => (
+          <TargetingRow key={idx} icon={item.icon} label={item.label} value={item.value} />
+        ))}
+      </div>
 
-      <TargetingRow
-        icon={<PinIcon className="size-3.5" />}
-        label="LOCATION"
-        value={locationStrings}
-      />
-      <TargetingRow
-        icon={<UserRoundIcon className="size-3.5" />}
-        label="AGE &amp; GENDER"
-        value={`${targeting.ageRange} • ${targeting.gender}`}
-      />
-      <TargetingRow
-        icon={<PhoneIcon className="size-3.5" />}
-        label="DEVICE TARGETING"
-        value={(targeting as { deviceTargeting?: string[] }).deviceTargeting?.join(', ') || 'All devices'}
-      />
-      <TargetingRow
-        icon={<GlobeIcon className="size-3.5" />}
-        label="LANGUAGE"
-        value={targeting.languages.join(', ') || 'All languages'}
-      />
-
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        className="flex items-center gap-1 text-xs text-primary font-medium hover:underline mt-2"
-      >
-        {expanded ? 'Hide details' : 'View more details'}
-        <ArrowRightIcon className={cn('size-3 transition-transform', expanded && 'rotate-90')} />
-      </button>
-
-      {expanded && (
-        <div className="mt-2 space-y-1 pt-2 border-t border-border">
-          {targeting.keywords && targeting.keywords.length > 0 && (
-            <TargetingRow
-              icon={<SearchIcon className="size-3.5" />}
-              label="KEYWORDS"
-              value={targeting.keywords.slice(0, 5).join(', ') + (targeting.keywords.length > 5 ? '...' : '')}
-            />
+      {expandedItems.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            className="flex items-center gap-1 mt-3 text-sm font-medium text-[#1677ff] hover:underline"
+          >
+            {expanded ? 'View less' : 'View more details'}
+            <ArrowRightIcon className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
+          </button>
+          {expanded && (
+            <div className="mt-2 space-y-1">
+              {expandedItems.map((item, idx) => (
+                <TargetingRow key={idx} icon={item.icon} label={item.label} value={item.value} />
+              ))}
+            </div>
           )}
-          {(targeting as { interests?: string[] }).interests &&
-            (targeting as { interests?: string[] }).interests!.length > 0 && (
-              <TargetingRow
-                icon={<SparklesIcon className="size-3.5" />}
-                label="INTERESTS"
-                value={(targeting as { interests?: string[] }).interests!.slice(0, 5).join(', ')}
-              />
-            )}
-          <TargetingRow
-            icon={<ZapIcon className="size-3.5" />}
-            label="BID STRATEGY"
-            value={(targeting as { bidStrategy?: string }).bidStrategy || 'Auto'}
-          />
-        </div>
+        </>
       )}
     </div>
   );
 }
 
-function TargetingRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }): React.JSX.Element {
+function TargetingRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | string[] }): React.JSX.Element {
+  const [expanded, setExpanded] = React.useState(false);
+  const isArray = Array.isArray(value);
+  const displayValue = isArray
+    ? (expanded ? value : value.slice(0, 6)).join(' • ')
+    : value;
+  const hasMore = isArray && value.length > 6;
+
   return (
-    <div className="flex items-start gap-3 rounded-lg px-3 py-2.5 bg-muted/40 hover:bg-muted/60 transition-colors">
-      <span className="shrink-0 mt-0.5 text-muted-foreground">{icon}</span>
+    <div className="flex items-start gap-3 p-4 rounded-[10px] hover:bg-gray-50 transition-colors">
+      <div className="mt-0.5 shrink-0">{icon}</div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-        <p className="text-xs text-foreground mt-0.5 break-words">{value}</p>
+        <p className="text-xs font-medium text-[#6a7282] leading-4 mb-1">{label}</p>
+        <p className="text-sm text-[#101828] leading-5 break-words">
+          {displayValue}
+          {hasMore && (
+            <button
+              type="button"
+              onClick={() => setExpanded((p) => !p)}
+              className="ml-1.5 text-xs font-medium text-[#1677ff] hover:underline"
+            >
+              {expanded ? 'View less' : `View more (${value.length - 5} more)`}
+            </button>
+          )}
+        </p>
       </div>
     </div>
   );

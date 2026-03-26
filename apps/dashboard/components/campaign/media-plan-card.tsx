@@ -188,7 +188,7 @@ export function MediaPlanCard({ plan, onPreview }: MediaPlanCardProps): React.JS
           onClick={onPreview}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-4 py-2.5 text-sm font-semibold text-white transition-all active:scale-[0.98]"
         >
-          Preview Campaign
+          Preview &amp; Publish Campaign
           <RocketIcon className="size-3.5" />
         </button>
       </div>

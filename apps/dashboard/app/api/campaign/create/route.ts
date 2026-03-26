@@ -227,6 +227,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       };
 
       let mediaPlan: MediaPlan | null = null;
+      let agentOutputs: Record<string, unknown> | null = null;
       const domain = extractDomain(url);
 
       try {
@@ -243,13 +244,15 @@ export async function POST(request: NextRequest): Promise<Response> {
           _userMemory: userPreferencesMemory.map((n) => ({ type: n.type, key: n.key, content: n.content }))
         };
 
-        mediaPlan = await runCampaignAgents({
+        const result = await runCampaignAgents({
           url,
           organizationId,
           connectedAccounts,
           userPreferences: enrichedPreferences,
           enqueue
         });
+        mediaPlan = result.mediaPlan;
+        agentOutputs = result.agentOutputs as unknown as Record<string, unknown>;
       } catch (err) {
         if (err instanceof Error && err.message === 'CONFLICT_DETECTED') {
           // Pipeline paused for user confirmation — conflict_check was already enqueued
@@ -286,7 +289,8 @@ export async function POST(request: NextRequest): Promise<Response> {
               startDate: mediaPlan.startDate ? new Date(mediaPlan.startDate) : null,
               endDate: mediaPlan.endDate ? new Date(mediaPlan.endDate) : null,
               targetAudience: mediaPlan.targetAudience as object,
-              mediaPlan: mediaPlan as object
+              mediaPlan: mediaPlan as object,
+              agentOutputs: agentOutputs ?? undefined
             },
             select: { id: true }
           });

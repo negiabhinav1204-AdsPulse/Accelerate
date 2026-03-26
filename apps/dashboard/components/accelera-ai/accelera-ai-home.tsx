@@ -124,6 +124,16 @@ function buildPartsFromPersistedMessage(content: string, toolData: unknown): Mes
   return parts;
 }
 
+/** Check if a persisted DB message is a saved campaign result */
+function isCampaignResultMessage(toolData: unknown): toolData is { type: 'campaign_result'; url: string; mediaPlan: MediaPlan } {
+  return (
+    typeof toolData === 'object' &&
+    toolData !== null &&
+    !Array.isArray(toolData) &&
+    (toolData as Record<string, unknown>)['type'] === 'campaign_result'
+  );
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 export type ConnectedAccount = {
@@ -158,6 +168,8 @@ export function AcceleraAiHome({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const campaignAbortRef = React.useRef<AbortController | null>(null);
+  // Ref to always have latest sessionId in stale closures
+  const sessionIdRef = React.useRef<string | null>(null);
 
   const [activeCampaign, setActiveCampaign] = React.useState<{
     agents: AgentState[];
@@ -166,7 +178,10 @@ export function AcceleraAiHome({
     editScope: EditScope | null;
   } | null>(null);
 
-  // Load most recent session on mount
+  // Keep sessionIdRef in sync so stale closures always see the latest value
+  React.useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
+  // Load all sessions on mount — merge into one timeline sorted by createdAt
   React.useEffect(() => {
     void (async () => {
       try {
@@ -176,16 +191,38 @@ export function AcceleraAiHome({
           id: string;
           messages: Array<{ id: string; role: string; content: string; toolData: unknown; createdAt: string }>;
         }>;
-        const latest = sessions[0];
-        if (!latest || latest.messages.length === 0) return;
 
-        setSessionId(latest.id);
+        if (sessions.length === 0) return;
+
+        // Use the most recent session for new messages
+        setSessionId(sessions[0]!.id);
+
+        // Flatten all messages across all sessions, sorted chronologically
+        const allMessages = sessions
+          .flatMap((s) => s.messages)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        if (allMessages.length === 0) return;
+
         setMessages(
-          latest.messages.map((m) => ({
-            id: m.id,
-            role: m.role as 'user' | 'assistant',
-            parts: buildPartsFromPersistedMessage(m.content, m.toolData)
-          }))
+          allMessages.map((m): Message => {
+            // Reconstruct campaign messages saved from inline campaign creation
+            if (m.role === 'assistant' && isCampaignResultMessage(m.toolData)) {
+              return {
+                id: m.id,
+                role: 'campaign',
+                url: m.toolData.url,
+                agents: INITIAL_AGENTS.map((a) => ({ ...a, status: 'complete' as const })),
+                mediaPlan: m.toolData.mediaPlan,
+                done: true
+              } satisfies CampaignMessageData;
+            }
+            return {
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              parts: buildPartsFromPersistedMessage(m.content, m.toolData)
+            };
+          })
         );
       } catch {
         // non-fatal — start fresh
@@ -279,6 +316,34 @@ export function AcceleraAiHome({
                 case 'media_plan':
                   updateCampaignMsg((prev) => ({ ...prev, mediaPlan: event.plan, done: true }));
                   setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: event.plan, phase: 'preview' } : prev);
+                  // Persist campaign messages so they survive page refresh
+                  // Use ref to avoid stale closure capturing old sessionId
+                  void (async () => {
+                    try {
+                      const currentSessionId = sessionIdRef.current;
+                      const resp = await fetch('/api/chat/sessions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          organizationId,
+                          sessionId: currentSessionId ?? undefined,
+                          title: event.plan.campaignName ?? 'Campaign',
+                          messages: [
+                            { role: 'user', content: userText },
+                            {
+                              role: 'assistant',
+                              content: `Campaign created: ${event.plan.campaignName}`,
+                              toolData: { type: 'campaign_result', url, mediaPlan: event.plan }
+                            }
+                          ]
+                        })
+                      });
+                      if (resp.ok) {
+                        const data = await resp.json() as { sessionId: string };
+                        if (!currentSessionId) setSessionId(data.sessionId);
+                      }
+                    } catch { /* non-fatal */ }
+                  })();
                   break;
                 case 'image_update': {
                   const [platformKey, adTypeKey] = event.platformAdTypeKey.split(':');

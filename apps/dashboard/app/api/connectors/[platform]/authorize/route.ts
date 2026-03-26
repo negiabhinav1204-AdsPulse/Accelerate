@@ -15,20 +15,19 @@ const GOOGLE_SCOPE = [
   'https://www.googleapis.com/auth/userinfo.profile'
 ].join(' ');
 
+// Only standard-access scopes — restricted ones (pages_manage_ads, leads_retrieval, etc.)
+// require Meta App Review and block non-tester accounts in development mode.
 const META_SCOPE = [
   'ads_read',
-  'business_management',
-  'public_profile',
-  'email',
-  'pages_manage_ads',
-  'pages_show_list',
-  'pages_read_engagement',
   'ads_management',
-  'leads_retrieval'
+  'public_profile',
+  'email'
 ].join(',');
 
-type Platform = 'google' | 'meta' | 'bing';
-const KNOWN_PLATFORMS: Platform[] = ['google', 'meta', 'bing'];
+const GOOGLE_SHOPPING_SCOPE = 'https://www.googleapis.com/auth/content';
+
+type Platform = 'google' | 'meta' | 'bing' | 'shopify';
+const KNOWN_PLATFORMS: Platform[] = ['google', 'meta', 'bing', 'shopify'];
 
 export async function GET(
   request: NextRequest,
@@ -48,6 +47,8 @@ export async function GET(
   const userEmail = session.user.email ?? '';
   const returnTo = request.nextUrl.searchParams.get('return') ?? '/onboarding';
   const orgSlug = request.nextUrl.searchParams.get('org') ?? '';
+  const scopeLevel = request.nextUrl.searchParams.get('scopeLevel') ?? '';
+  const shopDomain = request.nextUrl.searchParams.get('shop') ?? '';
 
   const isInmobiUser = userEmail.endsWith('@inmobi.com');
 
@@ -59,7 +60,9 @@ export async function GET(
     email: userEmail,
     returnTo,
     orgSlug,
-    isInmobi: isInmobiUser
+    isInmobi: isInmobiUser,
+    ...(scopeLevel && { scopeLevel }),
+    ...(shopDomain && { shopDomain })
   });
   const encryptedState = symmetricEncrypt(statePayload, process.env.AUTH_SECRET!);
 
@@ -74,11 +77,15 @@ export async function GET(
       );
     }
     const redirectUri = `${baseUrl}/oauth2/callback`;
+    // Append Google Content API scope when connecting from Shopping Feeds (scopeLevel=shopping)
+    const googleScope = scopeLevel === 'shopping'
+      ? `${GOOGLE_SCOPE} ${GOOGLE_SHOPPING_SCOPE}`
+      : GOOGLE_SCOPE;
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: GOOGLE_SCOPE,
+      scope: googleScope,
       state: encryptedState,
       access_type: 'offline',
       // select_account forces the account picker (allows switching from Chrome default)
@@ -86,6 +93,35 @@ export async function GET(
       prompt: 'select_account consent'
     });
     authUrlString = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  } else if (platform === 'shopify') {
+    if (!shopDomain) {
+      return NextResponse.redirect(
+        new URL(`${baseUrl}${returnTo}?connector_error=missing_shop_domain&platform=shopify`)
+      );
+    }
+    clientId = process.env.SHOPIFY_CLIENT_ID ?? '';
+    if (!clientId) {
+      return NextResponse.redirect(
+        new URL(`${baseUrl}${returnTo}?connector_error=credentials_missing&platform=shopify`)
+      );
+    }
+    const redirectUri = `${baseUrl}/api/connectors/shopify/callback`;
+    const shopifyScopes = [
+      'read_products',
+      'read_product_listings',
+      'read_inventory',
+      'read_orders',
+      'read_customers'
+    ].join(',');
+    const shopHost = shopDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: shopifyScopes,
+      state: encryptedState,
+      'grant_options[]': 'per-user'
+    });
+    authUrlString = `https://${shopHost}/admin/oauth/authorize?${params.toString()}`;
   } else if (platform === 'meta') {
     clientId = process.env.META_APP_ID ?? '';
     if (!clientId) {
@@ -121,16 +157,15 @@ export async function GET(
     const redirectUri = `${baseUrl}/oauth/msads/callback`;
 
     if (isInmobiUser) {
-      // InMobi users: tenant-specific authorize with custom api:// permission scope
+      // InMobi users: tenant-specific endpoint for corporate SSO, but using the
+      // standard Microsoft Ads scope so the token works with Bing Ads API.
       const tenantId = process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7';
-      const permissionScope = process.env.BING_PERMISSION_SCOPE ?? 'dev.accelerate.inmobi.com';
-      const internalScope = `api://${permissionScope}/msads.manage offline_access`;
       const bingInternalParams = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
         response_mode: 'query',
-        scope: internalScope,
+        scope: 'https://ads.microsoft.com/msads.manage offline_access',
         state: encryptedState,
         prompt: 'consent'
       });

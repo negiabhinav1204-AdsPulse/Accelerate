@@ -139,7 +139,7 @@ async function fetchMetaAccounts(
 ): Promise<AdAccount[]> {
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v18.0/me/adaccounts?fields=id,name&access_token=${accessToken}`
+      `https://graph.facebook.com/v23.0/me/adaccounts?fields=id,name&access_token=${accessToken}`
     );
     if (!res.ok) return [];
     const data = (await res.json()) as {
@@ -289,33 +289,6 @@ export async function GET(
   const stateParam = request.nextUrl.searchParams.get('state');
   const storedState = request.cookies.get('connector_oauth_state')?.value;
   const oauthError = request.nextUrl.searchParams.get('error');
-
-  // ── Bing InMobi admin consent callback ──────────────────────────────────────
-  // Microsoft returns admin_consent=True (no code) after an admin grants
-  // tenant-level consent via the /adminconsent endpoint.
-  // We validate state, then redirect to the InMobi tenant's /authorize endpoint
-  // to complete the OAuth flow and get actual user tokens.
-  if (platform === 'bing' && request.nextUrl.searchParams.get('admin_consent') === 'True') {
-    if (!stateParam || !storedState || stateParam !== storedState) {
-      return redirectWithError(baseUrl, '/onboarding', 'oauth_state_mismatch', request);
-    }
-    const tenantId = process.env.BING_TENANT_ID ?? '89359cf4-9e60-4099-80c4-775a0cfe27a7';
-    const bingClientId = process.env.BING_CLIENT_ID ?? '24acd153-281a-4766-898d-fa19bf538ce9';
-    const redirectUri = `${baseUrl}/oauth/msads/callback`;
-    const authorizeParams = new URLSearchParams({
-      client_id: bingClientId,
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      response_mode: 'query',
-      scope: 'https://ads.microsoft.com/msads.manage offline_access',
-      state: stateParam,
-      prompt: 'select_account'
-    });
-    // State cookie stays alive for the second OAuth step
-    return NextResponse.redirect(
-      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${authorizeParams.toString()}`
-    );
-  }
 
   // If the provider returned an error (e.g. user cancelled), try to decode the state
   // to redirect back to the correct page (connectors or onboarding) rather than /onboarding
