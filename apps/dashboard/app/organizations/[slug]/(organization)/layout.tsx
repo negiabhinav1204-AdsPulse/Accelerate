@@ -46,6 +46,8 @@ export default async function OrganizationLayout(
     <div className="flex flex-col size-full overflow-hidden">
       <Providers
         organization={ctx.organization}
+        role={profile.role}
+        isOwner={profile.isOwner}
         defaultOpen={
           (cookieStore.get('sidebar:state')?.value ?? 'true') === 'true'
         }

@@ -44,6 +44,7 @@ import { GOOGLE_TAXONOMY } from '~/lib/google-taxonomy';
 import type { ChannelStatus, MockProduct } from '~/lib/platforms/shopify-mock';
 import { AdvancedSettingsTab } from '~/components/shopping-feeds/advanced-settings-tab';
 import { GoogleSetupWizard } from '~/components/shopping-feeds/google-setup-wizard';
+import { useRole } from '~/hooks/use-role';
 
 // ── Platform icons ────────────────────────────────────────────────────────────
 
@@ -134,10 +135,11 @@ function ChannelBadge({ status, label, icon }: { status: ChannelStatus; label: s
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StoreConnectedBanner({ store, onSync, syncing }: {
+function StoreConnectedBanner({ store, onSync, syncing, canSync }: {
   store: { storeName: string; shopDomain: string; productCount: number; lastSyncAt: string; currency: string };
   onSync: () => void;
   syncing: boolean;
+  canSync: boolean;
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 mb-6">
@@ -148,16 +150,18 @@ function StoreConnectedBanner({ store, onSync, syncing }: {
         <p className="text-sm font-semibold text-green-900">{store.storeName}</p>
         <p className="text-xs text-green-700">{store.shopDomain} · {store.productCount} products · Last synced {formatRelativeTime(store.lastSyncAt)}</p>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={onSync}
-        disabled={syncing}
-        className="shrink-0 gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
-      >
-        {syncing ? <Loader2Icon className="size-3.5 animate-spin" /> : <RefreshCwIcon className="size-3.5" />}
-        Sync Now
-      </Button>
+      {canSync && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onSync}
+          disabled={syncing}
+          className="shrink-0 gap-1.5 border-green-300 text-green-700 hover:bg-green-100"
+        >
+          {syncing ? <Loader2Icon className="size-3.5 animate-spin" /> : <RefreshCwIcon className="size-3.5" />}
+          Sync Now
+        </Button>
+      )}
     </div>
   );
 }
@@ -3000,6 +3004,7 @@ export function ShoppingFeedsClient({
   orgId: string;
   orgSlug: string;
 }): React.JSX.Element {
+  const { permissions } = useRole();
   const [activeTab, setActiveTab] = React.useState<Tab>('products');
   const [products, setProducts] = React.useState<MockProduct[]>([]);
   const [store, setStore] = React.useState<null | {
@@ -3063,7 +3068,7 @@ export function ShoppingFeedsClient({
     <div className="p-6 max-w-6xl">
       {/* Store banner */}
       {store && (
-        <StoreConnectedBanner store={store} onSync={handleSync} syncing={syncing} />
+        <StoreConnectedBanner store={store} onSync={handleSync} syncing={syncing} canSync={permissions.canManageFeeds} />
       )}
 
       {/* Channel coverage cards */}
@@ -3072,7 +3077,7 @@ export function ShoppingFeedsClient({
           {
             icon: <GoogleIconSm />, label: 'Google Shopping', status: 'Active',
             color: 'text-green-600', bg: 'bg-green-50', products: 8,
-            action: (
+            action: permissions.canManageFeeds ? (
               <Button
                 size="sm"
                 variant="ghost"
@@ -3082,7 +3087,7 @@ export function ShoppingFeedsClient({
                 <ZapIcon className="size-3" />
                 Setup
               </Button>
-            )
+            ) : null
           },
           { icon: <MetaIconSm />, label: 'Meta Catalog', status: 'Active', color: 'text-green-600', bg: 'bg-green-50', products: 9, action: null },
           { icon: <MicrosoftIconSm />, label: 'Microsoft Shopping', status: 'Pending', color: 'text-amber-600', bg: 'bg-amber-50', products: 5, action: null }
@@ -3109,7 +3114,12 @@ export function ShoppingFeedsClient({
       {/* Tabs */}
       <div className="border-b border-border mb-6">
         <div className="flex gap-1">
-          {TABS.map((tab) => (
+          {TABS.filter((tab) => {
+            if (!permissions.canManageFeeds) {
+              return tab.id === 'products';
+            }
+            return true;
+          }).map((tab) => (
             <button
               key={tab.id}
               type="button"

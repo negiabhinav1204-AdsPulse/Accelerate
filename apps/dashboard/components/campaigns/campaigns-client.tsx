@@ -22,6 +22,8 @@ import {
 import { Button } from '@workspace/ui/components/button';
 import { cn } from '@workspace/ui/lib/utils';
 
+import { useRole } from '~/hooks/use-role';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -308,6 +310,7 @@ function Select({
 // ---------------------------------------------------------------------------
 
 export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId: string }) {
+  const { permissions } = useRole();
   const [campaigns, setCampaigns] = React.useState<CampaignListItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [lastSyncAt, setLastSyncAt] = React.useState<string | null>(null);
@@ -829,30 +832,34 @@ export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId:
                 </button>
               }
             >
-              {campaignAction === 'pause' && (
+              {permissions.canManageCampaigns && campaignAction === 'pause' && (
                 <MenuItem
                   icon={<PauseIcon className="size-3" />}
                   label="Pause"
                   onClick={() => void handleStatusChange(c, 'pause')}
                 />
               )}
-              {campaignAction === 'resume' && (
+              {permissions.canManageCampaigns && campaignAction === 'resume' && (
                 <MenuItem
                   icon={<PlayIcon className="size-3" />}
                   label="Resume"
                   onClick={() => void handleStatusChange(c, 'resume')}
                 />
               )}
-              <MenuItem
-                icon={<span className="size-3 inline-block" />}
-                label="Edit"
-                href={`/organizations/${orgSlug}/campaign/${c.id}/edit`}
-              />
-              <MenuItem
-                icon={<CopyIcon className="size-3" />}
-                label="Duplicate"
-                onClick={() => {/* placeholder */}}
-              />
+              {permissions.canManageCampaigns && (
+                <MenuItem
+                  icon={<span className="size-3 inline-block" />}
+                  label="Edit"
+                  href={`/organizations/${orgSlug}/campaign/${c.id}/edit`}
+                />
+              )}
+              {permissions.canManageCampaigns && (
+                <MenuItem
+                  icon={<CopyIcon className="size-3" />}
+                  label="Duplicate"
+                  onClick={() => {/* placeholder */}}
+                />
+              )}
               {singlePlatformDeepLink && (
                 <>
                   <MenuSeparator />
@@ -864,13 +871,17 @@ export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId:
                   />
                 </>
               )}
-              <MenuSeparator />
-              <MenuItem
-                icon={<Trash2Icon className="size-3" />}
-                label="Archive"
-                variant="destructive"
-                onClick={() => {/* placeholder */}}
-              />
+              {permissions.canManageCampaigns && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem
+                    icon={<Trash2Icon className="size-3" />}
+                    label="Archive"
+                    variant="destructive"
+                    onClick={() => {/* placeholder */}}
+                  />
+                </>
+              )}
             </DropdownMenu>
           </td>
 
@@ -952,13 +963,15 @@ export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId:
           >
             <RefreshCwIcon className={cn('size-4', syncing && 'animate-spin')} />
           </button>
-          <a
-            href={`/organizations/${orgSlug}/create-campaign`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <PlusIcon className="size-4" />
-            Create New
-          </a>
+          {permissions.canManageCampaigns && (
+            <a
+              href={`/organizations/${orgSlug}/create-campaign`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <PlusIcon className="size-4" />
+              Create New
+            </a>
+          )}
         </div>
       </div>
 

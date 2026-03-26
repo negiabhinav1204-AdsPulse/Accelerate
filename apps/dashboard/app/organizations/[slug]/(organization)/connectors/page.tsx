@@ -36,8 +36,12 @@ export default async function ConnectorsPage({
   const membership = ctx.session.user.memberships.find(
     (m) => m.organizationId === ctx.organization.id
   );
+  // Admin and Developer can manage connectors
   const isAdmin =
-    !!membership && (membership.isOwner || membership.role === 'ADMIN');
+    !!membership &&
+    (membership.isOwner ||
+      membership.role === 'ADMIN' ||
+      membership.role === 'DEVELOPER');
 
   // Fetch all active (non-archived) connected accounts for the org
   const accounts = await prisma.connectedAdAccount.findMany({

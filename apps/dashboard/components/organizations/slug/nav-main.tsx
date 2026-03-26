@@ -16,14 +16,23 @@ import { cn } from '@workspace/ui/lib/utils';
 
 import { createMainNavItems } from '~/components/organizations/slug/nav-items';
 import { useActiveOrganization } from '~/hooks/use-active-organization';
+import { useRole } from '~/hooks/use-role';
 
 export function NavMain(props: SidebarGroupProps): React.JSX.Element {
   const pathname = usePathname();
   const activeOrganization = useActiveOrganization();
+  const { permissions } = useRole();
+  const allItems = createMainNavItems(activeOrganization.slug);
+  const visibleItems = allItems.filter((item) => {
+    if (item.title === 'Create Campaign') return permissions.canManageCampaigns;
+    if (item.title === 'Shopping Feeds') return permissions.canManageFeeds;
+    if (item.title === 'Connectors') return permissions.canManageConnectors || permissions.canManageFeeds;
+    return true;
+  });
   return (
     <SidebarGroup {...props}>
       <SidebarMenu>
-        {createMainNavItems(activeOrganization.slug).map((item, index) => {
+        {visibleItems.map((item, index) => {
           const isActive = pathname.startsWith(
             getPathname(item.href, baseUrl.Dashboard)
           );
