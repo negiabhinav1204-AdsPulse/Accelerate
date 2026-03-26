@@ -271,11 +271,12 @@ export function AcceleraAiHome({
       };
 
       try {
-        const controller = new AbortController();
-        campaignAbortRef.current = controller;
+        const connectedPlatforms = [
+          ...new Set(connectedAccounts.map((a) => a.platform))
+        ];
 
-        const connectedPlatforms = [...new Set(connectedAccounts.map((a) => a.platform))];
-        const response = await fetch('/api/campaign/create', {
+        // ── Submit job (returns jobId immediately) ─────────────────────────────
+        const createRes = await fetch('/api/campaign/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -284,113 +285,248 @@ export function AcceleraAiHome({
             userPreferences: {
               notes: userText,
               ...(orgCurrency ? { currency: orgCurrency } : {}),
-              ...(connectedPlatforms.length > 0 ? { platforms: connectedPlatforms, primaryPlatform: connectedPlatforms[0] } : {})
+              ...(connectedPlatforms.length > 0
+                ? {
+                    platforms: connectedPlatforms,
+                    primaryPlatform: connectedPlatforms[0]
+                  }
+                : {})
             }
-          }),
-          signal: controller.signal
+          })
         });
 
-        if (!response.ok || !response.body) throw new Error('Failed to start campaign analysis');
+        if (!createRes.ok) {
+          const errData = (await createRes.json().catch(() => ({}))) as {
+            message?: string;
+            error?: string;
+          };
+          throw new Error(
+            errData.message ?? errData.error ?? 'Failed to start campaign analysis'
+          );
+        }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+        const { jobId } = (await createRes.json()) as { jobId: string };
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.trim() || !line.startsWith('data: ')) continue;
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === '[DONE]') break;
-            try {
-              const event = JSON.parse(jsonStr) as SSEEvent;
-              switch (event.type) {
-                case 'agent_start':
-                  updateAgent(event.agent, { status: 'running', currentMessage: event.message });
-                  break;
-                case 'agent_progress':
-                  updateAgent(event.agent, { currentMessage: event.message });
-                  break;
-                case 'agent_complete':
-                  updateAgent(event.agent, { status: 'complete', currentMessage: event.message, output: event.output, timeTaken: event.timeTaken, confidence: event.confidence });
-                  break;
-                case 'media_plan': {
-                  const planWithId = event.plan as MediaPlan & { _campaignId?: string };
-                  const extractedCampaignId = planWithId._campaignId;
-                  const cleanPlan = { ...event.plan } as MediaPlan & { _campaignId?: string };
-                  delete cleanPlan._campaignId;
-                  updateCampaignMsg((prev) => ({ ...prev, mediaPlan: cleanPlan, done: true }));
-                  setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: cleanPlan, phase: 'preview', ...(extractedCampaignId ? { campaignId: extractedCampaignId } : {}) } : prev);
-                  // Persist campaign messages so they survive page refresh
-                  // Use ref to avoid stale closure capturing old sessionId
-                  void (async () => {
-                    try {
-                      const currentSessionId = sessionIdRef.current;
-                      const resp = await fetch('/api/chat/sessions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          organizationId,
-                          sessionId: currentSessionId ?? undefined,
-                          title: event.plan.campaignName ?? 'Campaign',
-                          messages: [
-                            { role: 'user', content: userText },
-                            {
-                              role: 'assistant',
-                              content: `Campaign created: ${event.plan.campaignName}`,
-                              toolData: { type: 'campaign_result', url, mediaPlan: event.plan }
-                            }
-                          ]
-                        })
-                      });
-                      if (resp.ok) {
-                        const data = await resp.json() as { sessionId: string };
-                        if (!currentSessionId) setSessionId(data.sessionId);
-                      }
-                    } catch { /* non-fatal */ }
-                  })();
-                  break;
+        // ── Process event (same logic for both polling and SSE) ────────────────
+        const processEvent = (event: SSEEvent): boolean => {
+          // Returns true when pipeline is fully done
+          switch (event.type) {
+            case 'agent_start':
+              updateAgent(event.agent, {
+                status: 'running',
+                currentMessage: event.message
+              });
+              break;
+            case 'agent_progress':
+              updateAgent(event.agent, { currentMessage: event.message });
+              break;
+            case 'agent_complete':
+              updateAgent(event.agent, {
+                status: 'complete',
+                currentMessage: event.message,
+                output: event.output,
+                timeTaken: event.timeTaken,
+                confidence: event.confidence
+              });
+              break;
+            case 'media_plan': {
+              const planWithId = event.plan as MediaPlan & {
+                _campaignId?: string;
+              };
+              const extractedCampaignId = planWithId._campaignId;
+              const cleanPlan = { ...event.plan } as MediaPlan & {
+                _campaignId?: string;
+              };
+              delete cleanPlan._campaignId;
+              updateCampaignMsg((prev) => ({
+                ...prev,
+                mediaPlan: cleanPlan,
+                done: true
+              }));
+              setActiveCampaign((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      mediaPlan: cleanPlan,
+                      phase: 'preview',
+                      ...(extractedCampaignId
+                        ? { campaignId: extractedCampaignId }
+                        : {})
+                    }
+                  : prev
+              );
+              // Persist session
+              void (async () => {
+                try {
+                  const currentSessionId = sessionIdRef.current;
+                  const resp = await fetch('/api/chat/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      organizationId,
+                      sessionId: currentSessionId ?? undefined,
+                      title: event.plan.campaignName ?? 'Campaign',
+                      messages: [
+                        { role: 'user', content: userText },
+                        {
+                          role: 'assistant',
+                          content: `Campaign created: ${event.plan.campaignName}`,
+                          toolData: {
+                            type: 'campaign_result',
+                            url,
+                            mediaPlan: event.plan
+                          }
+                        }
+                      ]
+                    })
+                  });
+                  if (resp.ok) {
+                    const data = (await resp.json()) as { sessionId: string };
+                    if (!currentSessionId) setSessionId(data.sessionId);
+                  }
+                } catch {
+                  /* non-fatal */
                 }
-                case 'image_update': {
-                  const [platformKey, adTypeKey] = event.platformAdTypeKey.split(':');
-                  const applyImageUpdate = (plan: MediaPlan): MediaPlan => ({
-                    ...plan,
-                    platforms: plan.platforms.map((p) =>
-                      (p.platform as string) !== platformKey ? p : {
+              })();
+              return true;
+            }
+            case 'image_update': {
+              const [platformKey, adTypeKey] =
+                event.platformAdTypeKey.split(':');
+              const applyImageUpdate = (plan: MediaPlan): MediaPlan => ({
+                ...plan,
+                platforms: plan.platforms.map((p) =>
+                  (p.platform as string) !== platformKey
+                    ? p
+                    : {
                         ...p,
                         adTypes: p.adTypes.map((at) =>
-                          at.adType !== adTypeKey ? at : {
-                            ...at,
-                            ads: at.ads.map((ad, i) =>
-                              event.imageUrls[i] ? { ...ad, imageUrls: [event.imageUrls[i]!] } : ad
-                            )
-                          }
+                          at.adType !== adTypeKey
+                            ? at
+                            : {
+                                ...at,
+                                ads: at.ads.map((ad, i) =>
+                                  event.imageUrls[i]
+                                    ? { ...ad, imageUrls: [event.imageUrls[i]!] }
+                                    : ad
+                                )
+                              }
                         )
                       }
-                    )
-                  });
-                  setActiveCampaign((prev) => prev?.mediaPlan ? { ...prev, mediaPlan: applyImageUpdate(prev.mediaPlan) } : prev);
-                  updateCampaignMsg((prev) => prev.mediaPlan ? { ...prev, mediaPlan: applyImageUpdate(prev.mediaPlan) } : prev);
-                  break;
-                }
-                case 'error':
-                  updateCampaignMsg((prev) => ({ ...prev, done: true }));
-                  setActiveCampaign((prev) => prev ? { ...prev, phase: 'preview' } : prev);
-                  setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', parts: [{ type: 'text', text: `Campaign analysis failed: ${event.message}` }] } as ChatMessage]);
-                  break;
+                )
+              });
+              setActiveCampaign((prev) =>
+                prev?.mediaPlan
+                  ? { ...prev, mediaPlan: applyImageUpdate(prev.mediaPlan) }
+                  : prev
+              );
+              updateCampaignMsg((prev) =>
+                prev.mediaPlan
+                  ? { ...prev, mediaPlan: applyImageUpdate(prev.mediaPlan) }
+                  : prev
+              );
+              break;
+            }
+            case 'error':
+              updateCampaignMsg((prev) => ({ ...prev, done: true }));
+              setActiveCampaign((prev) =>
+                prev ? { ...prev, phase: 'preview' } : prev
+              );
+              setMessages((m) => [
+                ...m,
+                {
+                  id: crypto.randomUUID(),
+                  role: 'assistant',
+                  parts: [
+                    {
+                      type: 'text',
+                      text: `Campaign analysis failed: ${event.message}`
+                    }
+                  ]
+                } as ChatMessage
+              ]);
+              return true;
+          }
+          return false;
+        };
+
+        // ── Poll /api/campaign/status/:jobId every 2s ─────────────────────────
+        let lastEventIndex = 0;
+        const POLL_MS = 2000;
+        const MAX_POLLS = 200; // 400s max (well past any timeout)
+        let polls = 0;
+
+        await new Promise<void>((resolve) => {
+          const interval = setInterval(async () => {
+            polls++;
+            if (polls > MAX_POLLS) {
+              clearInterval(interval);
+              updateCampaignMsg((prev) => ({ ...prev, done: true }));
+              resolve();
+              return;
+            }
+
+            try {
+              const statusRes = await fetch(
+                `/api/campaign/status/${jobId}`
+              );
+              if (!statusRes.ok) return;
+
+              const job = (await statusRes.json()) as {
+                status: string;
+                events: SSEEvent[];
+                error?: string;
+              };
+
+              // Process any new events since last poll
+              const newEvents = job.events.slice(lastEventIndex);
+              lastEventIndex = job.events.length;
+              for (const event of newEvents) {
+                processEvent(event);
+              }
+
+              // Stop polling when terminal state reached
+              if (
+                job.status === 'completed' ||
+                job.status === 'failed' ||
+                // Safety: if media_plan was already processed, we're done
+                (job.status === 'completed' && lastEventIndex > 0)
+              ) {
+                clearInterval(interval);
+                resolve();
               }
             } catch {
-              // skip malformed lines
+              // transient error — keep polling
             }
-          }
-        }
+          }, POLL_MS);
+
+          // Store interval ID so abort can clear it
+          campaignAbortRef.current = {
+            abort: () => {
+              clearInterval(interval);
+              resolve();
+            }
+          } as unknown as AbortController;
+        });
       } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
+        const isAbort =
+          (err as Error).name === 'AbortError' ||
+          (err as { message?: string }).message === 'aborted';
+        if (!isAbort) {
           updateCampaignMsg((prev) => ({ ...prev, done: true }));
+          setMessages((m) => [
+            ...m,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              parts: [
+                {
+                  type: 'text',
+                  text: `Campaign analysis failed: ${(err as Error).message ?? 'Unknown error'}`
+                }
+              ]
+            } as ChatMessage
+          ]);
         }
       } finally {
         setLoading(false);
