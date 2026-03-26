@@ -2,9 +2,6 @@
 
 import * as React from 'react';
 import {
-  ChevronDownIcon,
-  ChevronRightIcon,
-  GlobeIcon,
   ImageIcon,
   LayersIcon,
   MoreHorizontalIcon,
@@ -590,12 +587,6 @@ export function CampaignEditPanel({
     adTypeIdx: initialScope?.adTypeIdx,
   }));
 
-  // Which platforms/adTypes are expanded in the tree
-  const [expandedPlatforms, setExpandedPlatforms] = React.useState<Set<number>>(
-    new Set(mediaPlan.platforms.map((_, i) => i))
-  );
-  const [expandedAdTypes, setExpandedAdTypes] = React.useState<Set<string>>(new Set());
-
   // Three-dot dropdown state
   type TreeMenuState =
     | { type: 'platform'; idx: number }
@@ -604,24 +595,6 @@ export function CampaignEditPanel({
     | { type: 'ad'; platformIdx: number; adTypeIdx: number; adIdx: number }
     | null;
   const [openTreeMenu, setOpenTreeMenu] = React.useState<TreeMenuState>(null);
-
-  const toggleExpandPlatform = (idx: number) => {
-    setExpandedPlatforms((prev) => {
-      const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
-      return next;
-    });
-  };
-
-  const toggleExpandAdType = (key: string) => {
-    setExpandedAdTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   const handleDeletePlatform = (platformIdx: number) => {
     setLocalPlan((prev) => ({
@@ -737,259 +710,214 @@ export function CampaignEditPanel({
         </div>
       </div>
 
-      {/* Body: sidebar + content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar tree */}
-        <aside className="w-56 shrink-0 border-r border-border flex flex-col overflow-y-auto bg-muted/20">
-          <div className="px-3 py-2 border-b border-border">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Campaign Structure</p>
-          </div>
-          <div className="flex-1 py-1">
-            {localPlan.platforms.map((platform, platformIdx) => {
-              const isExpanded = expandedPlatforms.has(platformIdx);
-              const isPlatformSelected = pathsEqual(selectedPath, { platformIdx }) && selectedPath.adTypeIdx === undefined;
+      {/* Top navigation: Campaign Structure */}
+      <div className="shrink-0 border-b border-border bg-muted/20">
+        {/* Platform row */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border/40 overflow-x-auto">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0 mr-1">Structure</span>
+          {localPlan.platforms.map((platform, platformIdx) => {
+            const isPlatformSelected = selectedPath.platformIdx === platformIdx && selectedPath.adTypeIdx === undefined;
+            return (
+              <div key={`${platform.platform}-${platformIdx}`} className="relative group/platform flex items-center shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPath({ platformIdx })}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
+                    isPlatformSelected
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-foreground border-border hover:border-primary/50 hover:bg-accent'
+                  )}
+                >
+                  {platform.platform === 'google' && <GoogleIcon />}
+                  {platform.platform === 'meta' && <MetaIcon />}
+                  {platform.platform === 'bing' && <MicrosoftIcon />}
+                  {platformLabel(platform.platform)}
+                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx ? null : { type: 'platform', idx: platformIdx }); }}
+                    className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/platform:opacity-100 hover:text-foreground transition-all"
+                  >
+                    <MoreHorizontalIcon className="size-3" />
+                  </button>
+                  {openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx && (
+                    <TreeContextMenu
+                      onEdit={() => { setSelectedPath({ platformIdx }); setOpenTreeMenu(null); }}
+                      onDelete={() => { handleDeletePlatform(platformIdx); setOpenTreeMenu(null); }}
+                      onClose={() => setOpenTreeMenu(null)}
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
+        {/* AdType row */}
+        {selectedPlatform && (
+          <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 overflow-x-auto">
+            <span className="text-[10px] text-muted-foreground shrink-0 mr-1">Campaigns:</span>
+            {selectedPlatform.adTypes.map((adType, adTypeIdx) => {
+              const isAdTypeSelected = selectedPath.adTypeIdx === adTypeIdx && selectedPath.adGroupIdx === undefined;
               return (
-                <div key={`${platform.platform}-${platformIdx}`}>
-                  {/* Platform node */}
-                  <div
+                <div key={`${adType.adType}-${adTypeIdx}`} className="relative group/adtype flex items-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx })}
                     className={cn(
-                      'group flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent transition-colors relative',
-                      isPlatformSelected && 'bg-primary/10'
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
+                      isAdTypeSelected
+                        ? 'bg-primary/15 text-primary border-primary/30'
+                        : 'bg-background text-foreground border-border hover:border-primary/30 hover:bg-accent'
                     )}
                   >
+                    <AdTypeIconSmall type={adType.adType} />
+                    {adTypeLabel(adType.adType)}
+                  </button>
+                  <div className="relative">
                     <button
                       type="button"
-                      onClick={() => toggleExpandPlatform(platformIdx)}
-                      className="shrink-0 flex h-4 w-4 items-center justify-center text-muted-foreground"
+                      onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === adTypeIdx ? null : { type: 'adType', platformIdx: selectedPath.platformIdx, adTypeIdx }); }}
+                      className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/adtype:opacity-100 hover:text-foreground transition-all"
                     >
-                      {isExpanded
-                        ? <ChevronDownIcon className="size-3" />
-                        : <ChevronRightIcon className="size-3" />}
+                      <MoreHorizontalIcon className="size-3" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPath({ platformIdx })}
-                      className="flex items-center gap-1.5 flex-1 min-w-0"
-                    >
-                      {platform.platform === 'google' && <GoogleIcon />}
-                      {platform.platform === 'meta' && <MetaIcon />}
-                      {platform.platform === 'bing' && <MicrosoftIcon />}
-                      <span className={cn(
-                        'text-xs font-medium truncate',
-                        isPlatformSelected ? 'text-primary' : 'text-foreground'
-                      )}>
-                        {platformLabel(platform.platform)}
-                      </span>
-                    </button>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx ? null : { type: 'platform', idx: platformIdx }); }}
-                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground transition-all"
-                      >
-                        <MoreHorizontalIcon className="size-3" />
-                      </button>
-                      {openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx && (
-                        <TreeContextMenu
-                          onEdit={() => { setSelectedPath({ platformIdx }); setOpenTreeMenu(null); }}
-                          onDelete={() => { handleDeletePlatform(platformIdx); setOpenTreeMenu(null); }}
-                          onClose={() => setOpenTreeMenu(null)}
-                        />
-                      )}
-                    </div>
+                    {openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === adTypeIdx && (
+                      <TreeContextMenu
+                        onEdit={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx }); setOpenTreeMenu(null); }}
+                        onDelete={() => { handleDeleteAdType(selectedPath.platformIdx, adTypeIdx); setOpenTreeMenu(null); }}
+                        onClose={() => setOpenTreeMenu(null)}
+                      />
+                    )}
                   </div>
-
-                  {/* Campaign types */}
-                  {isExpanded && platform.adTypes.map((adType, adTypeIdx) => {
-                    const adTypeKey = `${platformIdx}-${adTypeIdx}`;
-                    const isAdTypeExpanded = expandedAdTypes.has(adTypeKey);
-                    const isAdTypeSelected = pathsEqual(selectedPath, { platformIdx, adTypeIdx }) && selectedPath.adGroupIdx === undefined;
-
-                    return (
-                      <div key={`${adType.adType}-${adTypeIdx}`}>
-                        {/* Campaign type node */}
-                        <div
-                          className={cn(
-                            'group flex items-center gap-1 pl-6 pr-2 py-1.5 cursor-pointer hover:bg-accent transition-colors relative',
-                            isAdTypeSelected && 'bg-primary/10'
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleExpandAdType(adTypeKey)}
-                            className="shrink-0 flex h-4 w-4 items-center justify-center text-muted-foreground"
-                          >
-                            {isAdTypeExpanded
-                              ? <ChevronDownIcon className="size-3" />
-                              : <ChevronRightIcon className="size-3" />}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPath({ platformIdx, adTypeIdx })}
-                            className="flex items-center gap-1.5 flex-1 min-w-0"
-                          >
-                            <span className={cn(isAdTypeSelected ? 'text-primary' : 'text-muted-foreground')}>
-                              <AdTypeIconSmall type={adType.adType} />
-                            </span>
-                            <span className={cn(
-                              'text-xs truncate',
-                              isAdTypeSelected ? 'text-primary font-medium' : 'text-foreground'
-                            )}>
-                              {adTypeLabel(adType.adType)}
-                            </span>
-                          </button>
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === platformIdx && openTreeMenu.adTypeIdx === adTypeIdx ? null : { type: 'adType', platformIdx, adTypeIdx }); }}
-                              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground transition-all"
-                            >
-                              <MoreHorizontalIcon className="size-3" />
-                            </button>
-                            {openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === platformIdx && openTreeMenu.adTypeIdx === adTypeIdx && (
-                              <TreeContextMenu
-                                onEdit={() => { setSelectedPath({ platformIdx, adTypeIdx }); setOpenTreeMenu(null); }}
-                                onDelete={() => { handleDeleteAdType(platformIdx, adTypeIdx); setOpenTreeMenu(null); }}
-                                onClose={() => setOpenTreeMenu(null)}
-                              />
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Ad Group node */}
-                        {isAdTypeExpanded && (
-                          <div>
-                            <div
-                              className={cn(
-                                'group flex items-center gap-1 pl-10 pr-2 py-1.5 cursor-pointer hover:bg-accent transition-colors',
-                                pathsEqual(selectedPath, { platformIdx, adTypeIdx, adGroupIdx: 0 }) && selectedPath.adIdx === undefined && 'bg-primary/10'
-                              )}
-                              onClick={() => setSelectedPath({ platformIdx, adTypeIdx, adGroupIdx: 0 })}
-                            >
-                              <LayersIcon className="size-3 text-muted-foreground shrink-0" />
-                              <span className={cn(
-                                'text-xs truncate flex-1',
-                                pathsEqual(selectedPath, { platformIdx, adTypeIdx, adGroupIdx: 0 }) && selectedPath.adIdx === undefined ? 'text-primary font-medium' : 'text-foreground'
-                              )}>
-                                Ad Group 1
-                              </span>
-                            </div>
-
-                            {/* Ad nodes */}
-                            {adType.ads.map((ad, adIdx) => (
-                              <div
-                                key={ad.id || adIdx}
-                                className={cn(
-                                  'group flex items-center gap-1 pl-14 pr-2 py-1 cursor-pointer hover:bg-accent transition-colors relative',
-                                  pathsEqual(selectedPath, { platformIdx, adTypeIdx, adGroupIdx: 0, adIdx }) && 'bg-primary/10'
-                                )}
-                                onClick={() => setSelectedPath({ platformIdx, adTypeIdx, adGroupIdx: 0, adIdx })}
-                              >
-                                {ad.imageUrls[0] ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={ad.imageUrls[0]} alt="" className="size-4 rounded object-cover shrink-0" />
-                                ) : (
-                                  <ImageIcon className="size-3 text-muted-foreground shrink-0" />
-                                )}
-                                <span className={cn(
-                                  'text-xs truncate flex-1',
-                                  pathsEqual(selectedPath, { platformIdx, adTypeIdx, adGroupIdx: 0, adIdx }) ? 'text-primary font-medium' : 'text-foreground'
-                                )}>
-                                  {ad.headlines[0]?.slice(0, 20) ?? `Ad ${adIdx + 1}`}
-                                </span>
-                                <div className="relative">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setOpenTreeMenu({ type: 'ad', platformIdx, adTypeIdx, adIdx }); }}
-                                    className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground transition-all"
-                                  >
-                                    <MoreHorizontalIcon className="size-3" />
-                                  </button>
-                                  {openTreeMenu?.type === 'ad' && openTreeMenu.platformIdx === platformIdx && openTreeMenu.adTypeIdx === adTypeIdx && openTreeMenu.adIdx === adIdx && (
-                                    <TreeContextMenu
-                                      onEdit={() => { setSelectedPath({ platformIdx, adTypeIdx, adGroupIdx: 0, adIdx }); setOpenTreeMenu(null); }}
-                                      onDelete={() => { handleDeleteAd(platformIdx, adTypeIdx, adIdx); setOpenTreeMenu(null); }}
-                                      onClose={() => setOpenTreeMenu(null)}
-                                    />
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-
-                            {/* Add ad button */}
-                            <button
-                              type="button"
-                              onClick={() => handleAddAd(platformIdx, adTypeIdx)}
-                              className="flex items-center gap-1.5 pl-14 pr-2 py-1 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                            >
-                              <PlusIcon className="size-3" />
-                              Add Ad
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
                 </div>
               );
             })}
           </div>
-        </aside>
+        )}
 
-        {/* Content area */}
-        <main className="flex-1 overflow-y-auto">
-          {selectedAd && selectedPath.adTypeIdx !== undefined && selectedPath.adIdx !== undefined ? (
-            <AdEditor
-              ad={selectedAd}
-              adType={selectedAdType?.adType ?? ''}
-              platform={selectedPlatform?.platform ?? 'google'}
-              adIdx={selectedPath.adIdx}
-              onUpdate={(updated) =>
-                handleUpdateAd(selectedPath.platformIdx, selectedPath.adTypeIdx!, selectedPath.adIdx!, updated)
-              }
-            />
-          ) : selectedPath.adGroupIdx !== undefined && selectedPath.adIdx === undefined ? (
-            <AdGroupTargetingContent />
-          ) : selectedAdType && selectedPath.adTypeIdx !== undefined && selectedPath.adGroupIdx === undefined ? (
-            <CampaignTypeContent
-              adType={selectedAdType.adType}
-              platform={selectedPlatform?.platform ?? 'google'}
-              adTypePlan={selectedAdType}
-              onUpdate={(updatedAt) => {
-                setLocalPlan((prev) => ({
-                  ...prev,
-                  platforms: prev.platforms.map((p, pi) =>
-                    pi !== selectedPath.platformIdx ? p : {
-                      ...p,
-                      adTypes: p.adTypes.map((at, ai) =>
-                        ai !== selectedPath.adTypeIdx ? at : { ...at, ...updatedAt }
-                      )
-                    }
-                  )
-                }));
-              }}
-            />
-          ) : selectedPlatform ? (
-            <PlatformContent
-              platform={selectedPlatform}
-              currency={localPlan.currency}
-              onBudgetChange={(budget) => {
-                setLocalPlan((prev) => ({
-                  ...prev,
-                  platforms: prev.platforms.map((p, pi) =>
-                    pi !== selectedPath.platformIdx ? p : { ...p, budget }
-                  )
-                }));
-              }}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              Select a node from the tree to start editing
-            </div>
-          )}
-        </main>
+        {/* Ads row */}
+        {selectedAdType && selectedPath.adTypeIdx !== undefined && (
+          <div className="flex items-center gap-1.5 px-4 py-1.5 overflow-x-auto">
+            <span className="text-[10px] text-muted-foreground shrink-0 mr-1">Ads:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx, adGroupIdx: 0 })}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border shrink-0',
+                selectedPath.adGroupIdx !== undefined && selectedPath.adIdx === undefined
+                  ? 'bg-primary/15 text-primary border-primary/30'
+                  : 'bg-background text-foreground border-border hover:border-primary/30 hover:bg-accent'
+              )}
+            >
+              <LayersIcon className="size-3" />
+              Ad Group 1
+            </button>
+            {selectedAdType.ads.map((ad, adIdx) => {
+              const isAdSelected = selectedPath.adIdx === adIdx && selectedPath.adGroupIdx !== undefined;
+              return (
+                <div key={ad.id || adIdx} className="relative group/ad flex items-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adGroupIdx: 0, adIdx })}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
+                      isAdSelected
+                        ? 'bg-primary/15 text-primary border-primary/30'
+                        : 'bg-background text-foreground border-border hover:border-primary/30 hover:bg-accent'
+                    )}
+                  >
+                    {ad.imageUrls[0]
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={ad.imageUrls[0]} alt="" className="size-3.5 rounded object-cover shrink-0" />
+                      : <ImageIcon className="size-3 shrink-0" />}
+                    {ad.headlines[0]?.slice(0, 15) ?? `Ad ${adIdx + 1}`}
+                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setOpenTreeMenu({ type: 'ad', platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adIdx }); }}
+                      className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/ad:opacity-100 hover:text-foreground transition-all"
+                    >
+                      <MoreHorizontalIcon className="size-3" />
+                    </button>
+                    {openTreeMenu?.type === 'ad' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === selectedPath.adTypeIdx && openTreeMenu.adIdx === adIdx && (
+                      <TreeContextMenu
+                        onEdit={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adGroupIdx: 0, adIdx }); setOpenTreeMenu(null); }}
+                        onDelete={() => { handleDeleteAd(selectedPath.platformIdx, selectedPath.adTypeIdx!, adIdx); setOpenTreeMenu(null); }}
+                        onClose={() => setOpenTreeMenu(null)}
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => handleAddAd(selectedPath.platformIdx, selectedPath.adTypeIdx!)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors border border-dashed border-border shrink-0"
+            >
+              <PlusIcon className="size-3" />
+              Add Ad
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Content area */}
+      <main className="flex-1 overflow-y-auto">
+        {selectedAd && selectedPath.adTypeIdx !== undefined && selectedPath.adIdx !== undefined ? (
+          <AdEditor
+            ad={selectedAd}
+            adType={selectedAdType?.adType ?? ''}
+            platform={selectedPlatform?.platform ?? 'google'}
+            adIdx={selectedPath.adIdx}
+            onUpdate={(updated) =>
+              handleUpdateAd(selectedPath.platformIdx, selectedPath.adTypeIdx!, selectedPath.adIdx!, updated)
+            }
+          />
+        ) : selectedPath.adGroupIdx !== undefined && selectedPath.adIdx === undefined ? (
+          <AdGroupTargetingContent />
+        ) : selectedAdType && selectedPath.adTypeIdx !== undefined && selectedPath.adGroupIdx === undefined ? (
+          <CampaignTypeContent
+            adType={selectedAdType.adType}
+            platform={selectedPlatform?.platform ?? 'google'}
+            adTypePlan={selectedAdType}
+            onUpdate={(updatedAt) => {
+              setLocalPlan((prev) => ({
+                ...prev,
+                platforms: prev.platforms.map((p, pi) =>
+                  pi !== selectedPath.platformIdx ? p : {
+                    ...p,
+                    adTypes: p.adTypes.map((at, ai) =>
+                      ai !== selectedPath.adTypeIdx ? at : { ...at, ...updatedAt }
+                    )
+                  }
+                )
+              }));
+            }}
+          />
+        ) : selectedPlatform ? (
+          <PlatformContent
+            platform={selectedPlatform}
+            currency={localPlan.currency}
+            onBudgetChange={(budget) => {
+              setLocalPlan((prev) => ({
+                ...prev,
+                platforms: prev.platforms.map((p, pi) =>
+                  pi !== selectedPath.platformIdx ? p : { ...p, budget }
+                )
+              }));
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+            Select a node from the structure above to start editing
+          </div>
+        )}
+      </main>
     </div>
   );
 }
@@ -1299,6 +1227,7 @@ function AdEditor({
   const [descriptions, setDescriptions] = React.useState<string[]>(ad.descriptions);
   const [ctaText, setCtaText] = React.useState(ad.ctaText);
   const [destinationUrl, setDestinationUrl] = React.useState(ad.destinationUrl);
+  const [saved, setSaved] = React.useState(false);
 
   const addHeadline = () => {
     if (headlines.length < maxHeadlines) setHeadlines([...headlines, '']);
@@ -1330,6 +1259,8 @@ function AdEditor({
 
   const handleSave = () => {
     onUpdate({ headlines, descriptions, ctaText, destinationUrl });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   };
 
   const imageAspect = isStories ? '9/16' : platform === 'meta' && !isSearch ? '1/1' : '16/9';
@@ -1342,7 +1273,9 @@ function AdEditor({
           <h2 className="text-sm font-semibold text-foreground">Ad {adIdx + 1} — {adTypeLabel(adType)}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">{platformLabel(platform)} · {isSearch ? 'Responsive Search Ad' : isStories ? '9:16 Vertical' : '16:9 Landscape'}</p>
         </div>
-        <Button size="sm" className="text-xs" onClick={handleSave}>Save Ad</Button>
+        <Button size="sm" className={cn('text-xs transition-colors', saved && 'text-green-600 border-green-300')} variant="outline" onClick={handleSave}>
+          {saved ? 'Saved ✓' : 'Save Ad'}
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
