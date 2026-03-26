@@ -117,12 +117,12 @@ export async function POST(
         );
         platformCampaignId = result.campaignId;
       } else if (platform === 'google') {
-        const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+        const devToken = process.env.GOOGLE_DEVELOPER_TOKEN;
         if (!devToken) {
           platformResults.push({
             platform,
             success: false,
-            error: 'Google Ads developer token not configured (GOOGLE_ADS_DEVELOPER_TOKEN env var missing)'
+            error: 'Google Ads developer token not configured (GOOGLE_DEVELOPER_TOKEN env var missing)'
           });
           return;
         }
@@ -134,12 +134,12 @@ export async function POST(
         );
         platformCampaignId = result.campaignResourceName;
       } else if (platform === 'bing') {
-        const devToken = process.env.BING_ADS_DEVELOPER_TOKEN;
+        const devToken = process.env.BING_DEVELOPER_TOKEN;
         if (!devToken) {
           platformResults.push({
             platform,
             success: false,
-            error: 'Microsoft Ads developer token not configured (BING_ADS_DEVELOPER_TOKEN env var missing)'
+            error: 'Microsoft Ads developer token not configured (BING_DEVELOPER_TOKEN env var missing)'
           });
           return;
         }
