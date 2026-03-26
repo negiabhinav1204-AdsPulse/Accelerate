@@ -25,7 +25,9 @@ export async function getOrganizationDetails(): Promise<OrganizationDetailsDto> 
           address: true,
           phone: true,
           email: true,
-          website: true
+          website: true,
+          location: true,
+          currency: true
         }
       });
       if (!organization) {
@@ -37,7 +39,9 @@ export async function getOrganizationDetails(): Promise<OrganizationDetailsDto> 
         address: organization.address ? organization.address : undefined,
         phone: organization.phone ? organization.phone : undefined,
         email: organization.email ? organization.email : undefined,
-        website: organization.website ? organization.website : undefined
+        website: organization.website ? organization.website : undefined,
+        location: organization.location ? organization.location : undefined,
+        currency: organization.currency ? organization.currency : undefined
       };
 
       return response;

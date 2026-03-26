@@ -24,6 +24,7 @@ import { toast } from '@workspace/ui/components/sonner';
 
 import { updateOrganizationDetails } from '~/actions/organization/update-organization-details';
 import { useZodForm } from '~/hooks/use-zod-form';
+import { COUNTRIES, CURRENCIES } from '~/lib/constants/org-options';
 import {
   updateOrganizationDetailsSchema,
   type UpdateOrganizationDetailsSchema
@@ -46,7 +47,9 @@ export function OrganizationDetailsCard({
       address: details.address ?? '',
       phone: details.phone ?? '',
       email: details.email ?? '',
-      website: details.website ?? ''
+      website: details.website ?? '',
+      location: details.location ?? '',
+      currency: details.currency ?? ''
     }
   });
   const canSubmit = !methods.formState.isSubmitting;
@@ -162,6 +165,56 @@ export function OrganizationDetailsCard({
                       disabled={methods.formState.isSubmitting}
                       {...field}
                     />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={methods.control}
+              name="location"
+              render={({ field }) => (
+                <FormItem className="flex w-full flex-col">
+                  <FormLabel>Country</FormLabel>
+                  <FormControl>
+                    <select
+                      disabled={methods.formState.isSubmitting}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    >
+                      <option value="">Select country...</option>
+                      {COUNTRIES.map((country) => (
+                        <option key={country} value={country}>
+                          {country}
+                        </option>
+                      ))}
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={methods.control}
+              name="currency"
+              render={({ field }) => (
+                <FormItem className="flex w-full flex-col">
+                  <FormLabel>Default Currency</FormLabel>
+                  <FormControl>
+                    <select
+                      disabled={methods.formState.isSubmitting}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    >
+                      <option value="">Select currency...</option>
+                      {CURRENCIES.map(({ code, name }) => (
+                        <option key={code} value={code}>
+                          {code} — {name}
+                        </option>
+                      ))}
+                    </select>
                   </FormControl>
                   <FormMessage />
                 </FormItem>

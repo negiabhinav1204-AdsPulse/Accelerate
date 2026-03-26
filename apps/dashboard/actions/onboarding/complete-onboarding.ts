@@ -423,6 +423,7 @@ async function handleAccelerateBusinessStep(
         slug,
         contactEmail: step.contactEmail || userEmail,
         location: step.location,
+        currency: step.currency,
         category: step.category,
         businessHours: createDefaultBusinessHours(),
         billingCustomerId,

@@ -20,7 +20,9 @@ export const updateOrganizationDetails = authOrganizationActionClient
         address: parsedInput.address,
         phone: parsedInput.phone,
         email: parsedInput.email,
-        website: parsedInput.website
+        website: parsedInput.website,
+        location: parsedInput.location,
+        currency: parsedInput.currency
       },
       select: {
         id: true // SELECT NONE

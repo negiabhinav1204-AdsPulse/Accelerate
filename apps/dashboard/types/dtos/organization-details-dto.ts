@@ -4,4 +4,6 @@ export type OrganizationDetailsDto = {
   phone?: string;
   email?: string;
   website?: string;
+  location?: string;
+  currency?: string;
 };

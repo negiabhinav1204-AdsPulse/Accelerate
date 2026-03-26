@@ -85,6 +85,7 @@ export const businessOnboardingSchema = z.object({
     .optional()
     .or(z.literal('')),
   location: z.string().optional().or(z.literal('')),
+  currency: z.string().optional().or(z.literal('')),
   category: z.string().optional().or(z.literal(''))
 });
 

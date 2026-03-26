@@ -371,6 +371,7 @@ model Organization {
   email               String?              @db.VarChar(255)
   contactEmail        String?              @db.VarChar(255)
   location            String?              @db.VarChar(255)
+  currency            String?              @db.VarChar(10)
   category            String?              @db.VarChar(255)
   businessUrl         String?              @db.VarChar(2048)
   logoUrl             String?              @db.VarChar(2048)

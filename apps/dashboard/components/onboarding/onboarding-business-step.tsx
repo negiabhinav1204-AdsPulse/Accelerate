@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { BuildingIcon, GlobeIcon, MailIcon, MapPinIcon, TagIcon } from 'lucide-react';
+import { BuildingIcon, DollarSignIcon, GlobeIcon, MailIcon, MapPinIcon, TagIcon } from 'lucide-react';
 import { useFormContext } from 'react-hook-form';
 
 import { Button } from '@workspace/ui/components/button';
@@ -15,30 +15,8 @@ import {
 import { InputWithAdornments } from '@workspace/ui/components/input-with-adornments';
 
 import type { OnboardingStepProps } from '~/components/onboarding/onboarding-step-props';
+import { COUNTRIES, CURRENCIES } from '~/lib/constants/org-options';
 import type { CompleteOnboardingSchema } from '~/schemas/onboarding/complete-onboarding-schema';
-
-const LOCATIONS = [
-  'Mumbai, India',
-  'Delhi, India',
-  'Bengaluru, India',
-  'Hyderabad, India',
-  'Chennai, India',
-  'Pune, India',
-  'Kolkata, India',
-  'Ahmedabad, India',
-  'Jaipur, India',
-  'Surat, India',
-  'New York, USA',
-  'San Francisco, USA',
-  'London, UK',
-  'Singapore',
-  'Dubai, UAE',
-  'Sydney, Australia',
-  'Toronto, Canada',
-  'Berlin, Germany',
-  'Paris, France',
-  'Tokyo, Japan'
-];
 
 const CATEGORIES = [
   'E-Commerce / Retail',
@@ -163,7 +141,7 @@ export function OnboardingBusinessStep({
             name="businessStep.location"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Location</FormLabel>
+                <FormLabel>Country</FormLabel>
                 <FormControl>
                   <div className="relative">
                     <MapPinIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground shrink-0 z-10" />
@@ -173,10 +151,39 @@ export function OnboardingBusinessStep({
                       value={field.value ?? ''}
                       onChange={(e) => field.onChange(e.target.value)}
                     >
-                      <option value="">Select location...</option>
-                      {LOCATIONS.map((loc) => (
-                        <option key={loc} value={loc}>
-                          {loc}
+                      <option value="">Select country...</option>
+                      {COUNTRIES.map((country) => (
+                        <option key={country} value={country}>
+                          {country}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={methods.control}
+            name="businessStep.currency"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Default Currency</FormLabel>
+                <FormControl>
+                  <div className="relative">
+                    <DollarSignIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground shrink-0 z-10" />
+                    <select
+                      disabled={loading}
+                      className="flex h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 appearance-none"
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    >
+                      <option value="">Select currency...</option>
+                      {CURRENCIES.map(({ code, name }) => (
+                        <option key={code} value={code}>
+                          {code} — {name}
                         </option>
                       ))}
                     </select>

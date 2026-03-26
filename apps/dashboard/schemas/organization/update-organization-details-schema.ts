@@ -42,7 +42,9 @@ export const updateOrganizationDetailsSchema = z.object({
     .url('Enter a valid URL with schema.')
     .max(2000, 'Maximum 2000 characters allowed.')
     .optional()
-    .or(z.literal(''))
+    .or(z.literal('')),
+  location: z.string().max(255).optional().or(z.literal('')),
+  currency: z.string().max(10).optional().or(z.literal(''))
 });
 
 export type UpdateOrganizationDetailsSchema = z.infer<
