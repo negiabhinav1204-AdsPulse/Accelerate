@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 
+import { orgKey, redis, TTL } from '~/lib/redis';
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const session = await auth();
   const userId = session?.user?.id;
@@ -84,6 +86,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const platformFilter = platform
     ? { platformCampaigns: { some: { platform } } }
     : undefined;
+
+  // Check Redis cache for default unfiltered list (most common request)
+  const isDefaultQuery = !search && !statusParam && !objective && !dateRange && !platform && page === 1 && perPage === 10;
+  const campaignsCacheKey = isDefaultQuery
+    ? orgKey(orgId, `campaigns:${source ?? 'all'}:p1`)
+    : null;
+
+  if (campaignsCacheKey) {
+    try {
+      const cached = await redis.get(campaignsCacheKey);
+      if (cached) return NextResponse.json(cached);
+    } catch {
+      // Redis unavailable — fall through to DB
+    }
+  }
 
   // Fetch active (non-archived) platforms so we can hide disconnected external campaigns
   const connectedAccounts = await prisma.connectedAdAccount.findMany({
@@ -188,5 +205,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }))
   }));
 
-  return NextResponse.json({ campaigns: serialized, total, page, perPage });
+  const payload = { campaigns: serialized, total, page, perPage };
+
+  // Populate Redis for default queries
+  if (campaignsCacheKey) {
+    try {
+      await redis.setex(campaignsCacheKey, TTL.CAMPAIGNS, payload);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  return NextResponse.json(payload);
 }

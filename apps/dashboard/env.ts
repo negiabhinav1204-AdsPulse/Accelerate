@@ -35,7 +35,10 @@ export const env = createEnv({
     BING_DEVELOPER_TOKEN: z.string().optional(),
     // Meta connector
     META_APP_ID: z.string().optional(),
-    META_APP_SECRET: z.string().optional()
+    META_APP_SECRET: z.string().optional(),
+    // Redis — Upstash (caching, rate limiting, job store)
+    UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().optional()
   },
   client: {},
   runtimeEnv: {
@@ -49,6 +52,8 @@ export const env = createEnv({
     BING_CLIENT_SECRET: process.env.BING_CLIENT_SECRET,
     BING_DEVELOPER_TOKEN: process.env.BING_DEVELOPER_TOKEN,
     META_APP_ID: process.env.META_APP_ID,
-    META_APP_SECRET: process.env.META_APP_SECRET
+    META_APP_SECRET: process.env.META_APP_SECRET,
+    UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN
   }
 });

@@ -27,6 +27,8 @@
     "@mendable/firecrawl-js": "^4.16.0",
     "@t3-oss/env-nextjs": "0.13.6",
     "@tanstack/react-table": "8.21.3",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.37.0",
     "@workspace/analytics": "workspace:*",
     "@workspace/api-keys": "workspace:*",
     "@workspace/auth": "workspace:*",

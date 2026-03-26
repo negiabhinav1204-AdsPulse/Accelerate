@@ -11,12 +11,23 @@ import {
   defaultRevalidateTimeInSeconds,
   OrganizationCacheKey
 } from '~/data/caching';
+import { orgKey, redis, TTL } from '~/lib/redis';
 import type { OrganizationDetailsDto } from '~/types/dtos/organization-details-dto';
 
 export async function getOrganizationDetails(): Promise<OrganizationDetailsDto> {
   const ctx = await getAuthOrganizationContext();
+  const cacheKey = orgKey(ctx.organization.id, 'details');
 
-  return cache(
+  // 1. Check Redis first (shared across all serverless instances)
+  try {
+    const cached = await redis.get<OrganizationDetailsDto>(cacheKey);
+    if (cached) return cached;
+  } catch {
+    // Redis unavailable — fall through to DB
+  }
+
+  // 2. Fetch from DB via Next.js unstable_cache (per-instance memory cache)
+  const result = await cache(
     async () => {
       const organization = await prisma.organization.findFirst({
         where: { id: ctx.organization.id },
@@ -60,4 +71,13 @@ export async function getOrganizationDetails(): Promise<OrganizationDetailsDto> 
       ]
     }
   )();
+
+  // 3. Populate Redis for next request
+  try {
+    await redis.setex(cacheKey, TTL.ORG_DETAILS, result);
+  } catch {
+    // Non-fatal
+  }
+
+  return result;
 }

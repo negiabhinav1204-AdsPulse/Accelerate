@@ -14,6 +14,12 @@ import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 
 import { runCampaignAgents } from '~/lib/campaign/agents';
+import { createJob, updateJob } from '~/lib/job-store';
+import { aiRateLimit } from '~/lib/rate-limit';
+import { orgKey, redis } from '~/lib/redis';
+
+// Allow up to 300s on Vercel Pro/Enterprise for the long-running agent pipeline
+export const maxDuration = 300;
 import type { AgentEvent, UserPreferences } from '~/lib/campaign/agents';
 import type { MediaPlan } from '~/lib/campaign/transformers';
 import {
@@ -168,6 +174,32 @@ export async function POST(request: NextRequest): Promise<Response> {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  // Rate limit: 10 AI campaign creations per hour per user
+  try {
+    const { success, limit, remaining, reset } = await aiRateLimit.limit(userId);
+    if (!success) {
+      return new Response(
+        JSON.stringify({
+          error: 'Rate limit exceeded',
+          message: `You can create up to ${limit} campaigns per hour. Try again after ${new Date(reset).toLocaleTimeString()}.`,
+          remaining: 0,
+          reset
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-RateLimit-Limit': String(limit),
+            'X-RateLimit-Remaining': String(remaining),
+            'X-RateLimit-Reset': String(reset)
+          }
+        }
+      );
+    }
+  } catch {
+    // Redis unavailable — allow the request through
+  }
+
   let body: RequestBody;
   try {
     body = (await request.json()) as RequestBody;
@@ -216,13 +248,29 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   });
 
+  // Create a Redis job record so the client can poll for state if SSE drops
+  const { v4: uuidv4 } = await import('uuid');
+  const jobId = uuidv4();
+  try {
+    await createJob({ jobId, orgId: organizationId, userId, url });
+  } catch {
+    // Non-fatal — SSE still works without Redis job tracking
+  }
+
   const encoder = new TextEncoder();
+
+  // Stream the job ID immediately so the client can start polling
+  const jobIdHeader = encoder.encode('data: ' + JSON.stringify({ type: 'job_id', jobId }) + '\n\n');
 
   const stream = new ReadableStream({
     async start(controller) {
+      controller.enqueue(jobIdHeader);
+
       const enqueue = (event: AgentEvent) => {
         try {
           controller.enqueue(encoder.encode('data: ' + JSON.stringify(event) + '\n\n'));
+          // Persist event to Redis for polling fallback (fire-and-forget)
+          void updateJob(jobId, { event: event as Record<string, unknown> }).catch(() => {});
         } catch {
           // Stream may be closed if client disconnected
         }
@@ -231,6 +279,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       let mediaPlan: MediaPlan | null = null;
       let agentOutputs: Record<string, unknown> | null = null;
       const domain = extractDomain(url);
+
+      // Mark job as running
+      void updateJob(jobId, { status: 'running' }).catch(() => {});
 
       try {
         // Load org memory context
@@ -258,10 +309,12 @@ export async function POST(request: NextRequest): Promise<Response> {
       } catch (err) {
         if (err instanceof Error && err.message === 'CONFLICT_DETECTED') {
           // Pipeline paused for user confirmation — conflict_check was already enqueued
+          void updateJob(jobId, { status: 'failed', error: 'CONFLICT_DETECTED' }).catch(() => {});
           controller.close();
           return;
         }
         const message = err instanceof Error ? err.message : 'Campaign agent pipeline failed';
+        void updateJob(jobId, { status: 'failed', error: message }).catch(() => {});
         enqueue({ type: 'error', message });
         controller.close();
         return;
@@ -303,6 +356,15 @@ export async function POST(request: NextRequest): Promise<Response> {
             plan: { ...mediaPlan, _campaignId: campaign.id } as MediaPlan & { _campaignId: string }
           });
 
+          // Invalidate campaigns list cache so the new campaign appears immediately
+          void redis.del(
+            orgKey(organizationId, 'campaigns:all:p1'),
+            orgKey(organizationId, 'campaigns:accelerate:p1')
+          ).catch(() => {});
+
+          // Mark job complete with campaign ID for polling clients
+          void updateJob(jobId, { status: 'completed', campaignId: campaign.id }).catch(() => {});
+
           // Save memory nodes (fire-and-forget, non-fatal)
           void saveCampaignMemory({
             orgId: organizationId,
@@ -318,6 +380,9 @@ export async function POST(request: NextRequest): Promise<Response> {
           console.error('[campaign/create] DB save failed:', dbErr);
           // Non-fatal — client already has the media plan from the earlier media_plan event
         }
+      } else {
+        // Agent ran but produced no media plan
+        void updateJob(jobId, { status: 'failed', error: 'No media plan generated' }).catch(() => {});
       }
 
       controller.close();

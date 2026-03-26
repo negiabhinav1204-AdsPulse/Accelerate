@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@workspace/auth'
 import { prisma } from '@workspace/database/client'
 
+import { orgKey, redis, TTL } from '~/lib/redis'
+
 type AgeGenderRow = {
   age: string
   gender: string
@@ -94,6 +96,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const from = new Date(now)
     from.setDate(from.getDate() - days)
     dateFrom = toISODate(from)
+  }
+
+  // Check Redis cache (reporting data is expensive — 4 parallel DB queries)
+  const reportingCacheKey = orgKey(
+    orgId,
+    `reporting:${dateRange}:${campaignId ?? 'all'}:${dateFrom}:${dateTo}`
+  )
+  try {
+    const cached = await redis.get(reportingCacheKey)
+    if (cached) return NextResponse.json(cached)
+  } catch {
+    // Redis unavailable — fall through to DB
   }
 
   const [reports, latestAccount, ageGenderReports, platformReports] = await Promise.all([
@@ -306,5 +320,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const lastSyncAt = latestAccount?.lastSyncAt?.toISOString() ?? null
 
-  return NextResponse.json({ dailyMetrics, summaryTotals, perCampaign, ageGender, platformBreakdown, lastSyncAt })
+  const payload = { dailyMetrics, summaryTotals, perCampaign, ageGender, platformBreakdown, lastSyncAt }
+
+  // Populate Redis cache
+  try {
+    await redis.setex(reportingCacheKey, TTL.REPORTING, payload)
+  } catch {
+    // Non-fatal
+  }
+
+  return NextResponse.json(payload)
 }
