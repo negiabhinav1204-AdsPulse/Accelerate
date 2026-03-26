@@ -409,6 +409,9 @@ model Organization {
   feedRules           FeedRule[]
   promotions          MerchantPromotion[]
   audienceLists       AudienceList[]
+  storeLocations      StoreLocation[]
+  shopifyMarkets      ShopifyMarket[]
+  deliverySpeedRules  DeliverySpeedRule[]
 
   @@index([billingCustomerId], map: "IX_Organization_billingCustomerId")
 }
@@ -770,6 +773,8 @@ model ShoppingFeedSettings {
   defaultAgeGroup        String?        @db.VarChar(50)
   channels               Json           @default("[]")
   zombieSkuConfig        Json?
+  buyOnGoogleEnabled     Boolean        @default(false)
+  localInventoryEnabled  Boolean        @default(false)
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
   organization           Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -874,6 +879,64 @@ model AudienceList {
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ---- Advanced Feed Features ---- //
+
+model StoreLocation {
+  id               String       @id @default(uuid()) @db.Uuid
+  organizationId   String       @db.Uuid
+  connectedStoreId String       @db.Uuid
+  storeCode        String       @db.VarChar(100)
+  name             String       @db.VarChar(255)
+  address          String       @db.VarChar(500)
+  city             String       @db.VarChar(100)
+  state            String?      @db.VarChar(100)
+  country          String       @db.VarChar(10)
+  postalCode       String       @db.VarChar(20)
+  phone            String?      @db.VarChar(50)
+  hours            Json         @default("{}")
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model ShopifyMarket {
+  id               String       @id @default(uuid()) @db.Uuid
+  organizationId   String       @db.Uuid
+  connectedStoreId String       @db.Uuid
+  marketName       String       @db.VarChar(255)
+  targetCountry    String       @db.VarChar(10)
+  language         String       @db.VarChar(10)
+  currency         String       @db.VarChar(10)
+  isEnabled        Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model DeliverySpeedRule {
+  id               String       @id @default(uuid()) @db.Uuid
+  organizationId   String       @db.Uuid
+  connectedStoreId String       @db.Uuid
+  countryCode      String       @db.VarChar(10)
+  carrier          String       @db.VarChar(100)
+  service          String       @db.VarChar(100)
+  minTransitDays   Int
+  maxTransitDays   Int
+  cutoffHour       Int          @default(17)
+  price            Decimal?     @db.Decimal(10, 2)
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
 }

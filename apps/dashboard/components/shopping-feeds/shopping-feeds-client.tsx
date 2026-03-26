@@ -42,6 +42,7 @@ import { cn } from '@workspace/ui/lib/utils';
 
 import { GOOGLE_TAXONOMY } from '~/lib/google-taxonomy';
 import type { ChannelStatus, MockProduct } from '~/lib/platforms/shopify-mock';
+import { AdvancedSettingsTab } from '~/components/shopping-feeds/advanced-settings-tab';
 import { GoogleSetupWizard } from '~/components/shopping-feeds/google-setup-wizard';
 
 // ── Platform icons ────────────────────────────────────────────────────────────
@@ -2980,7 +2981,7 @@ function ZombieSkuTab({ orgId, orgSlug, products }: { orgId: string; orgSlug: st
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-type Tab = 'products' | 'settings' | 'rules' | 'promotions' | 'audiences' | 'zombie';
+type Tab = 'products' | 'settings' | 'rules' | 'promotions' | 'audiences' | 'zombie' | 'advanced';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'products', label: 'Products', icon: <PackageIcon className="size-4" /> },
@@ -2988,7 +2989,8 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'rules', label: 'Rules', icon: <FilterIcon className="size-4" /> },
   { id: 'promotions', label: 'Promotions', icon: <TagIcon className="size-4" /> },
   { id: 'audiences', label: 'Audience Sync', icon: <UsersIcon className="size-4" /> },
-  { id: 'zombie', label: 'Zombie SKUs', icon: <GhostIcon className="size-4" /> }
+  { id: 'zombie', label: 'Zombie SKUs', icon: <GhostIcon className="size-4" /> },
+  { id: 'advanced', label: 'Advanced', icon: <ZapIcon className="size-4" /> }
 ];
 
 export function ShoppingFeedsClient({
@@ -3133,6 +3135,7 @@ export function ShoppingFeedsClient({
       {activeTab === 'promotions' && <PromotionsTab orgId={orgId} />}
       {activeTab === 'audiences' && <AudienceSyncTab orgId={orgId} />}
       {activeTab === 'zombie' && <ZombieSkuTab orgId={orgId} orgSlug={orgSlug} products={products} />}
+      {activeTab === 'advanced' && <AdvancedSettingsTab orgId={orgId} />}
 
       <GoogleSetupWizard
         open={wizardOpen}
