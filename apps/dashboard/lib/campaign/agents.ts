@@ -14,6 +14,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 import { transformMediaPlan } from './transformers';
 import type { MediaPlan, ConnectedAccount } from './transformers';
+import { fetchAllCompetitorAds, formatAdLibraryForPrompt } from '../platforms/meta-ad-library';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,6 +59,7 @@ export type ConnectedAccountInfo = {
   status: string;
   currency?: string | null;
   timezone?: string | null;
+  accessToken?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -874,20 +876,22 @@ Return a JSON object with these exact fields:
 const COMPETITOR_MESSAGES = {
   start: 'Analyzing competitor activity...',
   progress: [
-    'Identifying key competitors',
-    'Reviewing competitor positioning and messaging',
-    'Analyzing market saturation and dominant formats',
-    'Identifying competitive gaps and opportunities'
+    'Identifying key competitors from page content...',
+    'Fetching live competitor ads from Meta Ad Library...',
+    'Analyzing competitor messaging and creative patterns...',
+    'Mapping competitive gaps and opportunities...',
   ],
-  complete: 'Competitor insights ready'
+  complete: 'Competitor insights ready',
 };
 
 async function runCompetitorAgent(params: {
   url: string;
   pageContent: string;
+  metaAccessToken?: string | null;
+  targetCountries?: string[];
   enqueue: (event: AgentEvent) => void;
 }): Promise<CompetitorOutput> {
-  const { url, pageContent, enqueue } = params;
+  const { url, pageContent, metaAccessToken, targetCountries = ['US'], enqueue } = params;
   const start = Date.now();
 
   enqueue({ type: 'agent_start', agent: 'competitor', message: COMPETITOR_MESSAGES.start });
@@ -896,27 +900,62 @@ async function runCompetitorAgent(params: {
 
   const systemPrompt = `You are a competitive intelligence analyst for digital advertising. Respond with valid JSON only — no markdown fences, no explanation.`;
 
+  // ── Phase 1: identify competitor names from page content ──────────────────
+  const namePrompt = `Given this website, identify 5-8 likely direct competitors by their exact brand or company name.
+URL: ${url}
+Page Content:
+${pageContent.slice(0, 1500) || '(Could not fetch content — infer from URL)'}
+
+Return JSON only: { "competitors": ["Brand A", "Brand B", ...] }`;
+
+  const rawNames = await callGemini(systemPrompt, namePrompt);
+  const { competitors: competitorNames } = parseJsonFromLlm<{ competitors: string[] }>(
+    rawNames,
+    { competitors: [] }
+  );
+
+  // ── Phase 2: fetch real ads from Meta Ad Library ──────────────────────────
+  let adLibraryData = '';
+  let metaAdsFound = false;
+
+  if (metaAccessToken && competitorNames.length > 0) {
+    const adResults = await fetchAllCompetitorAds(
+      metaAccessToken,
+      competitorNames,
+      targetCountries,
+      8
+    );
+    metaAdsFound = adResults.some((r) => r.ads.length > 0);
+    adLibraryData = formatAdLibraryForPrompt(adResults);
+  }
+
+  // ── Phase 3: deep synthesis with real ad data ─────────────────────────────
+  const adDataSection = metaAdsFound
+    ? `\n=== REAL COMPETITOR ADS FROM META AD LIBRARY ===\n${adLibraryData}\n\nBase your analysis on the actual ad copy, platforms, and spend data above.`
+    : `\n(No Meta Ad Library data available — infer from page content and industry knowledge)`;
+
   const userPrompt = `Analyze the competitive landscape for this website.
 
 URL: ${url}
 Page Content:
 ${pageContent.slice(0, 2000) || '(Could not fetch content — infer from URL)'}
+${adDataSection}
 
 Instructions:
-1. Identify likely direct and indirect competitors
+1. Identify direct and indirect competitors (use the names already identified: ${competitorNames.join(', ') || 'infer from URL'})
 2. Assess market saturation: low (niche, few players), medium (growing, several players), high (crowded, many established brands)
 3. Identify the dominant advertising platform in this category (Google Search, Meta Ads, TikTok, etc.)
 4. Identify the dominant ad format (Search text ads, Image carousel, Video, Shopping)
-5. Classify competitor messaging themes from: discount_led, benefit_led, social_proof, urgency, storytelling, feature_comparison
+5. Classify competitor messaging themes from the ad copy: discount_led, benefit_led, social_proof, urgency, storytelling, feature_comparison
 6. Assess pricing tier relative to competitors: budget, mid, premium
-7. Identify specific competitive gaps with opportunity scores (0-1)
+7. Identify specific competitive gaps — what are competitors NOT doing that this brand could exploit?
 
 Return a JSON object with these exact fields:
 {
-  "competitors": ["string (5-8 likely competitors by name)"],
-  "competitorStrategies": ["string (common advertising strategies used by competitors)"],
+  "competitors": ["string (5-8 competitor names)"],
+  "competitorStrategies": ["string (common advertising strategies observed in competitor ads)"],
   "gaps": ["string (market gaps or underserved segments)"],
-  "differentiators": ["string (potential differentiators for this brand based on their value propositions)"],
+  "differentiators": ["string (potential differentiators for this brand)"],
   "marketSaturation": "low|medium|high",
   "dominantPlatform": "string (e.g. Google Search, Meta Ads)",
   "dominantFormat": "string (e.g. Search text ads, Image carousel, Video)",
@@ -934,7 +973,7 @@ Return a JSON object with these exact fields:
   const [rawOutput] = await Promise.all([callGemini(systemPrompt, userPrompt), progressPromise]);
 
   const output = parseJsonFromLlm<CompetitorOutput>(rawOutput, {
-    competitors: [],
+    competitors: competitorNames,
     competitorStrategies: ['Search advertising', 'Social media presence'],
     gaps: [],
     differentiators: [],
@@ -943,8 +982,13 @@ Return a JSON object with these exact fields:
     dominantFormat: 'Search text ads',
     messagingThemes: ['benefit_led'],
     pricingTier: 'mid',
-    competitiveGaps: []
+    competitiveGaps: [],
   });
+
+  // Ensure competitor names from phase 1 are always present
+  if (output.competitors.length === 0 && competitorNames.length > 0) {
+    output.competitors = competitorNames;
+  }
 
   const timeTaken = Date.now() - start;
   enqueue({
@@ -956,12 +1000,12 @@ Return a JSON object with these exact fields:
         { title: 'Market Saturation', description: output.marketSaturation },
         { title: 'Dominant Platform', description: output.dominantPlatform },
         { title: 'Pricing Tier', description: output.pricingTier },
-        ...output.competitors.slice(0, 3).map((c) => ({ title: c, description: 'Competitor' }))
+        ...output.competitors.slice(0, 3).map((c) => ({ title: c, description: 'Competitor' })),
       ],
-      summary: `${output.marketSaturation} saturation | ${output.dominantPlatform} | ${output.differentiators[0] ?? 'Competitive analysis complete'}`
+      summary: `${output.marketSaturation} saturation | ${output.dominantPlatform} | ${output.differentiators[0] ?? 'Competitive analysis complete'}`,
     },
     timeTaken,
-    confidence: pageContent ? 'Medium' : 'Low'
+    confidence: metaAdsFound ? 'High' : pageContent ? 'Medium' : 'Low',
   });
 
   return output;
@@ -1696,11 +1740,23 @@ export async function runCampaignAgents(params: {
     ? `=== HOMEPAGE ===\n${homepageContent}\n\n=== PRODUCT PAGE ===\n${pageContent}`
     : pageContent;
 
+  // Extract Meta access token for Ad Library competitor research
+  const metaAccount =
+    connectedAccounts.find((a) => a.platform === 'meta' && a.isDefault) ??
+    connectedAccounts.find((a) => a.platform === 'meta');
+  const metaAccessToken = metaAccount?.accessToken ?? null;
+
+  // Resolve target countries: user pref → default US
+  const targetCountries =
+    userPreferences?.targetCountries && userPreferences.targetCountries.length > 0
+      ? userPreferences.targetCountries
+      : ['US'];
+
   // Phase 1 (parallel): Brand, LPU, Competitor, Trend — all independent, use pageContent
   const [brandOut, lpuOut, competitorOut, trendOut] = await Promise.all([
     runBrandAgent({ url: homepage, pageContent: brandPageContent, enqueue }),
     runLpuAgent({ url, pageContent, enqueue }),
-    runCompetitorAgent({ url, pageContent, enqueue }),
+    runCompetitorAgent({ url, pageContent, metaAccessToken, targetCountries, enqueue }),
     runTrendAgent({ url, pageContent, enqueue })
   ]);
 

@@ -200,6 +200,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Load connected ad accounts for this organization
+  // accessToken is included so the competitor agent can query the Meta Ad Library
   const connectedAccounts = await prisma.connectedAdAccount.findMany({
     where: { organizationId, status: 'connected', archivedAt: null },
     select: {
@@ -210,7 +211,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       isDefault: true,
       status: true,
       currency: true,
-      timezone: true
+      timezone: true,
+      accessToken: true
     }
   });
 
