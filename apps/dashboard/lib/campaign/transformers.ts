@@ -29,15 +29,31 @@ export type TargetingSettings = {
   languages: string[];
   interests?: string[];
   keywords?: string[];
+  negativeKeywords?: string[];
+  matchTypes?: string[];
+  deviceTargeting?: string[];
+  placements?: string;
+  publisherPlatforms?: string[];
+  optimizationGoal?: string;
+  conversionEvent?: string;
   customAudiences?: string[];
+  bidStrategy?: string;
 };
 
 export type AdCreative = {
+  id?: string;
   headlines: string[];
   descriptions: string[];
   imageUrls: string[];
+  imagePrompt?: string;
   ctaText: string;
   destinationUrl: string;
+};
+
+export type AdExtensions = {
+  sitelinks?: { title: string; description: string; url: string }[];
+  callouts?: string[];
+  structuredSnippets?: { header: string; values: string[] };
 };
 
 export type AdTypePlan = {
@@ -47,6 +63,7 @@ export type AdTypePlan = {
   budgetPercent: number;
   targeting: TargetingSettings;
   bidStrategy: string;
+  adExtensions?: AdExtensions;
   ads: AdCreative[];
 };
 
@@ -617,7 +634,15 @@ export function transformMediaPlan(
               : ['en'],
             interests: safeStringArray(rawTargeting.interests),
             keywords: safeStringArray(rawTargeting.keywords),
-            customAudiences: safeStringArray(rawTargeting.customAudiences)
+            negativeKeywords: safeStringArray(rawTargeting.negativeKeywords),
+            matchTypes: safeStringArray(rawTargeting.matchTypes),
+            deviceTargeting: safeStringArray(rawTargeting.deviceTargeting),
+            placements: typeof rawTargeting.placements === 'string' ? rawTargeting.placements : undefined,
+            publisherPlatforms: safeStringArray(rawTargeting.publisherPlatforms),
+            optimizationGoal: typeof rawTargeting.optimizationGoal === 'string' ? rawTargeting.optimizationGoal : undefined,
+            conversionEvent: typeof rawTargeting.conversionEvent === 'string' ? rawTargeting.conversionEvent : undefined,
+            customAudiences: safeStringArray(rawTargeting.customAudiences),
+            bidStrategy: typeof rawTargeting.bidStrategy === 'string' ? rawTargeting.bidStrategy : undefined
           };
 
           const bidStrategyRaw = safeString(at.bidStrategy, 'maximize conversions');
@@ -631,12 +656,38 @@ export function transformMediaPlan(
           const ads: AdCreative[] = rawAds
             .filter((ad): ad is Record<string, unknown> => isRecord(ad))
             .map((ad) => ({
+              ...(typeof ad.id === 'string' ? { id: ad.id } : {}),
               headlines: safeStringArray(ad.headlines),
               descriptions: safeStringArray(ad.descriptions),
               imageUrls: safeStringArray(ad.imageUrls),
+              ...(typeof ad.imagePrompt === 'string' ? { imagePrompt: ad.imagePrompt } : {}),
               ctaText: safeString(ad.ctaText, 'Learn More'),
               destinationUrl: safeString(ad.destinationUrl, '')
             }));
+
+          // Parse adExtensions if present
+          let adExtensions: AdExtensions | undefined;
+          if (isRecord(at.adExtensions)) {
+            const ext = at.adExtensions;
+            adExtensions = {
+              sitelinks: Array.isArray(ext.sitelinks)
+                ? (ext.sitelinks as unknown[]).filter(isRecord).map((s) => ({
+                    title: safeString(s.title, ''),
+                    description: safeString(s.description, ''),
+                    url: safeString(s.url, '')
+                  }))
+                : undefined,
+              callouts: Array.isArray(ext.callouts)
+                ? (ext.callouts as unknown[]).filter((c): c is string => typeof c === 'string')
+                : undefined,
+              structuredSnippets: isRecord(ext.structuredSnippets)
+                ? {
+                    header: safeString((ext.structuredSnippets as Record<string, unknown>).header, ''),
+                    values: safeStringArray((ext.structuredSnippets as Record<string, unknown>).values)
+                  }
+                : undefined
+            };
+          }
 
           return {
             adType,
@@ -645,6 +696,7 @@ export function transformMediaPlan(
             budgetPercent: safeNumber(at.budgetPercent, 0),
             targeting,
             bidStrategy,
+            ...(adExtensions ? { adExtensions } : {}),
             ads
           };
         });

@@ -176,6 +176,7 @@ type CampaignPreviewPanelProps = {
   orgSlug: string;
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  publishing?: boolean;
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -187,7 +188,8 @@ export function CampaignPreviewPanel({
   onPublish,
   onMediaPlanChange,
   fullscreen = false,
-  onToggleFullscreen
+  onToggleFullscreen,
+  publishing = false
 }: CampaignPreviewPanelProps): React.JSX.Element {
   const [selectedPlatformIdx, setSelectedPlatformIdx] = React.useState(0);
   const [selectedAdTypeIdx, setSelectedAdTypeIdx] = React.useState(0);
@@ -488,10 +490,18 @@ export function CampaignPreviewPanel({
           Edit Details
         </Button>
         <Button
-          className="flex items-center justify-center gap-2 py-5 bg-blue-600 hover:bg-blue-700 text-white"
+          className="flex items-center justify-center gap-2 py-5 bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
           onClick={onPublish}
+          disabled={publishing}
         >
-          Publish
+          {publishing ? (
+            <>
+              <span className="size-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              Publishing...
+            </>
+          ) : (
+            'Publish'
+          )}
         </Button>
       </div>
     </div>
@@ -518,6 +528,9 @@ function TargetingTab({
   const interests = (targeting as { interests?: string[] }).interests ?? [];
   const deviceTargeting = (targeting as { deviceTargeting?: string[] }).deviceTargeting ?? [];
   const bidStrategy = (targeting as { bidStrategy?: string }).bidStrategy ?? 'Auto';
+  const negativeKeywords = (targeting as { negativeKeywords?: string[] }).negativeKeywords ?? [];
+  const optimizationGoal = (targeting as { optimizationGoal?: string }).optimizationGoal;
+  const conversionEvent = (targeting as { conversionEvent?: string }).conversionEvent;
 
   const items: { icon: React.ReactNode; label: string; value: string | string[] }[] = [
     {
@@ -546,8 +559,17 @@ function TargetingTab({
   if (keywords.length > 0) {
     expandedItems.push({ icon: <SearchIcon className="size-5 text-[#6a7282]" />, label: 'KEYWORDS', value: keywords });
   }
+  if (negativeKeywords.length > 0) {
+    expandedItems.push({ icon: <SearchIcon className="size-5 text-[#6a7282]" />, label: 'NEGATIVE KEYWORDS', value: negativeKeywords });
+  }
   if (interests.length > 0) {
     expandedItems.push({ icon: <SparklesIcon className="size-5 text-[#6a7282]" />, label: 'INTERESTS', value: interests });
+  }
+  if (optimizationGoal) {
+    expandedItems.push({ icon: <ZapIcon className="size-5 text-[#6a7282]" />, label: 'OPTIMIZATION GOAL', value: optimizationGoal });
+  }
+  if (conversionEvent) {
+    expandedItems.push({ icon: <ZapIcon className="size-5 text-[#6a7282]" />, label: 'CONVERSION EVENT', value: conversionEvent });
   }
   expandedItems.push({ icon: <ZapIcon className="size-5 text-[#6a7282]" />, label: 'BID STRATEGY', value: bidStrategy });
 

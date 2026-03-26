@@ -176,7 +176,9 @@ export function AcceleraAiHome({
     mediaPlan: MediaPlan | null;
     phase: 'analyzing' | 'preview' | 'editing';
     editScope: EditScope | null;
+    campaignId?: string;
   } | null>(null);
+  const [publishing, setPublishing] = React.useState(false);
 
   // Keep sessionIdRef in sync so stale closures always see the latest value
   React.useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -313,9 +315,13 @@ export function AcceleraAiHome({
                 case 'agent_complete':
                   updateAgent(event.agent, { status: 'complete', currentMessage: event.message, output: event.output, timeTaken: event.timeTaken, confidence: event.confidence });
                   break;
-                case 'media_plan':
-                  updateCampaignMsg((prev) => ({ ...prev, mediaPlan: event.plan, done: true }));
-                  setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: event.plan, phase: 'preview' } : prev);
+                case 'media_plan': {
+                  const planWithId = event.plan as MediaPlan & { _campaignId?: string };
+                  const extractedCampaignId = planWithId._campaignId;
+                  const cleanPlan = { ...event.plan } as MediaPlan & { _campaignId?: string };
+                  delete cleanPlan._campaignId;
+                  updateCampaignMsg((prev) => ({ ...prev, mediaPlan: cleanPlan, done: true }));
+                  setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: cleanPlan, phase: 'preview', ...(extractedCampaignId ? { campaignId: extractedCampaignId } : {}) } : prev);
                   // Persist campaign messages so they survive page refresh
                   // Use ref to avoid stale closure capturing old sessionId
                   void (async () => {
@@ -345,6 +351,7 @@ export function AcceleraAiHome({
                     } catch { /* non-fatal */ }
                   })();
                   break;
+                }
                 case 'image_update': {
                   const [platformKey, adTypeKey] = event.platformAdTypeKey.split(':');
                   const applyImageUpdate = (plan: MediaPlan): MediaPlan => ({
@@ -782,9 +789,22 @@ export function AcceleraAiHome({
               mediaPlan={activeCampaign.mediaPlan}
               onClose={() => setActiveCampaign(null)}
               onEdit={(scope) => setActiveCampaign((prev) => prev ? { ...prev, phase: 'editing', editScope: scope ?? null } : prev)}
-              onPublish={() => {
-                alert('Publishing is currently disabled. Save draft instead.');
+              onPublish={async () => {
+                if (!activeCampaign.campaignId) return;
+                setPublishing(true);
+                try {
+                  const res = await fetch(`/api/campaign/${activeCampaign.campaignId}/publish`, { method: 'POST' });
+                  if (res.ok) {
+                    setActiveCampaign(null);
+                    window.location.href = `/organizations/${orgSlug}/campaigns`;
+                  }
+                } catch {
+                  // non-fatal
+                } finally {
+                  setPublishing(false);
+                }
               }}
+              publishing={publishing}
               onMediaPlanChange={(updated) => setActiveCampaign((prev) => prev ? { ...prev, mediaPlan: updated } : prev)}
               orgSlug={orgSlug}
             />

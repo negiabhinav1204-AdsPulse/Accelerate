@@ -100,10 +100,22 @@ export type AdTypePlan = {
     ageRange: string;
     gender: string;
     languages: string[];
-    deviceTargeting: string[];
+    deviceTargeting?: string[];
     keywords?: string[];
-    bidStrategy: string;
+    negativeKeywords?: string[];
+    matchTypes?: string[];
+    placements?: string;
+    publisherPlatforms?: string[];
+    optimizationGoal?: string;
+    conversionEvent?: string;
+    bidStrategy?: string;
+    interests?: string[];
     additionalSettings?: Record<string, unknown>;
+  };
+  adExtensions?: {
+    sitelinks?: { title: string; description: string; url: string }[];
+    callouts?: string[];
+    structuredSnippets?: { header: string; values: string[] };
   };
   ads: AdCreative[];
 };

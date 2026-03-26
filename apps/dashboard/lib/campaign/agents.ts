@@ -1432,17 +1432,32 @@ Return a JSON object matching this exact structure:
       "platformScore": number,
       "adTypes": [
         {
-          "adType": "string",
+          "adType": "string (e.g. search|display|pmax|shopping|demand_gen for google; feed|stories|reels|carousel for meta; search|display for bing)",
           "adCount": number,
+          "budget": number,
+          "budgetPercent": number,
           "targeting": {
-            "locations": ["string"],
-            "ageRange": "string",
-            "gender": "string",
+            "locations": ["string (country name or city, country)"],
+            "ageRange": "string (e.g. 25-44)",
+            "gender": "string (All|Male|Female)",
             "languages": ["string"],
             "interests": ["string"],
-            "keywords": ["string"]
+            "keywords": ["string (for search ad types, 10-20 high-intent keywords)"],
+            "negativeKeywords": ["string (3-5 negative keywords to exclude irrelevant traffic)"],
+            "matchTypes": ["EXACT|PHRASE|BROAD (one per keyword, matching order)"],
+            "deviceTargeting": ["DESKTOP|MOBILE|TABLET"],
+            "placements": "AUTOMATIC|MANUAL (for meta: always AUTOMATIC for broad reach)",
+            "publisherPlatforms": ["FACEBOOK|INSTAGRAM|AUDIENCE_NETWORK (for meta only)"],
+            "optimizationGoal": "string (CONVERSIONS|LINK_CLICKS|REACH|IMPRESSIONS|LEAD_GENERATION)",
+            "conversionEvent": "string (PURCHASE|ADD_TO_CART|LEAD|COMPLETE_REGISTRATION for meta)",
+            "bidStrategy": "string"
           },
           "bidStrategy": "string",
+          "adExtensions": {
+            "sitelinks": [{"title": "string", "description": "string", "url": "string"}],
+            "callouts": ["string (5-10 chars each, 4-6 callouts)"],
+            "structuredSnippets": {"header": "string", "values": ["string"]}
+          },
           "ads": []
         }
       ]

@@ -362,6 +362,13 @@ export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId:
     }
   }
 
+  async function handlePublish(c: CampaignListItem) {
+    const res = await fetch(`/api/campaign/${c.id}/publish`, { method: 'POST' });
+    if (res.ok) {
+      await loadCampaigns();
+    }
+  }
+
   async function handleStatusChange(c: CampaignListItem, action: 'pause' | 'resume') {
     const platformCampaignId = c.source === 'external'
       ? (c.platformCampaignId ?? c.platformCampaigns[0]?.platformCampaignId ?? '')
@@ -832,6 +839,13 @@ export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId:
                 </button>
               }
             >
+              {permissions.canManageCampaigns && (c.status === 'DRAFT' || c.status === 'draft') && c.source === 'accelerate' && (
+                <MenuItem
+                  icon={<PlayIcon className="size-3" />}
+                  label="Publish"
+                  onClick={() => void handlePublish(c)}
+                />
+              )}
               {permissions.canManageCampaigns && campaignAction === 'pause' && (
                 <MenuItem
                   icon={<PauseIcon className="size-3" />}
