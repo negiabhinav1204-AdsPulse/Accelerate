@@ -4,13 +4,11 @@ import { notFound, redirect } from 'next/navigation';
 import { createSearchParamsCache, parseAsString } from 'nuqs/server';
 import { validate as uuidValidate } from 'uuid';
 
-import { dedupedAuth } from '@workspace/auth';
 import { InvitationStatus } from '@workspace/database';
 import { prisma } from '@workspace/database/client';
 import { routes } from '@workspace/routes';
 
-import { AcceptInvitationCard } from '~/components/invitations/accept-invitation-card';
-import { SignInToAcceptCard } from '~/components/invitations/sign-in-to-accept-card';
+import { InvitationSignupCard } from '~/components/invitations/invitation-signup-card';
 import { createTitle } from '~/lib/formatters';
 
 const paramsCache = createSearchParamsCache({
@@ -18,10 +16,10 @@ const paramsCache = createSearchParamsCache({
 });
 
 export const metadata: Metadata = {
-  title: createTitle('Join organization')
+  title: createTitle('Create account')
 };
 
-export default async function InvitationPage({
+export default async function InvitationAcceptPage({
   params
 }: NextPageProps): Promise<React.JSX.Element> {
   const { token } = await paramsCache.parse(params);
@@ -32,14 +30,10 @@ export default async function InvitationPage({
   const invitation = await prisma.invitation.findFirst({
     where: { token },
     select: {
-      id: true,
       email: true,
       status: true,
       organization: {
-        select: {
-          id: true,
-          name: true
-        }
+        select: { name: true }
       }
     }
   });
@@ -53,30 +47,20 @@ export default async function InvitationPage({
     return redirect(routes.dashboard.invitations.Revoked);
   }
 
-  const session = await dedupedAuth();
-  if (!session || !session.user || session.user.email !== invitation.email) {
-    // New user with no account yet → redirect to the create-account flow
-    if (!session) {
-      const existingUser = await prisma.user.findUnique({
-        where: { email: invitation.email.toLowerCase() },
-        select: { id: true }
-      });
-      if (!existingUser) {
-        return redirect(`${routes.dashboard.invitations.Accept}/${token}`);
-      }
-    }
-    return (
-      <SignInToAcceptCard
-        organizationName={invitation.organization.name}
-        email={invitation.email}
-        loggedIn={!!session}
-      />
-    );
+  // If an account already exists for this email, send back to sign-in flow
+  const existingUser = await prisma.user.findUnique({
+    where: { email: invitation.email.toLowerCase() },
+    select: { id: true }
+  });
+  if (existingUser) {
+    return redirect(`${routes.dashboard.invitations.Request}/${token}`);
   }
+
   return (
-    <AcceptInvitationCard
-      invitationId={invitation.id}
+    <InvitationSignupCard
+      token={token}
       organizationName={invitation.organization.name}
+      email={invitation.email}
     />
   );
 }

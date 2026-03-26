@@ -45,6 +45,7 @@ export const routes = {
     },
     Index: `${baseUrl.Dashboard}/`,
     invitations: {
+      Accept: `${baseUrl.Dashboard}/invitations/accept`,
       AlreadyAccepted: `${baseUrl.Dashboard}/invitations/already-accepted`,
       Index: `${baseUrl.Dashboard}/invitations`,
       Request: `${baseUrl.Dashboard}/invitations/request`,
