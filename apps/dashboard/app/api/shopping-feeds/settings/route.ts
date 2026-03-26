@@ -95,6 +95,7 @@ type SettingsPatchBody = {
   productIdFormat?: string;
   defaultGoogleCategory?: string | null;
   defaultAgeGroup?: string | null;
+  merchantCenterId?: string | null;
   channels?: string[];
 };
 

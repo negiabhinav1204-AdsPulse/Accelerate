@@ -546,7 +546,8 @@ function FeedSettingsTab({ orgId }: { orgId: string }): React.JSX.Element {
     productIdFormat: 'global',
     inventoryPolicy: 'ignore',
     defaultAgeGroup: '',
-    defaultGoogleCategory: ''
+    defaultGoogleCategory: '',
+    merchantCenterId: ''
   });
 
   // Load from API
@@ -578,7 +579,8 @@ function FeedSettingsTab({ orgId }: { orgId: string }): React.JSX.Element {
             productIdFormat: (s.productIdFormat as string) ?? 'global',
             inventoryPolicy: (s.inventoryPolicy as string) ?? 'ignore',
             defaultAgeGroup: (s.defaultAgeGroup as string) ?? '',
-            defaultGoogleCategory: (s.defaultGoogleCategory as string) ?? ''
+            defaultGoogleCategory: (s.defaultGoogleCategory as string) ?? '',
+            merchantCenterId: (s.merchantCenterId as string) ?? ''
           }));
         }
         if (data.connectedAccounts) {
@@ -605,7 +607,8 @@ function FeedSettingsTab({ orgId }: { orgId: string }): React.JSX.Element {
           channels: channelsArr,
           ...settings,
           defaultAgeGroup: settings.defaultAgeGroup || null,
-          defaultGoogleCategory: settings.defaultGoogleCategory || null
+          defaultGoogleCategory: settings.defaultGoogleCategory || null,
+          merchantCenterId: settings.merchantCenterId || null
         })
       });
       if (!res.ok) throw new Error('save failed');
@@ -678,6 +681,20 @@ function FeedSettingsTab({ orgId }: { orgId: string }): React.JSX.Element {
                       No Google Ads account connected
                     </div>
                   )}
+                </div>
+                {/* Merchant Center ID */}
+                <div>
+                  <label className="text-xs font-medium text-foreground mb-1.5 block">Merchant Center ID</label>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="e.g. 123456789"
+                    maxLength={20}
+                    value={settings.merchantCenterId}
+                    onChange={(e) => setSettings((s) => ({ ...s, merchantCenterId: e.target.value.replace(/\D/g, '') }))}
+                    className="h-8 text-sm font-mono"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Your Google Merchant Center account ID. Found in the GMC dashboard URL.</p>
                 </div>
                 {/* Default category */}
                 <div>

@@ -771,6 +771,7 @@ model ShoppingFeedSettings {
   productIdFormat        String         @default("global") @db.VarChar(50)
   defaultGoogleCategory  String?        @db.VarChar(500)
   defaultAgeGroup        String?        @db.VarChar(50)
+  merchantCenterId       String?        @db.VarChar(20)
   channels               Json           @default("[]")
   zombieSkuConfig        Json?
   buyOnGoogleEnabled     Boolean        @default(false)
