@@ -22,9 +22,11 @@ import type { EditScope } from '../campaign/campaign-preview-panel';
 import type { AgentName, AgentState, MediaPlan, SSEEvent } from '../campaign/types';
 import { ChatCampaignTable } from './chat-campaign-table';
 import { ChatConnectPrompt } from './chat-connect-prompt';
+import { ChatInventoryCard } from './chat-inventory-card';
 import { ChatMetricCard } from './chat-metric-card';
 import { ChatNavSuggestion } from './chat-nav-suggestion';
 import { ChatPerformanceChart } from './chat-performance-chart';
+import { ChatProductLeaderboard } from './chat-product-leaderboard';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -57,7 +59,9 @@ type ToolBlock =
   | { name: 'show_campaigns'; input: { title: string; campaigns: { name: string; status: 'active' | 'paused' | 'ended'; budget?: string; spend?: string; impressions?: string; clicks?: string; ctr?: string; conversions?: string }[] } }
   | { name: 'show_chart'; input: { title: string; metric: string; data: { date: string; value: number }[] } }
   | { name: 'navigate_to'; input: { label: string; description: string; path: 'create-campaign' | 'campaigns' | 'reporting' | 'connectors' | 'settings' | 'accelera-ai' } }
-  | { name: 'connect_accounts_prompt'; input: { message: string } };
+  | { name: 'connect_accounts_prompt'; input: { message: string } }
+  | { name: 'show_products'; input: { title: string; products: { title: string; price?: string; sold_30d?: number; revenue_30d?: string; inventory?: number; badge?: string; insight?: string }[] } }
+  | { name: 'show_inventory'; input: { title: string; summary: { total_products: number; out_of_stock: number; low_stock: number; at_risk_revenue?: string }; items: { title: string; inventory: number; days_until_stockout?: number | null; weekly_velocity?: number; status: 'out_of_stock' | 'critical' | 'low' | 'ok' }[] } };
 
 type MessagePart =
   | { type: 'text'; text: string }
@@ -1145,6 +1149,21 @@ function ToolRenderer({
         <ChatConnectPrompt
           message={tool.input.message}
           orgSlug={orgSlug}
+        />
+      );
+    case 'show_products':
+      return (
+        <ChatProductLeaderboard
+          title={tool.input.title}
+          products={tool.input.products}
+        />
+      );
+    case 'show_inventory':
+      return (
+        <ChatInventoryCard
+          title={tool.input.title}
+          summary={tool.input.summary}
+          items={tool.input.items}
         />
       );
     default:

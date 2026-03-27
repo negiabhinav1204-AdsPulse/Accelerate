@@ -5,6 +5,12 @@ import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 import { searchMemory, upsertMemoryNode } from '~/lib/memory/memory-service';
 import { SERVICES } from '~/lib/service-router';
+import {
+  ECOMMERCE_TOOL_NAMES,
+  ECOMMERCE_TOOL_SCHEMAS,
+  executeEcommerceTool,
+  type ToolContext,
+} from './tools/ecommerce';
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -41,11 +47,22 @@ Help users with:
 
 You have deep knowledge of digital advertising — Google Ads, Meta Ads (Facebook/Instagram), Microsoft Advertising, campaign structures, targeting options, bidding strategies, creatives, conversion tracking, and performance metrics.
 
-## Generative UI Tools
+## Data Tools (execute server-side — results returned to you)
+You have access to real ecommerce data tools. Call these to get LIVE data before answering:
+- \`get_products\` — list the product catalog with prices, inventory, and 30-day velocity
+- \`get_sales\` — revenue, orders, AOV for any time period with period-over-period comparison
+- \`get_ecommerce_overview\` — full KPI dashboard: revenue, orders, AOV, repeat rate, trends
+- \`get_inventory_health\` — flag low-stock and out-of-stock products with days-until-stockout
+- \`get_product_insights\` — deep analysis of a specific product
+- \`get_product_suggestions\` — top products to advertise ranked by velocity and revenue
+
+## Generative UI Tools (rendered in chat — use AFTER data tools)
 You have access to special UI rendering tools. Use them to show rich data visually:
 - Use \`show_metrics\` to display KPI cards when discussing performance numbers
 - Use \`show_campaigns\` to display a campaign table when listing campaigns
 - Use \`show_chart\` to display a performance chart when showing trends over time
+- Use \`show_products\` to display a product leaderboard when showing product lists or suggestions
+- Use \`show_inventory\` to display an inventory health card when showing stock status
 - Use \`navigate_to\` to suggest a platform navigation link when the user should go somewhere in the app (except campaign creation — see below)
 - Use \`connect_accounts_prompt\` when the user asks to analyse/optimise/create campaigns but no ad accounts are connected
 
@@ -179,7 +196,73 @@ const TOOLS: Anthropic.Tool[] = [
       },
       required: ['message']
     }
-  }
+  },
+  {
+    name: 'show_products',
+    description:
+      'Display a product leaderboard table with velocity badges. Use AFTER calling get_products or get_product_suggestions to show the results visually.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string', description: 'Card title, e.g. "Top Products by Velocity"' },
+        products: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              price: { type: 'string', description: 'Formatted price, e.g. "$49.99"' },
+              sold_30d: { type: 'number', description: '30-day units sold' },
+              revenue_30d: { type: 'string', description: 'Formatted revenue, e.g. "$1,200"' },
+              inventory: { type: 'number', description: 'Current inventory quantity' },
+              badge: { type: 'string', enum: ['best_seller', 'trending', 'high_value', 'low_stock', 'new', ''] },
+              insight: { type: 'string', description: 'One-line AI insight about this product' }
+            },
+            required: ['title']
+          }
+        }
+      },
+      required: ['title', 'products']
+    }
+  },
+  {
+    name: 'show_inventory',
+    description:
+      'Display an inventory health card with alerts. Use AFTER calling get_inventory_health to show the results visually.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string' },
+        summary: {
+          type: 'object',
+          properties: {
+            total_products: { type: 'number' },
+            out_of_stock: { type: 'number' },
+            low_stock: { type: 'number' },
+            at_risk_revenue: { type: 'string', description: 'Weekly revenue at risk, e.g. "$450"' }
+          },
+          required: ['total_products', 'out_of_stock', 'low_stock']
+        },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              inventory: { type: 'number' },
+              days_until_stockout: { type: 'number' },
+              weekly_velocity: { type: 'number' },
+              status: { type: 'string', enum: ['out_of_stock', 'critical', 'low', 'ok'] }
+            },
+            required: ['title', 'inventory', 'status']
+          }
+        }
+      },
+      required: ['title', 'summary', 'items']
+    }
+  },
+  // ── Ecommerce data tools (server-side execution) ──────────────────────────
+  ...ECOMMERCE_TOOL_SCHEMAS,
 ];
 
 // ---------------------------------------------------------------------------
@@ -579,48 +662,122 @@ export async function POST(request: NextRequest): Promise<Response> {
       const assistantTools: { name: string; input: unknown }[] = [];
 
       try {
-        const anthropicMessages: Anthropic.MessageParam[] = body.messages.map(
+        const toolCtx: ToolContext = {
+          orgId: body.organizationId ?? '',
+          currency: 'USD',
+        };
+
+        // Fetch org currency for tool context (best-effort)
+        if (body.organizationId) {
+          try {
+            const org = await prisma.organization.findFirst({
+              where: { id: body.organizationId },
+              select: { currency: true },
+            });
+            if (org?.currency) toolCtx.currency = org.currency;
+          } catch { /* non-fatal */ }
+        }
+
+        let messages: Anthropic.MessageParam[] = body.messages.map(
           (m) => ({ role: m.role, content: m.content })
         );
 
-        const anthropicStream = client.messages.stream({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 2048,
-          system: systemPrompt,
-          tools: TOOLS,
-          messages: anthropicMessages
-        });
+        // Agentic tool-use loop — handles data tool execution + streaming final response.
+        // Loop exits when stop_reason is 'end_turn' or we exceed 4 turns (safety limit).
+        let loopCount = 0;
+        const MAX_LOOPS = 4;
 
-        const toolInputBuffers: Record<string, string> = {};
-        const toolNames: Record<string, string> = {};
+        while (loopCount < MAX_LOOPS) {
+          loopCount++;
+          const isLastLoop = loopCount >= MAX_LOOPS;
 
-        for await (const event of anthropicStream) {
-          if (event.type === 'content_block_start') {
-            if (event.content_block.type === 'tool_use') {
-              toolInputBuffers[event.index] = '';
-              toolNames[event.index] = event.content_block.name;
-            }
-          } else if (event.type === 'content_block_delta') {
-            if (event.delta.type === 'text_delta') {
-              assistantText += event.delta.text;
-              enqueue({ type: 'text', text: event.delta.text });
-            } else if (event.delta.type === 'input_json_delta') {
-              toolInputBuffers[event.index] =
-                (toolInputBuffers[event.index] ?? '') + event.delta.partial_json;
-            }
-          } else if (event.type === 'content_block_stop') {
-            const name = toolNames[event.index];
-            const rawInput = toolInputBuffers[event.index];
-            if (name && rawInput !== undefined) {
-              try {
-                const toolInput = JSON.parse(rawInput) as unknown;
-                assistantTools.push({ name, input: toolInput });
-                enqueue({ type: 'tool', name, input: toolInput });
-              } catch {
-                // ignore malformed tool input
+          const anthropicStream = client.messages.stream({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 2048,
+            system: systemPrompt,
+            tools: TOOLS,
+            messages,
+          });
+
+          const toolInputBuffers: Record<number, string> = {};
+          const toolIdBuffers: Record<number, string> = {};
+          const toolNames: Record<number, string> = {};
+          // Data tool calls to execute after this streaming turn
+          const pendingDataToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
+
+          for await (const event of anthropicStream) {
+            if (event.type === 'content_block_start') {
+              if (event.content_block.type === 'tool_use') {
+                toolInputBuffers[event.index] = '';
+                toolNames[event.index] = event.content_block.name;
+                toolIdBuffers[event.index] = event.content_block.id;
+              }
+            } else if (event.type === 'content_block_delta') {
+              if (event.delta.type === 'text_delta') {
+                assistantText += event.delta.text;
+                enqueue({ type: 'text', text: event.delta.text });
+              } else if (event.delta.type === 'input_json_delta') {
+                toolInputBuffers[event.index] =
+                  (toolInputBuffers[event.index] ?? '') + event.delta.partial_json;
+              }
+            } else if (event.type === 'content_block_stop') {
+              const name = toolNames[event.index];
+              const id = toolIdBuffers[event.index];
+              const rawInput = toolInputBuffers[event.index];
+              if (name && rawInput !== undefined) {
+                let toolInput: Record<string, unknown> = {};
+                try {
+                  toolInput = JSON.parse(rawInput) as Record<string, unknown>;
+                } catch { /* ignore malformed */ }
+
+                if (ECOMMERCE_TOOL_NAMES.has(name)) {
+                  // Data tool — queue for server-side execution, don't stream to client
+                  pendingDataToolCalls.push({ id: id!, name, input: toolInput });
+                  enqueue({ type: 'tool_thinking', name });
+                } else {
+                  // UI tool — stream to client for rendering
+                  assistantTools.push({ name, input: toolInput });
+                  enqueue({ type: 'tool', name, input: toolInput });
+                }
               }
             }
           }
+
+          // If no data tool calls, we're done
+          if (pendingDataToolCalls.length === 0 || isLastLoop) {
+            break;
+          }
+
+          // Get full assistant content blocks from the final message for the loop
+          const finalMsg = await anthropicStream.finalMessage();
+
+          // Execute data tools in parallel
+          const toolResults = await Promise.all(
+            pendingDataToolCalls.map(async ({ id, name, input }) => {
+              try {
+                const result = await executeEcommerceTool(name, input, toolCtx);
+                return {
+                  type: 'tool_result' as const,
+                  tool_use_id: id,
+                  content: JSON.stringify(result),
+                };
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : 'Tool execution failed';
+                return {
+                  type: 'tool_result' as const,
+                  tool_use_id: id,
+                  content: JSON.stringify({ error: msg }),
+                };
+              }
+            })
+          );
+
+          // Append assistant turn (using SDK content blocks) + tool results, then loop
+          messages = [
+            ...messages,
+            { role: 'assistant' as const, content: finalMsg.content },
+            { role: 'user' as const, content: toolResults },
+          ];
         }
 
         // Extract and save memory facts from the conversation (fire-and-forget)
