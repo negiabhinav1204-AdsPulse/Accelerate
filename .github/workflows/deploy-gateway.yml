@@ -1,0 +1,36 @@
+name: Deploy Gateway Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/accelerate-gateway/**'
+      - '.github/workflows/deploy-gateway.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Cloudflare Workers
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: workers/accelerate-gateway/package-lock.json
+
+      - name: Install dependencies
+        working-directory: workers/accelerate-gateway
+        run: npm install
+
+      - name: Type-check
+        working-directory: workers/accelerate-gateway
+        run: npm run type-check
+
+      - name: Deploy to Cloudflare Workers (production)
+        working-directory: workers/accelerate-gateway
+        run: npm run deploy:production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

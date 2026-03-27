@@ -1,0 +1,58 @@
+name: Deploy Agent Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/accelerate-agent-service/**'
+
+env:
+  PROJECT_ID: project-adfaefd2-0225-4d20-8ae
+  REGION: us-central1
+  SERVICE: accelerate-agent-service
+  REGISTRY: us-central1-docker.pkg.dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/993150519389/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: accelerate-services@project-adfaefd2-0225-4d20-8ae.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push image
+        working-directory: services/accelerate-agent-service
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}
+          docker build -t $IMAGE .
+          docker push $IMAGE
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image=${{ env.IMAGE }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --no-allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=10 \
+            --cpu=2 \
+            --memory=4Gi \
+            --set-secrets="DATABASE_URL=DATABASE_URL:latest,UPSTASH_REDIS_REST_URL=UPSTASH_REDIS_REST_URL:latest,UPSTASH_REDIS_REST_TOKEN=UPSTASH_REDIS_REST_TOKEN:latest,QSTASH_CURRENT_SIGNING_KEY=QSTASH_CURRENT_SIGNING_KEY:latest,QSTASH_NEXT_SIGNING_KEY=QSTASH_NEXT_SIGNING_KEY:latest,INTERNAL_API_KEY=INTERNAL_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" \
+            --service-account=accelerate-services@${{ env.PROJECT_ID }}.iam.gserviceaccount.com

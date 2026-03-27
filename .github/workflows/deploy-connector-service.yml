@@ -1,0 +1,58 @@
+name: Deploy Connector Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/accelerate-connector-service/**'
+
+env:
+  PROJECT_ID: project-adfaefd2-0225-4d20-8ae
+  REGION: us-central1
+  SERVICE: accelerate-connector-service
+  REGISTRY: us-central1-docker.pkg.dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/993150519389/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: accelerate-services@project-adfaefd2-0225-4d20-8ae.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}
+          docker build -f services/accelerate-connector-service/Dockerfile -t $IMAGE .
+          docker push $IMAGE
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image=${{ env.IMAGE }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --no-allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=5 \
+            --cpu=1 \
+            --memory=512Mi \
+            --set-secrets="DATABASE_URL=DATABASE_URL:latest,INTERNAL_API_KEY=INTERNAL_API_KEY:latest" \
+            --set-env-vars="SYNC_SERVICE_URL=$SYNC_SERVICE_URL" \
+            --service-account=accelerate-services@${{ env.PROJECT_ID }}.iam.gserviceaccount.com

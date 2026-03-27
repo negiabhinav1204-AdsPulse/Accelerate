@@ -1,0 +1,39 @@
+name = "accelerate-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Non-secret vars — set per environment below
+[vars]
+USE_SHOPPING_FEEDS_SERVICE = "false"
+
+# Secrets (set via: wrangler secret put <NAME>)
+# DASHBOARD_URL
+# SHOPPING_FEEDS_SERVICE_URL
+# INTERNAL_API_KEY
+
+# Workers KV for rate limiting
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "PLACEHOLDER_KV_NAMESPACE_ID"
+preview_id = "PLACEHOLDER_KV_PREVIEW_ID"
+
+# ---------------------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------------------
+
+[env.staging]
+name = "accelerate-gateway-staging"
+
+[env.staging.vars]
+USE_SHOPPING_FEEDS_SERVICE = "false"
+
+[env.production]
+name = "accelerate-gateway"
+routes = [
+  # Replace with your actual domain after setting up Cloudflare DNS
+  # { pattern = "api.yourdomain.com/*", zone_name = "yourdomain.com" }
+]
+
+[env.production.vars]
+USE_SHOPPING_FEEDS_SERVICE = "true"
