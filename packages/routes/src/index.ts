@@ -75,6 +75,8 @@ export const routes = {
         Products: `${baseUrl.Dashboard}/organizations/[slug]/products`,
         Cdp: `${baseUrl.Dashboard}/organizations/[slug]/cdp`,
         CdpSegments: `${baseUrl.Dashboard}/organizations/[slug]/cdp/segments`,
+        MediaPlanner: `${baseUrl.Dashboard}/organizations/[slug]/media-planner`,
+        Cmo: `${baseUrl.Dashboard}/organizations/[slug]/cmo`,
         settings: {
           account: {
             Index: `${baseUrl.Dashboard}/organizations/[slug]/settings/account`,

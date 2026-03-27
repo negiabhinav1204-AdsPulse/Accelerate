@@ -2,12 +2,14 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { runRoute } from './routes/run';
 import { healthRoute } from './routes/health';
+import { mediaPlannerRoute } from './routes/media-planner';
 
 const server = Fastify({ logger: true });
 
 server.register(cors);
 server.register(healthRoute);
 server.register(runRoute);
+server.register(mediaPlannerRoute);
 
 const start = async () => {
   try {
