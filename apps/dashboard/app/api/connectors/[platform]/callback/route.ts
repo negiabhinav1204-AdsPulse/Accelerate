@@ -1,3 +1,4 @@
+import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
@@ -477,7 +478,7 @@ export async function GET(
         data: { isDefault: true }
       });
 
-      void (async () => {
+      after(async () => {
         try {
           const connected = await prisma.connectedAdAccount.findUnique({
             where: { id: singleId },
@@ -490,12 +491,13 @@ export async function GET(
             }
           });
           if (connected?.accessToken) {
-            await runPlatformSync(connected);
+            const decryptedToken = symmetricDecrypt(connected.accessToken, process.env.AUTH_SECRET!);
+            await runPlatformSync({ ...connected, accessToken: decryptedToken });
           }
         } catch (e) {
           console.error('[callback] Background sync failed:', e);
         }
-      })();
+      });
 
       // Redirect back to connectors with ?connected=[platform] so the page can show a success toast
       const successUrl = new URL(`${baseUrl}/organizations/${org.slug}/connectors`);
@@ -553,7 +555,7 @@ export async function GET(
 
   // Fire Tier 1 data pipeline in background — non-blocking, best-effort
   // Looks up the already-saved ConnectedAdAccount for this user+platform to get the DB id
-  void (async () => {
+  after(async () => {
     try {
       // Find the most recently connected account for this user's org + platform
       const membershipRecord = await prisma.membership.findFirst({
@@ -566,18 +568,19 @@ export async function GET(
       const connected = await prisma.connectedAdAccount.findFirst({
         where: {
           organizationId: membershipRecord.organizationId,
-          platform: platform.toUpperCase()
+          platform: platform.toLowerCase()
         },
         select: { id: true, organizationId: true, platform: true, accountId: true, accessToken: true },
         orderBy: { connectedAt: 'desc' }
       });
       if (!connected?.accessToken) return;
 
-      await runPlatformSync(connected);
+      const decryptedToken = symmetricDecrypt(connected.accessToken, process.env.AUTH_SECRET!);
+      await runPlatformSync({ ...connected, accessToken: decryptedToken });
     } catch (e) {
       console.error('[callback] Background sync failed:', e);
     }
-  })();
+  });
 
   return response;
 }
