@@ -95,25 +95,25 @@ ALTER TABLE "ShopifyMarket" DROP CONSTRAINT "ShopifyMarket_organizationId_fkey";
 ALTER TABLE "ShoppingFeedSettings" DROP CONSTRAINT "ShoppingFeedSettings_connectedStoreId_fkey";
 
 -- DropIndex
-DROP INDEX "FeedProduct_connectedStoreId_idx";
+DROP INDEX IF EXISTS "FeedProduct_connectedStoreId_idx";
 
 -- DropIndex
-DROP INDEX "FeedProduct_connectedStoreId_shopifyProductId_shopifyVariantId_";
+DROP INDEX IF EXISTS "FeedProduct_connectedStoreId_shopifyProductId_shopifyVariantId_";
 
 -- DropIndex
-DROP INDEX "FeedRule_connectedStoreId_idx";
+DROP INDEX IF EXISTS "FeedRule_connectedStoreId_idx";
 
 -- DropIndex
-DROP INDEX "FeedRule_organizationId_idx";
+DROP INDEX IF EXISTS "FeedRule_organizationId_idx";
 
 -- DropIndex
-DROP INDEX "MerchantPromotion_connectedStoreId_idx";
+DROP INDEX IF EXISTS "MerchantPromotion_connectedStoreId_idx";
 
 -- DropIndex
-DROP INDEX "OrgMemoryNode_embedding_idx";
+DROP INDEX IF EXISTS "OrgMemoryNode_embedding_idx";
 
 -- DropIndex
-DROP INDEX "ShoppingFeedSettings_connectedStoreId_key";
+DROP INDEX IF EXISTS "ShoppingFeedSettings_connectedStoreId_key";
 
 -- AlterTable
 ALTER TABLE "Ad" RENAME CONSTRAINT "PK_Ad" TO "Ad_pkey";
