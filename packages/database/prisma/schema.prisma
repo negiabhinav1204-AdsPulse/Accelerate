@@ -89,6 +89,85 @@ enum CampaignStatus {
   FAILED     @map("failed")
 }
 
+// ---- Commerce / CDP / Platform Enums ---- //
+
+enum CommercePlatform {
+  SHOPIFY     @map("shopify")
+  WOOCOMMERCE @map("woocommerce")
+  WIX         @map("wix")
+  BIGCOMMERCE @map("bigcommerce")
+  MAGENTO     @map("magento")
+  CUSTOM      @map("custom")
+  MANUAL      @map("manual")
+  CSV         @map("csv")
+}
+
+enum SyncStatus {
+  PENDING @map("pending")
+  SYNCING @map("syncing")
+  SYNCED  @map("synced")
+  FAILED  @map("failed")
+}
+
+enum ProductStatus {
+  ACTIVE   @map("active")
+  INACTIVE @map("inactive")
+  ARCHIVED @map("archived")
+}
+
+enum IdentitySource {
+  SHOPIFY     @map("shopify")
+  WOOCOMMERCE @map("woocommerce")
+  WIX         @map("wix")
+  PIXEL       @map("pixel")
+  CRM         @map("crm")
+  UPLOAD      @map("upload")
+  META        @map("meta")
+  GOOGLE      @map("google")
+  BING        @map("bing")
+}
+
+enum ExperimentStatus {
+  DRAFT   @map("draft")
+  RUNNING @map("running")
+  PAUSED  @map("paused")
+  ENDED   @map("ended")
+}
+
+enum AllocationMode {
+  RANDOM @map("random")
+  BANDIT @map("bandit")
+}
+
+enum FeedChannel {
+  GOOGLE_MC    @map("google_mc")
+  META_CATALOG @map("meta_catalog")
+  BING_MC      @map("bing_mc")
+  TIKTOK       @map("tiktok")
+  PINTEREST    @map("pinterest")
+}
+
+enum FormHosting {
+  OWN_DOMAIN @map("own_domain")
+  SHOPIFY    @map("shopify")
+  TYPEFORM   @map("typeform")
+  HUBSPOT    @map("hubspot")
+}
+
+enum JourneyStatus {
+  DRAFT  @map("draft")
+  ACTIVE @map("active")
+  PAUSED @map("paused")
+  ENDED  @map("ended")
+}
+
+enum CampaignCategory {
+  WINNER         @map("winner")
+  LEARNER        @map("learner")
+  UNDERPERFORMER @map("underperformer")
+  BLEEDER        @map("bleeder")
+}
+
 // ---- Models ---- //
 
 model Account {
@@ -362,57 +441,72 @@ model OrderItem {
 }
 
 model Organization {
-  id                  String               @id(map: "PK_Organization") @default(uuid()) @db.Uuid
-  slug                String               @unique @db.VarChar(255)
-  logo                String?              @db.VarChar(2048)
-  name                String               @db.VarChar(255)
-  address             String?              @db.VarChar(255)
-  phone               String?              @db.VarChar(32)
-  email               String?              @db.VarChar(255)
-  contactEmail        String?              @db.VarChar(255)
-  location            String?              @db.VarChar(255)
-  currency            String?              @db.VarChar(10)
-  category            String?              @db.VarChar(255)
-  businessUrl         String?              @db.VarChar(2048)
-  logoUrl             String?              @db.VarChar(2048)
-  website             String?              @db.VarChar(2000)
-  linkedInProfile     String?              @db.VarChar(2000)
-  instagramProfile    String?              @db.VarChar(2000)
-  youTubeChannel      String?              @db.VarChar(2000)
-  xProfile            String?              @db.VarChar(2000)
-  tikTokProfile       String?              @db.VarChar(2000)
-  facebookPage        String?              @db.VarChar(2000)
-  billingCustomerId   String?
-  billingEmail        String?              @db.VarChar(255)
-  billingLine1        String?              @db.VarChar(255)
-  billingLine2        String?              @db.VarChar(255)
-  billingCountry      String?              @db.VarChar(3)
-  billingPostalCode   String?              @db.VarChar(16)
-  billingCity         String?              @db.VarChar(255)
-  billingState        String?              @db.VarChar(255)
-  apiKeys             ApiKey[]
-  businessHours       WorkHours[]
-  adPlatformReports   AdPlatformReport[]
-  campaigns           Campaign[]
-  chatSessions        ChatSession[]
-  connectedAdAccounts ConnectedAdAccount[]
-  contacts            Contact[]
-  feedback            Feedback[]
-  invitations         Invitation[]
-  memberships         Membership[]
-  orders              Order[]
-  subscriptions       Subscription[]
-  webhooks            Webhook[]
-  memoryNodes         OrgMemoryNode[]
-  connectedStores     ConnectedStore[]
-  feedSettings        ShoppingFeedSettings[]
-  feedProducts        FeedProduct[]
-  feedRules           FeedRule[]
-  promotions          MerchantPromotion[]
-  audienceLists       AudienceList[]
-  storeLocations      StoreLocation[]
-  shopifyMarkets      ShopifyMarket[]
-  deliverySpeedRules  DeliverySpeedRule[]
+  id                     String                       @id(map: "PK_Organization") @default(uuid()) @db.Uuid
+  slug                   String                       @unique @db.VarChar(255)
+  logo                   String?                      @db.VarChar(2048)
+  name                   String                       @db.VarChar(255)
+  address                String?                      @db.VarChar(255)
+  phone                  String?                      @db.VarChar(32)
+  email                  String?                      @db.VarChar(255)
+  contactEmail           String?                      @db.VarChar(255)
+  location               String?                      @db.VarChar(255)
+  currency               String?                      @db.VarChar(10)
+  category               String?                      @db.VarChar(255)
+  businessUrl            String?                      @db.VarChar(2048)
+  logoUrl                String?                      @db.VarChar(2048)
+  website                String?                      @db.VarChar(2000)
+  linkedInProfile        String?                      @db.VarChar(2000)
+  instagramProfile       String?                      @db.VarChar(2000)
+  youTubeChannel         String?                      @db.VarChar(2000)
+  xProfile               String?                      @db.VarChar(2000)
+  tikTokProfile          String?                      @db.VarChar(2000)
+  facebookPage           String?                      @db.VarChar(2000)
+  billingCustomerId      String?
+  billingEmail           String?                      @db.VarChar(255)
+  billingLine1           String?                      @db.VarChar(255)
+  billingLine2           String?                      @db.VarChar(255)
+  billingCountry         String?                      @db.VarChar(3)
+  billingPostalCode      String?                      @db.VarChar(16)
+  billingCity            String?                      @db.VarChar(255)
+  billingState           String?                      @db.VarChar(255)
+  apiKeys                ApiKey[]
+  businessHours          WorkHours[]
+  adPlatformReports      AdPlatformReport[]
+  campaigns              Campaign[]
+  chatSessions           ChatSession[]
+  connectedAdAccounts    ConnectedAdAccount[]
+  contacts               Contact[]
+  feedback               Feedback[]
+  invitations            Invitation[]
+  memberships            Membership[]
+  orders                 Order[]
+  subscriptions          Subscription[]
+  webhooks               Webhook[]
+  memoryNodes            OrgMemoryNode[]
+  // Commerce layer
+  commerceConnectors     CommerceConnector[]
+  feedSettings           ShoppingFeedSettings[]
+  feedProducts           FeedProduct[]
+  feedTransformRules     FeedTransformRule[]
+  promotions             MerchantPromotion[]
+  storeLocations         StoreLocation[]
+  commerceMarkets        CommerceMarket[]
+  deliverySpeedRules     DeliverySpeedRule[]
+  // CDP layer
+  customerProfiles       CustomerProfile[]
+  audienceSegments       AudienceSegment[]
+  // Personalization
+  sitePages              SitePage[]
+  experiments            Experiment[]
+  // Lead gen
+  leadForms              LeadForm[]
+  // Intelligence
+  optimizationRecs       OptimizationRecommendation[]
+  merchantCenterAccounts MerchantCenterAccount[]
+  productFeeds           ProductFeed[]
+  // Journeys + Keywords
+  journeys               Journey[]
+  keywordResearches      KeywordResearch[]
 
   @@index([billingCustomerId], map: "IX_Organization_billingCustomerId")
 }
@@ -643,28 +737,29 @@ model WorkTimeSlot {
 }
 
 model Campaign {
-  id                 String             @id @default(uuid()) @db.Uuid
-  organizationId     String             @db.Uuid
-  createdBy          String             @db.Uuid
-  name               String             @db.VarChar(255)
-  sourceUrl          String?            @db.VarChar(2048)
-  objective          String             @db.VarChar(100)
-  status             CampaignStatus     @default(DRAFT)
-  source             String             @default("accelerate") @db.VarChar(50)
-  acceId             String?            @unique @db.VarChar(20)
-  externalCampaignId String?            @db.VarChar(255)
+  id                 String               @id @default(uuid()) @db.Uuid
+  organizationId     String               @db.Uuid
+  createdBy          String               @db.Uuid
+  name               String               @db.VarChar(255)
+  sourceUrl          String?              @db.VarChar(2048)
+  objective          String               @db.VarChar(100)
+  status             CampaignStatus       @default(DRAFT)
+  source             String               @default("accelerate") @db.VarChar(50)
+  acceId             String?              @unique @db.VarChar(20)
+  externalCampaignId String?              @db.VarChar(255)
   archivedAt         DateTime?
-  totalBudget        Decimal            @default(0) @db.Decimal(12, 2)
-  currency           String             @default("USD") @db.VarChar(10)
+  totalBudget        Decimal              @default(0) @db.Decimal(12, 2)
+  currency           String               @default("USD") @db.VarChar(10)
   startDate          DateTime?
   endDate            DateTime?
   targetAudience     Json?
   agentOutputs       Json?
   mediaPlan          Json?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  organization       Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   platformCampaigns  PlatformCampaign[]
+  healthScores       CampaignHealthScore[]
 
   @@index([organizationId])
   @@index([createdBy])
@@ -727,218 +822,619 @@ model Ad {
   @@index([adGroupId])
 }
 
-// ---- Shopping Feeds ---- //
+// ---- Commerce Layer ---- //
 
-model ConnectedStore {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @db.Uuid
-  platform       String    @default("shopify") @db.VarChar(50)
-  shopDomain     String    @db.VarChar(255)
-  storeName      String    @db.VarChar(255)
-  accessToken    String?   @db.Text
-  refreshToken   String?   @db.Text
-  status         String    @default("connected") @db.VarChar(50)
-  planName       String?   @db.VarChar(100)
-  currency       String?   @db.VarChar(10)
-  productCount   Int       @default(0)
+model CommerceConnector {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @db.Uuid
+  platform       CommercePlatform
+  name           String
+  credentials    Json                // AES-256 encrypted: {store_url, access_token, api_key, etc.}
+  syncStatus     SyncStatus          @default(PENDING)
   lastSyncAt     DateTime?
-  connectedAt    DateTime  @default(now())
-  archivedAt     DateTime?
-  storeMetadata  Json?
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  isActive       Boolean             @default(true)
+  metadata       Json                @default("{}")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products       Product[]
+  orders         CommerceOrder[]
   feedSettings   ShoppingFeedSettings?
   feedProducts   FeedProduct[]
+  feedTransformRules FeedTransformRule[]
+  promotions     MerchantPromotion[]
+  storeLocations StoreLocation[]
+  commerceMarkets CommerceMarket[]
+  deliveryRules  DeliverySpeedRule[]
+  productFeeds   ProductFeed[]
+  dailyRevenue   DailyRevenueSummary[]
 
-  @@unique([organizationId, shopDomain])
   @@index([organizationId])
 }
 
+model Product {
+  id               String            @id @default(uuid()) @db.Uuid
+  connectorId      String            @db.Uuid
+  organizationId   String            @db.Uuid
+  externalId       String
+  title            String
+  description      String?           @db.Text
+  price            Decimal           @db.Decimal(10, 2)
+  salePrice        Decimal?          @db.Decimal(10, 2)
+  currency         String            @default("USD")
+  imageUrl         String?
+  additionalImages String[]
+  handle           String?
+  brand            String?
+  googleCategory   String?
+  sku              String?
+  barcode          String?
+  status           ProductStatus     @default(ACTIVE)
+  inventoryQty     Int?
+  tags             String[]
+  customLabels     Json              @default("{}")
+  salesVelocity    Float?
+  revenueL30d      Decimal?          @db.Decimal(12, 2)
+  metadata         Json              @default("{}")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  connector        CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  variants         ProductVariant[]
+
+  @@unique([connectorId, externalId])
+  @@index([organizationId])
+}
+
+model ProductVariant {
+  id         String  @id @default(uuid()) @db.Uuid
+  productId  String  @db.Uuid
+  externalId String
+  title      String
+  price      Decimal @db.Decimal(10, 2)
+  sku        String?
+  inventory  Int?
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model CommerceOrder {
+  id             String              @id @default(uuid()) @db.Uuid
+  connectorId    String              @db.Uuid
+  organizationId String              @db.Uuid
+  externalId     String
+  customerEmail  String?
+  customerName   String?
+  totalAmount    Decimal             @db.Decimal(10, 2)
+  currency       String              @default("USD")
+  channel        String?
+  status         String
+  placedAt       DateTime
+  items          CommerceOrderItem[]
+  connector      CommerceConnector   @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@unique([connectorId, externalId])
+  @@index([organizationId, placedAt])
+}
+
+model CommerceOrderItem {
+  id                String        @id @default(uuid()) @db.Uuid
+  orderId           String        @db.Uuid
+  productId         String?       @db.Uuid
+  externalProductId String?
+  title             String
+  quantity          Int
+  price             Decimal       @db.Decimal(10, 2)
+  order             CommerceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model DailyRevenueSummary {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  connectorId    String            @db.Uuid
+  date           DateTime          @db.Date
+  revenue        Decimal           @db.Decimal(12, 2)
+  orders         Int
+  channel        String?
+  currency       String            @default("USD")
+  connector      CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@unique([connectorId, date, channel])
+  @@index([organizationId, date])
+}
+
+// ---- Shopping Feeds (feed management layer, references CommerceConnector) ---- //
+
 model ShoppingFeedSettings {
-  id                     String         @id @default(uuid()) @db.Uuid
-  organizationId         String         @db.Uuid
-  connectedStoreId       String         @unique @db.Uuid
-  titlePreference        String         @default("default") @db.VarChar(50)
-  descriptionPreference  String         @default("default") @db.VarChar(50)
-  variantPreference      String         @default("all") @db.VarChar(50)
-  appendVariantToTitle   Boolean        @default(false)
-  inventoryPolicy        String         @default("ignore") @db.VarChar(50)
-  useSecondImage         Boolean        @default(false)
-  submitAdditionalImages Boolean        @default(false)
-  richDescriptions       Boolean        @default(false)
-  enableSalePrice        Boolean        @default(true)
-  enableUtmTracking      Boolean        @default(true)
-  utmSource              String         @default("accelerate") @db.VarChar(100)
-  utmMedium              String         @default("cpc") @db.VarChar(100)
-  productIdFormat        String         @default("global") @db.VarChar(50)
-  defaultGoogleCategory  String?        @db.VarChar(500)
-  defaultAgeGroup        String?        @db.VarChar(50)
-  merchantCenterId       String?        @db.VarChar(20)
-  channels               Json           @default("[]")
+  id                     String            @id @default(uuid()) @db.Uuid
+  organizationId         String            @db.Uuid
+  connectorId            String            @unique @db.Uuid
+  titlePreference        String            @default("default") @db.VarChar(50)
+  descriptionPreference  String            @default("default") @db.VarChar(50)
+  variantPreference      String            @default("all") @db.VarChar(50)
+  appendVariantToTitle   Boolean           @default(false)
+  inventoryPolicy        String            @default("ignore") @db.VarChar(50)
+  useSecondImage         Boolean           @default(false)
+  submitAdditionalImages Boolean           @default(false)
+  richDescriptions       Boolean           @default(false)
+  enableSalePrice        Boolean           @default(true)
+  enableUtmTracking      Boolean           @default(true)
+  utmSource              String            @default("accelerate") @db.VarChar(100)
+  utmMedium              String            @default("cpc") @db.VarChar(100)
+  productIdFormat        String            @default("global") @db.VarChar(50)
+  defaultGoogleCategory  String?           @db.VarChar(500)
+  defaultAgeGroup        String?           @db.VarChar(50)
+  merchantCenterId       String?           @db.VarChar(20)
+  channels               Json              @default("[]")
   zombieSkuConfig        Json?
-  buyOnGoogleEnabled     Boolean        @default(false)
-  localInventoryEnabled  Boolean        @default(false)
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
-  organization           Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  connectedStore         ConnectedStore @relation(fields: [connectedStoreId], references: [id], onDelete: Cascade)
+  buyOnGoogleEnabled     Boolean           @default(false)
+  localInventoryEnabled  Boolean           @default(false)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  organization           Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector              CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
 }
 
 model FeedProduct {
-  id               String         @id @default(uuid()) @db.Uuid
-  organizationId   String         @db.Uuid
-  connectedStoreId String         @db.Uuid
-  shopifyProductId String         @db.VarChar(255)
-  shopifyVariantId String?        @db.VarChar(255)
-  title            String         @db.VarChar(500)
-  description      String?        @db.Text
-  price            Decimal        @db.Decimal(12, 2)
-  salePrice        Decimal?       @db.Decimal(12, 2)
-  currency         String         @default("USD") @db.VarChar(10)
-  availability     String         @default("in stock") @db.VarChar(50)
-  condition        String         @default("new") @db.VarChar(50)
-  brand            String?        @db.VarChar(255)
-  imageUrl         String?        @db.VarChar(2048)
-  additionalImages String[]
-  productUrl       String?        @db.VarChar(2048)
-  googleCategory   String?        @db.VarChar(500)
-  productType      String?        @db.VarChar(255)
-  sku              String?        @db.VarChar(255)
-  barcode          String?        @db.VarChar(255)
-  color            String?        @db.VarChar(100)
-  size             String?        @db.VarChar(100)
-  itemGroupId      String?        @db.VarChar(255)
-  customLabels     Json?
-  channelStatus    Json?
-  isExcluded       Boolean        @default(false)
-  lastSyncAt       DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  connectedStore   ConnectedStore @relation(fields: [connectedStoreId], references: [id], onDelete: Cascade)
+  id                String            @id @default(uuid()) @db.Uuid
+  organizationId    String            @db.Uuid
+  connectorId       String            @db.Uuid
+  externalProductId String            @db.VarChar(255)
+  externalVariantId String?           @db.VarChar(255)
+  title             String            @db.VarChar(500)
+  description       String?           @db.Text
+  price             Decimal           @db.Decimal(12, 2)
+  salePrice         Decimal?          @db.Decimal(12, 2)
+  currency          String            @default("USD") @db.VarChar(10)
+  availability      String            @default("in stock") @db.VarChar(50)
+  condition         String            @default("new") @db.VarChar(50)
+  brand             String?           @db.VarChar(255)
+  imageUrl          String?           @db.VarChar(2048)
+  additionalImages  String[]
+  productUrl        String?           @db.VarChar(2048)
+  googleCategory    String?           @db.VarChar(500)
+  productType       String?           @db.VarChar(255)
+  sku               String?           @db.VarChar(255)
+  barcode           String?           @db.VarChar(255)
+  color             String?           @db.VarChar(100)
+  size              String?           @db.VarChar(100)
+  itemGroupId       String?           @db.VarChar(255)
+  customLabels      Json?
+  channelStatus     Json?
+  isExcluded        Boolean           @default(false)
+  lastSyncAt        DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector         CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  @@unique([connectedStoreId, shopifyProductId, shopifyVariantId])
+  @@unique([connectorId, externalProductId, externalVariantId])
   @@index([organizationId])
-  @@index([connectedStoreId])
+  @@index([connectorId])
 }
 
-model FeedRule {
-  id               String       @id @default(uuid()) @db.Uuid
-  organizationId   String       @db.Uuid
-  connectedStoreId String       @db.Uuid
-  name             String       @db.VarChar(255)
-  channels         String[]
-  conditions       Json
-  actions          Json
-  priority         Int          @default(0)
-  isActive         Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+// Renamed from FeedRule to avoid conflict with Phase-5 ProductFeed FeedRule
+model FeedTransformRule {
+  id           String            @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  connectorId  String            @db.Uuid
+  name         String            @db.VarChar(255)
+  channels     String[]
+  conditions   Json
+  actions      Json
+  priority     Int               @default(0)
+  isActive     Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector    CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
-  @@index([connectedStoreId])
+  @@index([connectorId])
 }
 
 model MerchantPromotion {
-  id                    String       @id @default(uuid()) @db.Uuid
-  organizationId        String       @db.Uuid
-  connectedStoreId      String       @db.Uuid
-  title                 String       @db.VarChar(255)
-  offerType             String       @db.VarChar(50)
-  couponCode            String?      @db.VarChar(100)
-  discountType          String       @db.VarChar(50)
-  discountValue         Decimal?     @db.Decimal(12, 2)
-  minimumPurchaseAmount Decimal?     @db.Decimal(12, 2)
+  id                    String            @id @default(uuid()) @db.Uuid
+  organizationId        String            @db.Uuid
+  connectorId           String            @db.Uuid
+  title                 String            @db.VarChar(255)
+  offerType             String            @db.VarChar(50)
+  couponCode            String?           @db.VarChar(100)
+  discountType          String            @db.VarChar(50)
+  discountValue         Decimal?          @db.Decimal(12, 2)
+  minimumPurchaseAmount Decimal?          @db.Decimal(12, 2)
   startDate             DateTime
   endDate               DateTime
-  applicableProducts    String       @default("all") @db.VarChar(50)
+  applicableProducts    String            @default("all") @db.VarChar(50)
   productIds            String[]
   channels              String[]
-  status                String       @default("pending") @db.VarChar(50)
-  platformPromotionId   String?      @db.VarChar(255)
-  createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
-  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  status                String            @default("pending") @db.VarChar(50)
+  platformPromotionId   String?           @db.VarChar(255)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  organization          Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector             CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
-  @@index([connectedStoreId])
+  @@index([connectorId])
 }
-
-model AudienceList {
-  id                   String       @id @default(uuid()) @db.Uuid
-  organizationId       String       @db.Uuid
-  name                 String       @db.VarChar(255)
-  description          String?      @db.VarChar(500)
-  type                 String       @default("retarget") @db.VarChar(50)
-  platforms            String[]
-  rules                Json         @default("[]")
-  estimatedSize        Int?
-  syncStatus           String       @default("pending") @db.VarChar(50)
-  historicalImportDone Boolean      @default(false)
-  lastSyncAt           DateTime?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-}
-
-// ---- Advanced Feed Features ---- //
 
 model StoreLocation {
-  id               String       @id @default(uuid()) @db.Uuid
-  organizationId   String       @db.Uuid
-  connectedStoreId String       @db.Uuid
-  storeCode        String       @db.VarChar(100)
-  name             String       @db.VarChar(255)
-  address          String       @db.VarChar(500)
-  city             String       @db.VarChar(100)
-  state            String?      @db.VarChar(100)
-  country          String       @db.VarChar(10)
-  postalCode       String       @db.VarChar(20)
-  phone            String?      @db.VarChar(50)
-  hours            Json         @default("{}")
-  isActive         Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  connectorId    String            @db.Uuid
+  storeCode      String            @db.VarChar(100)
+  name           String            @db.VarChar(255)
+  address        String            @db.VarChar(500)
+  city           String            @db.VarChar(100)
+  state          String?           @db.VarChar(100)
+  country        String            @db.VarChar(10)
+  postalCode     String            @db.VarChar(20)
+  phone          String?           @db.VarChar(50)
+  hours          Json              @default("{}")
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector      CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
 }
 
-model ShopifyMarket {
-  id               String       @id @default(uuid()) @db.Uuid
-  organizationId   String       @db.Uuid
-  connectedStoreId String       @db.Uuid
-  marketName       String       @db.VarChar(255)
-  targetCountry    String       @db.VarChar(10)
-  language         String       @db.VarChar(10)
-  currency         String       @db.VarChar(10)
-  isEnabled        Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+model CommerceMarket {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  connectorId    String            @db.Uuid
+  marketName     String            @db.VarChar(255)
+  targetCountry  String            @db.VarChar(10)
+  language       String            @db.VarChar(10)
+  currency       String            @db.VarChar(10)
+  isEnabled      Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector      CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
 }
 
 model DeliverySpeedRule {
-  id               String       @id @default(uuid()) @db.Uuid
-  organizationId   String       @db.Uuid
-  connectedStoreId String       @db.Uuid
-  countryCode      String       @db.VarChar(10)
-  carrier          String       @db.VarChar(100)
-  service          String       @db.VarChar(100)
-  minTransitDays   Int
-  maxTransitDays   Int
-  cutoffHour       Int          @default(17)
-  price            Decimal?     @db.Decimal(10, 2)
-  isActive         Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  connectorId    String            @db.Uuid
+  countryCode    String            @db.VarChar(10)
+  carrier        String            @db.VarChar(100)
+  service        String            @db.VarChar(100)
+  minTransitDays Int
+  maxTransitDays Int
+  cutoffHour     Int               @default(17)
+  price          Decimal?          @db.Decimal(10, 2)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector      CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ---- CDP Layer ---- //
+
+model CustomerProfile {
+  id             String                      @id @default(uuid()) @db.Uuid
+  organizationId String                      @db.Uuid
+  email          String?
+  phone          String?
+  name           String?
+  totalSpend     Decimal?                    @db.Decimal(12, 2)
+  orderCount     Int                         @default(0)
+  lastOrderAt    DateTime?
+  firstOrderAt   DateTime?
+  ltv            Decimal?                    @db.Decimal(12, 2)
+  aov            Decimal?                    @db.Decimal(10, 2)
+  tags           String[]
+  isVip          Boolean                     @default(false)
+  isLapsed       Boolean                     @default(false)
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  identities     CustomerIdentity[]
+  events         CustomerEvent[]
+  segments       CustomerSegmentMembership[]
+
+  @@index([organizationId])
+}
+
+model CustomerIdentity {
+  id         String          @id @default(uuid()) @db.Uuid
+  profileId  String          @db.Uuid
+  source     IdentitySource
+  externalId String
+  metadata   Json            @default("{}")
+  createdAt  DateTime        @default(now())
+  profile    CustomerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([source, externalId])
+}
+
+model CustomerEvent {
+  id         String          @id @default(uuid()) @db.Uuid
+  profileId  String          @db.Uuid
+  orgId      String          @db.Uuid
+  eventType  String          // page_view | add_to_cart | purchase | form_submit | custom
+  properties Json            @default("{}")
+  occurredAt DateTime        @default(now())
+  profile    CustomerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, occurredAt])
+}
+
+model AudienceSegment {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  organizationId       String                      @db.Uuid
+  name                 String                      @db.VarChar(255)
+  description          String?                     @db.VarChar(500)
+  type                 String                      @default("retarget") @db.VarChar(50)
+  platforms            String[]
+  rules                Json                        @default("[]")
+  estimatedSize        Int?
+  syncStatus           String                      @default("pending") @db.VarChar(50)
+  syncedPlatforms      String[]
+  historicalImportDone Boolean                     @default(false)
+  lastSyncAt           DateTime?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  members              CustomerSegmentMembership[]
+  organization         Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model CustomerSegmentMembership {
+  profileId String          @db.Uuid
+  segmentId String          @db.Uuid
+  addedAt   DateTime        @default(now())
+  profile   CustomerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  segment   AudienceSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, segmentId])
+}
+
+// ---- Personalization + A/B Testing (Phase 4) ---- //
+
+model SitePage {
+  id             String                @id @default(uuid()) @db.Uuid
+  organizationId String                @db.Uuid
+  name           String
+  url            String
+  isActive       Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  zones          PersonalizationZone[]
+
+  @@index([organizationId])
+}
+
+model PersonalizationZone {
+  id          String        @id @default(uuid()) @db.Uuid
+  pageId      String        @db.Uuid
+  name        String
+  selector    String        // CSS selector
+  defaultHtml String        @db.Text
+  createdAt   DateTime      @default(now())
+  page        SitePage      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  variants    PageVariant[]
+  experiments Experiment[]
+}
+
+model PageVariant {
+  id          String                        @id @default(uuid()) @db.Uuid
+  zoneId      String                        @db.Uuid
+  name        String
+  html        String                        @db.Text
+  isControl   Boolean                       @default(false)
+  createdAt   DateTime                      @default(now())
+  zone        PersonalizationZone           @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  allocations ExperimentVariantAllocation[]
+  results     ExperimentResult[]
+}
+
+model Experiment {
+  id              String                        @id @default(uuid()) @db.Uuid
+  organizationId  String                        @db.Uuid
+  zoneId          String                        @db.Uuid
+  name            String
+  status          ExperimentStatus              @default(DRAFT)
+  trafficSplit    Int                           @default(50)
+  holdoutPct      Int                           @default(0)
+  allocationMode  AllocationMode                @default(RANDOM)
+  startedAt       DateTime?
+  endedAt         DateTime?
+  winnerVariantId String?                       @db.Uuid
+  createdAt       DateTime                      @default(now())
+  zone            PersonalizationZone           @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  allocations     ExperimentVariantAllocation[]
+  results         ExperimentResult[]
+  organization    Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model ExperimentVariantAllocation {
+  experimentId String      @db.Uuid
+  variantId    String      @db.Uuid
+  weight       Int         @default(50)
+  experiment   Experiment  @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  variant      PageVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@id([experimentId, variantId])
+}
+
+model ExperimentResult {
+  id           String      @id @default(uuid()) @db.Uuid
+  experimentId String      @db.Uuid
+  variantId    String      @db.Uuid
+  date         DateTime    @db.Date
+  impressions  Int         @default(0)
+  conversions  Int         @default(0)
+  revenue      Decimal     @db.Decimal(12, 2) @default(0)
+  experiment   Experiment  @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  variant      PageVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, variantId, date])
+}
+
+// ---- Product Feeds + GMC (Phase 5) ---- //
+
+model ProductFeed {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  connectorId    String            @db.Uuid
+  channel        FeedChannel
+  name           String
+  settings       Json              @default("{}")
+  healthScore    Int?
+  lastPushedAt   DateTime?
+  createdAt      DateTime          @default(now())
+  connector      CommerceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  rules          FeedRule[]
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model FeedRule {
+  id         String      @id @default(uuid()) @db.Uuid
+  feedId     String      @db.Uuid
+  name       String
+  priority   Int         @default(0)
+  conditions Json
+  actions    Json
+  isActive   Boolean     @default(true)
+  feed       ProductFeed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+}
+
+model MerchantCenterAccount {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  merchantId     String
+  accountName    String
+  credentials    Json         // AES-256 encrypted
+  isActive       Boolean      @default(true)
+  lastSyncAt     DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, merchantId])
+}
+
+// ---- Lead Forms (Phase 6) ---- //
+
+model LeadForm {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  title          String
+  description    String?
+  incentive      String?
+  fields         Json
+  hostingType    FormHosting
+  publishedUrl   String?
+  externalFormId String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submissions    LeadSubmission[]
+}
+
+model LeadSubmission {
+  id          String   @id @default(uuid()) @db.Uuid
+  formId      String   @db.Uuid
+  data        Json
+  sourceUrl   String?
+  ipAddress   String?
+  submittedAt DateTime @default(now())
+  form        LeadForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId, submittedAt])
+}
+
+// ---- Campaign Intelligence (Phase 7/8) ---- //
+
+model CampaignHealthScore {
+  id              String           @id @default(uuid()) @db.Uuid
+  organizationId  String           @db.Uuid
+  campaignId      String           @db.Uuid
+  platform        String
+  date            DateTime         @db.Date
+  score           Int
+  category        CampaignCategory
+  roas            Decimal?         @db.Decimal(8, 2)
+  cpa             Decimal?         @db.Decimal(8, 2)
+  spend           Decimal          @db.Decimal(10, 2)
+  impressions     Int              @default(0)
+  clicks          Int              @default(0)
+  conversions     Int              @default(0)
+  recommendations Json             @default("[]")
+  createdAt       DateTime         @default(now())
+  campaign        Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date])
+  @@index([organizationId, date])
+}
+
+model OptimizationRecommendation {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  agentType      String       // budget | bid | creative | audience | anomaly | pacing | cmo
+  priority       String       // high | medium | low
+  title          String
+  description    String       @db.Text
+  impact         String
+  actionType     String
+  actionPayload  Json         @default("{}")
+  status         String       @default("pending")
+  appliedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+}
+
+// ---- Journeys + Keyword Research (Phase 8) ---- //
+
+model Journey {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @db.Uuid
+  name           String
+  status         JourneyStatus @default(DRAFT)
+  triggerType    String
+  triggerConfig  Json          @default("{}")
+  createdAt      DateTime      @default(now())
+  steps          JourneyStep[]
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model JourneyStep {
+  id        String  @id @default(uuid()) @db.Uuid
+  journeyId String  @db.Uuid
+  order     Int
+  type      String
+  name      String
+  config    Json
+  journey   Journey @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+}
+
+model KeywordResearch {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  name           String
+  seedKeywords   String[]
+  results        Json
+  clusters       Json         @default("[]")
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
 }
