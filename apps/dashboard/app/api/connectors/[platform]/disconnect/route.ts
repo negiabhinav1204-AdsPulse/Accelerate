@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthOrganizationContext } from '@workspace/auth/context';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, callService } from '~/lib/service-router';
 
 // POST /api/connectors/[platform]/disconnect
 // Admin only — archives ALL ConnectedAdAccount for org+platform
@@ -20,6 +21,12 @@ export async function POST(
   const isAdmin = !!membership && (membership.isOwner || membership.role === 'ADMIN');
   if (!isAdmin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (SERVICES.connector.enabled) {
+    const res = await callService(SERVICES.connector.url, `/connectors/${platform}/disconnect`, { orgId: ctx.organization.id });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
   }
 
   const platformLower = platform.toLowerCase();

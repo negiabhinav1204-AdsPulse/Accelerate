@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthOrganizationContext } from '@workspace/auth/context';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, deleteService } from '~/lib/service-router';
 
 // DELETE /api/connectors/[platform]/accounts/[accountId]
 // Admin only — marks one sub-account as archived
@@ -19,6 +20,12 @@ export async function DELETE(
   const isAdmin = !!membership && (membership.isOwner || membership.role === 'ADMIN');
   if (!isAdmin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (SERVICES.connector.enabled) {
+    const res = await deleteService(SERVICES.connector.url, `/connectors/${platform}/accounts/${accountId}`, { orgId: ctx.organization.id });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
   }
 
   const platformLower = platform.toLowerCase();

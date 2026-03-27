@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, patchService } from '~/lib/service-router';
 
 export type ZombieSkuConfig = {
   enabled: boolean;
@@ -37,6 +38,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/zombie-sku?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   const settings = await prisma.shoppingFeedSettings.findFirst({
     where: { organizationId: orgId },
     select: { zombieSkuConfig: true }
@@ -64,20 +71,26 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await patchService(SERVICES.shoppingFeeds.url, '/shopping-feeds/zombie-sku', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   const existing = await prisma.shoppingFeedSettings.findFirst({
     where: { organizationId: orgId },
     select: { id: true }
   });
 
   if (!existing) {
-    // Need a connectedStore to create settings
-    const store = await prisma.connectedStore.findFirst({
+    // Need a connector to create settings
+    const store = await prisma.commerceConnector.findFirst({
       where: { organizationId: orgId },
       select: { id: true }
     });
     if (!store) return NextResponse.json({ error: 'No connected store' }, { status: 400 });
     await prisma.shoppingFeedSettings.create({
-      data: { organizationId: orgId, connectedStoreId: store.id, zombieSkuConfig: config as object }
+      data: { organizationId: orgId, connectorId: store.id, zombieSkuConfig: config as object }
     });
   } else {
     await prisma.shoppingFeedSettings.update({

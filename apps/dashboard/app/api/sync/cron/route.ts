@@ -12,6 +12,7 @@ import { prisma } from '@workspace/database/client'
 
 import { runPlatformSync } from '~/lib/data-pipeline/sync'
 import type { PlatformSyncSummary } from '~/lib/data-pipeline/types'
+import { SERVICES, callService } from '~/lib/service-router'
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const cronSecret = process.env.CRON_SECRET
@@ -20,6 +21,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+  }
+
+  // Forward to sync service if enabled
+  if (SERVICES.sync.enabled) {
+    const res = await fetch(`${SERVICES.sync.url}/sync/cron`, {
+      headers: { Authorization: request.headers.get('authorization') ?? '' }
+    })
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
   }
 
   const accounts = await prisma.connectedAdAccount.findMany({

@@ -4,6 +4,7 @@ import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 
 import { runPlatformSync } from '~/lib/data-pipeline/sync';
+import { SERVICES, getService, patchService } from '~/lib/service-router';
 
 // GET /api/connectors/[platform]/accounts?org=<orgSlug>
 // Returns all non-archived accounts for the org+platform
@@ -32,6 +33,12 @@ export async function GET(
 
   if (!org) {
     return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+  }
+
+  if (SERVICES.connector.enabled) {
+    const res = await getService(SERVICES.connector.url, `/connectors/${platform}/accounts?orgId=${org.id}`);
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
   }
 
   const accounts = await prisma.connectedAdAccount.findMany({
@@ -94,6 +101,12 @@ export async function PATCH(
   });
   if (!org) {
     return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+  }
+
+  if (SERVICES.connector.enabled) {
+    const res = await patchService(SERVICES.connector.url, `/connectors/${platform}/accounts`, { orgId: org.id, accountId });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
   }
 
   const platformLower = platform.toLowerCase();

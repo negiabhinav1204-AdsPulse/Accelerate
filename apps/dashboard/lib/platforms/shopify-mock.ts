@@ -5,7 +5,7 @@ export type ChannelStatus = 'approved' | 'active' | 'pending' | 'disapproved' | 
 
 export type MockProduct = {
   id: string;
-  shopifyProductId: string;
+  externalProductId: string;
   title: string;
   description: string;
   price: number;
@@ -45,7 +45,7 @@ export const MOCK_SHOPIFY_STORE = {
 export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   {
     id: 'mock-001',
-    shopifyProductId: '8234567890001',
+    externalProductId: '8234567890001',
     title: 'Premium Running Shoes – Air Boost X3',
     description: 'High-performance running shoes with Air Boost technology. Breathable mesh upper, responsive foam midsole. Available in 6 sizes.',
     price: 129.99,
@@ -65,7 +65,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-002',
-    shopifyProductId: '8234567890002',
+    externalProductId: '8234567890002',
     title: 'Classic Leather Tote Bag',
     description: 'Handcrafted genuine leather tote bag with magnetic closure. Fits 13" laptop. Interior zip pocket and card slots.',
     price: 189.00,
@@ -84,7 +84,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-003',
-    shopifyProductId: '8234567890003',
+    externalProductId: '8234567890003',
     title: 'Wireless Noise-Cancelling Headphones Pro',
     description: '40-hour battery, active noise cancellation, premium drivers. Foldable design with carrying case.',
     price: 299.99,
@@ -105,7 +105,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-004',
-    shopifyProductId: '8234567890004',
+    externalProductId: '8234567890004',
     title: 'Organic Cotton Crew-Neck T-Shirt',
     description: '100% GOTS-certified organic cotton. Pre-shrunk, enzyme-washed for softness. Sizes XS–3XL.',
     price: 34.99,
@@ -123,7 +123,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-005',
-    shopifyProductId: '8234567890005',
+    externalProductId: '8234567890005',
     title: 'Stainless Steel Insulated Water Bottle 32oz',
     description: 'Triple-wall insulation keeps drinks cold 24hrs / hot 12hrs. BPA-free lid with carry loop. Dishwasher safe.',
     price: 44.95,
@@ -142,7 +142,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-006',
-    shopifyProductId: '8234567890006',
+    externalProductId: '8234567890006',
     title: 'Merino Wool Beanie – Winter Collection',
     description: 'Fine 100% merino wool. Naturally odour-resistant and temperature-regulating. One size fits most.',
     price: 49.00,
@@ -161,7 +161,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-007',
-    shopifyProductId: '8234567890007',
+    externalProductId: '8234567890007',
     title: 'Yoga Mat – 6mm Non-Slip Professional',
     description: 'Dual-layer TPE foam with alignment lines. 183cm × 61cm. Includes carry strap. Eco-friendly, PVC-free.',
     price: 59.99,
@@ -180,7 +180,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-008',
-    shopifyProductId: '8234567890008',
+    externalProductId: '8234567890008',
     title: 'Ceramic Pour-Over Coffee Set',
     description: 'Hand-thrown ceramic dripper + matching carafe. Includes 40 filter papers. Makes 2–4 cups. Dishwasher safe.',
     price: 79.00,
@@ -198,7 +198,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-009',
-    shopifyProductId: '8234567890009',
+    externalProductId: '8234567890009',
     title: 'Minimalist Leather Wallet – Slim Card Holder',
     description: 'Full-grain vegetable-tanned leather. Holds 8 cards + cash. RFID blocking. Gets better with age.',
     price: 65.00,
@@ -217,7 +217,7 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
   },
   {
     id: 'mock-010',
-    shopifyProductId: '8234567890010',
+    externalProductId: '8234567890010',
     title: 'Plant-Based Protein Powder – Vanilla Oat 1kg',
     description: '25g protein per serving from pea + brown rice blend. No artificial sweeteners. Certified vegan, non-GMO.',
     price: 54.99,

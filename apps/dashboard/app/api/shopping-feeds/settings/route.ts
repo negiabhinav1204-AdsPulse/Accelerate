@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, patchService } from '~/lib/service-router';
 
 /**
  * GET /api/shopping-feeds/settings?orgId=...
@@ -29,9 +30,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/settings?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   // Find the connected Shopify store
-  const store = await prisma.connectedStore.findFirst({
-    where: { organizationId: orgId, archivedAt: null },
+  const store = await prisma.commerceConnector.findFirst({
+    where: { organizationId: orgId, isActive: true },
     select: { id: true }
   });
 
@@ -41,14 +48,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Find or create feed settings
   let settings = await prisma.shoppingFeedSettings.findUnique({
-    where: { connectedStoreId: store.id }
+    where: { connectorId: store.id }
   });
 
   if (!settings) {
     settings = await prisma.shoppingFeedSettings.create({
       data: {
         organizationId: orgId,
-        connectedStoreId: store.id
+        connectorId: store.id
       }
     });
   }
@@ -56,15 +63,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Pull default connected ad accounts for each platform
   const [googleAccount, metaAccount, bingAccount] = await Promise.all([
     prisma.connectedAdAccount.findFirst({
-      where: { organizationId: orgId, platform: 'google', archivedAt: null, isDefault: true },
+      where: { organizationId: orgId, platform: 'google', isDefault: true, archivedAt: null },
       select: { accountId: true, accountName: true }
     }),
     prisma.connectedAdAccount.findFirst({
-      where: { organizationId: orgId, platform: 'meta', archivedAt: null, isDefault: true },
+      where: { organizationId: orgId, platform: 'meta', isDefault: true, archivedAt: null },
       select: { accountId: true, accountName: true }
     }),
     prisma.connectedAdAccount.findFirst({
-      where: { organizationId: orgId, platform: 'bing', archivedAt: null, isDefault: true },
+      where: { organizationId: orgId, platform: 'bing', isDefault: true, archivedAt: null },
       select: { accountId: true, accountName: true }
     })
   ]);
@@ -126,9 +133,15 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await patchService(SERVICES.shoppingFeeds.url, '/shopping-feeds/settings', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   // Find the connected store
-  const store = await prisma.connectedStore.findFirst({
-    where: { organizationId: orgId, archivedAt: null },
+  const store = await prisma.commerceConnector.findFirst({
+    where: { organizationId: orgId, isActive: true },
     select: { id: true }
   });
 
@@ -137,10 +150,10 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   }
 
   const updated = await prisma.shoppingFeedSettings.upsert({
-    where: { connectedStoreId: store.id },
+    where: { connectorId: store.id },
     create: {
       organizationId: orgId,
-      connectedStoreId: store.id,
+      connectorId: store.id,
       ...fields
     },
     update: fields

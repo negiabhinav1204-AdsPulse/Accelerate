@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, callService } from '~/lib/service-router';
 
 export type StoreHours = {
   monday:    { open: string; close: string; closed: boolean };
@@ -38,6 +39,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     select: { id: true }
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/locations?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
 
   const locations = await prisma.storeLocation.findMany({
     where: { organizationId: orgId },
@@ -78,7 +85,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const store = await prisma.connectedStore.findFirst({
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await callService(SERVICES.shoppingFeeds.url, '/shopping-feeds/locations', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const store = await prisma.commerceConnector.findFirst({
     where: { organizationId: orgId },
     select: { id: true }
   });
@@ -87,7 +100,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const location = await prisma.storeLocation.create({
     data: {
       organizationId: orgId,
-      connectedStoreId: store.id,
+      connectorId: store.id,
       storeCode,
       name,
       address,

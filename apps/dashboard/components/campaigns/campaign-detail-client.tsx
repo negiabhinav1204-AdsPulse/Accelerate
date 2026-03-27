@@ -202,7 +202,7 @@ function AdCard({ ad }: { ad: AdItem }) {
   );
 }
 
-function AdSetCard({ adSet }: { adSet: AdSetItem }) {
+function AdSetCard({ adSet, currency = 'USD' }: { adSet: AdSetItem; currency?: string }) {
   const [expanded, setExpanded] = React.useState(false);
   const { targeting } = adSet;
 
@@ -226,7 +226,7 @@ function AdSetCard({ adSet }: { adSet: AdSetItem }) {
           <p className="text-[11px] text-muted-foreground mt-0.5">ID: {adSet.id}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-xs font-semibold text-foreground">{formatBudget(adSet.dailyBudget, orgCurrency)}<span className="font-normal text-muted-foreground">/day</span></p>
+          <p className="text-xs font-semibold text-foreground">{formatBudget(adSet.dailyBudget, currency)}<span className="font-normal text-muted-foreground">/day</span></p>
           <p className="text-[10px] text-muted-foreground mt-0.5">{adSet.optimizationGoal.replace(/_/g, ' ')}</p>
         </div>
       </div>
@@ -470,7 +470,7 @@ export function CampaignDetailClient({
                 Ad Sets ({data.adSets.length})
               </p>
               {data.adSets.map((adSet) => (
-                <AdSetCard key={adSet.id} adSet={adSet} />
+                <AdSetCard key={adSet.id} adSet={adSet} currency={orgCurrency} />
               ))}
             </div>
           )}

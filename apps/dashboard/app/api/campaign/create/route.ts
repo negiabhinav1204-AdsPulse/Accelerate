@@ -18,6 +18,7 @@ import { prisma } from '@workspace/database/client';
 
 import { createJob } from '~/lib/job-store';
 import { aiRateLimit } from '~/lib/rate-limit';
+import { SERVICES, callService } from '~/lib/service-router';
 
 type RequestBody = {
   url: string;
@@ -112,12 +113,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const workerPayload = { jobId, url, organizationId, userId, userPreferences };
 
-  // ── 6. Enqueue to QStash (production) or run inline (dev) ────────────────────
+  // ── 6. Enqueue job — agent service (if enabled) or QStash → monolith ──────────
   const qstashToken = process.env.QSTASH_TOKEN;
   const dashboardUrl = process.env.NEXT_PUBLIC_DASHBOARD_URL ?? '';
   const useQStash = !!qstashToken && !dashboardUrl.includes('localhost');
 
-  if (useQStash) {
+  if (SERVICES.agent.enabled) {
+    // Route to Cloud Run agent service
+    try {
+      await callService(SERVICES.agent.url, '/run', workerPayload);
+    } catch (e) {
+      console.error('[campaign/create] Agent service call failed:', e);
+      return NextResponse.json(
+        { error: 'Failed to enqueue job' },
+        { status: 500 }
+      );
+    }
+  } else if (useQStash) {
+    // Monolith path: QStash → /api/campaign/worker
     try {
       const qstash = new Client({ token: qstashToken });
       await qstash.publishJSON({
@@ -133,7 +146,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
   } else {
-    // Dev mode: call worker directly (fire-and-forget so response returns immediately)
+    // Dev mode: call worker directly (fire-and-forget)
     void fetch(`${dashboardUrl || 'http://localhost:3000'}/api/campaign/worker`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -17,6 +17,7 @@ import { auth } from '@workspace/auth'
 import { prisma } from '@workspace/database/client'
 
 import { orgKey, redis, TTL } from '~/lib/redis'
+import { SERVICES, getService } from '~/lib/service-router'
 
 type AgeGenderRow = {
   age: string
@@ -82,6 +83,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const membership = await prisma.membership.findFirst({ where: { organizationId: orgId, userId } })
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // Forward to reporting service if enabled (auth + membership already verified above)
+  if (SERVICES.reporting.enabled) {
+    const qs = request.nextUrl.searchParams.toString()
+    const res = await getService(SERVICES.reporting.url, `/reporting?${qs}`)
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  }
 
   const campaignId = searchParams.get('campaignId')
   const dateRange = searchParams.get('dateRange') ?? '7d'

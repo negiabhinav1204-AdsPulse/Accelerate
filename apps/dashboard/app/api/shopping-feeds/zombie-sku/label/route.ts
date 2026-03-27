@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, callService } from '~/lib/service-router';
 
 /**
  * POST /api/shopping-feeds/zombie-sku/label
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const body = await request.json() as {
     orgId: string;
-    productIds: string[]; // shopifyProductIds
+    productIds: string[]; // externalProductIds
     customLabel: string;
     labelValue: string;
   };
@@ -32,17 +33,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const store = await prisma.connectedStore.findFirst({
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await callService(SERVICES.shoppingFeeds.url, '/shopping-feeds/zombie-sku/label', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const store = await prisma.commerceConnector.findFirst({
     where: { organizationId: orgId },
     select: { id: true }
   });
   if (!store) return NextResponse.json({ error: 'No connected store' }, { status: 400 });
 
   let labeled = 0;
-  for (const shopifyProductId of productIds) {
+  for (const externalProductId of productIds) {
     // Try to update existing FeedProduct row
     const existing = await prisma.feedProduct.findFirst({
-      where: { connectedStoreId: store.id, shopifyProductId },
+      where: { connectorId: store.id, externalProductId },
       select: { id: true, customLabels: true }
     });
 
@@ -61,9 +68,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await prisma.feedProduct.create({
         data: {
           organizationId: orgId,
-          connectedStoreId: store.id,
-          shopifyProductId,
-          title: shopifyProductId, // placeholder — real sync will overwrite
+          connectorId: store.id,
+          externalProductId,
+          title: externalProductId, // placeholder — real sync will overwrite
           price: 0,
           customLabels: updatedLabels
         }

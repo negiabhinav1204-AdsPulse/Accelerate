@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
+import { SERVICES, getService } from '~/lib/service-router';
 
 import {
   MOCK_SHOPIFY_PRODUCTS,
@@ -16,16 +17,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = request.nextUrl;
   const channel = searchParams.get('channel') ?? 'all';
   const status = searchParams.get('status') ?? 'all';
-  const search = (searchParams.get('search') ?? '').toLowerCase();
+  const search = searchParams.get('search') ?? '';
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const qs = new URLSearchParams({ channel, status, search }).toString();
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/products?${qs}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const searchLower = search.toLowerCase();
 
   let products = [...MOCK_SHOPIFY_PRODUCTS];
 
-  if (search) {
+  if (searchLower) {
     products = products.filter(
       (p) =>
-        p.title.toLowerCase().includes(search) ||
-        p.sku.toLowerCase().includes(search) ||
-        p.brand.toLowerCase().includes(search)
+        p.title.toLowerCase().includes(searchLower) ||
+        p.sku.toLowerCase().includes(searchLower) ||
+        p.brand.toLowerCase().includes(searchLower)
     );
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, patchService, deleteService } from '~/lib/service-router';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -85,7 +86,19 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<N
   const { orgId, ...fields } = body;
   if (!orgId) return NextResponse.json({ error: 'orgId required' }, { status: 400 });
 
-  const existing = await prisma.audienceList.findFirst({
+  const membership = await prisma.membership.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true }
+  });
+  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await patchService(SERVICES.shoppingFeeds.url, `/shopping-feeds/audiences/${id}`, body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const existing = await prisma.audienceSegment.findFirst({
     where: { id, organizationId: orgId },
     select: { id: true, rules: true }
   });
@@ -94,7 +107,7 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<N
   const rules = (fields.rules ?? (existing.rules as AudienceRule[]));
   const estimatedSize = await estimateSize(orgId, rules);
 
-  const updated = await prisma.audienceList.update({
+  const updated = await prisma.audienceSegment.update({
     where: { id },
     data: {
       ...(fields.name !== undefined && { name: fields.name }),
@@ -122,12 +135,24 @@ export async function DELETE(request: NextRequest, { params }: Params): Promise<
   const orgId = request.nextUrl.searchParams.get('orgId');
   if (!orgId) return NextResponse.json({ error: 'orgId required' }, { status: 400 });
 
-  const existing = await prisma.audienceList.findFirst({
+  const membership = await prisma.membership.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true }
+  });
+  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await deleteService(SERVICES.shoppingFeeds.url, `/shopping-feeds/audiences/${id}?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const existing = await prisma.audienceSegment.findFirst({
     where: { id, organizationId: orgId },
     select: { id: true }
   });
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  await prisma.audienceList.delete({ where: { id } });
+  await prisma.audienceSegment.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

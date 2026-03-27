@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 import { updateMemoryNodeContent, deleteMemoryNode } from '~/lib/memory/memory-service';
+import { SERVICES, patchService, getService, deleteService } from '~/lib/service-router';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const session = await auth();
@@ -19,6 +20,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Verify membership
   const membership = await prisma.membership.findFirst({ where: { organizationId: orgId, userId: session.user.id } });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.memory.enabled) {
+    const res = await getService(SERVICES.memory.url, `/memory/nodes?orgId=${orgId}`)
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  }
 
   const nodes = await prisma.orgMemoryNode.findMany({
     where: { orgId, archivedAt: null },
@@ -39,6 +46,12 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   const membership = await prisma.membership.findFirst({ where: { organizationId: orgId, userId: session.user.id } });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  if (SERVICES.memory.enabled) {
+    const res = await patchService(SERVICES.memory.url, '/memory/nodes', { id, orgId, content, summary })
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  }
+
   await updateMemoryNodeContent(id, orgId, content, summary);
   return NextResponse.json({ ok: true });
 }
@@ -53,6 +66,12 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
   const membership = await prisma.membership.findFirst({ where: { organizationId: orgId, userId: session.user.id } });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.memory.enabled) {
+    const res = await deleteService(SERVICES.memory.url, `/memory/nodes?id=${id}&orgId=${orgId}`)
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  }
 
   await deleteMemoryNode(id, orgId);
   return NextResponse.json({ ok: true });

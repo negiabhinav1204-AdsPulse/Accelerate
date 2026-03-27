@@ -2559,7 +2559,8 @@ function CreateCampaignModal({
   orgId,
   orgSlug,
   zombieCount,
-  labelValue
+  labelValue,
+  currency = 'USD'
 }: {
   open: boolean;
   onClose: () => void;
@@ -2567,6 +2568,7 @@ function CreateCampaignModal({
   orgSlug: string;
   zombieCount: number;
   labelValue: string;
+  currency?: string;
 }): React.JSX.Element | null {
   const [campaignName, setCampaignName] = React.useState('');
   const [dailyBudget, setDailyBudget] = React.useState('15');
@@ -2658,9 +2660,9 @@ function CreateCampaignModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Daily budget ({store?.currency ?? orgCurrency})</label>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Daily budget ({currency})</label>
                 <div className="flex">
-                  <span className="flex items-center px-3 rounded-l-lg border border-r-0 border-border bg-muted text-sm text-muted-foreground">{store?.currency ?? orgCurrency}</span>
+                  <span className="flex items-center px-3 rounded-l-lg border border-r-0 border-border bg-muted text-sm text-muted-foreground">{currency}</span>
                   <Input
                     type="number"
                     min="1"
@@ -2692,7 +2694,7 @@ function CreateCampaignModal({
   );
 }
 
-function ZombieSkuTab({ orgId, orgSlug, products }: { orgId: string; orgSlug: string; products: MockProduct[] }): React.JSX.Element {
+function ZombieSkuTab({ orgId, orgSlug, products, currency = 'USD' }: { orgId: string; orgSlug: string; products: MockProduct[]; currency?: string }): React.JSX.Element {
   const [config, setConfig] = React.useState<ZombieSkuConfig>(DEFAULT_ZOMBIE_CONFIG);
   const [loadingConfig, setLoadingConfig] = React.useState(true);
   const [savingConfig, setSavingConfig] = React.useState(false);
@@ -2737,7 +2739,7 @@ function ZombieSkuTab({ orgId, orgSlug, products }: { orgId: string; orgSlug: st
     if (zombies.length === 0) return;
     setLabeling(true);
     try {
-      const productIds = zombies.map((p) => p.shopifyProductId);
+      const productIds = zombies.map((p) => p.externalProductId);
       const res = await fetch('/api/shopping-feeds/zombie-sku/label', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2758,7 +2760,7 @@ function ZombieSkuTab({ orgId, orgSlug, products }: { orgId: string; orgSlug: st
     }
   }
 
-  const allLabeled = zombies.length > 0 && zombies.every((p) => labeledIds.has(p.shopifyProductId));
+  const allLabeled = zombies.length > 0 && zombies.every((p) => labeledIds.has(p.externalProductId));
 
   if (loadingConfig) {
     return (
@@ -2936,7 +2938,7 @@ function ZombieSkuTab({ orgId, orgSlug, products }: { orgId: string; orgSlug: st
               )}
               <div className="space-y-2">
                 {zombies.map((p) => {
-                  const isLabeled = labeledIds.has(p.shopifyProductId);
+                  const isLabeled = labeledIds.has(p.externalProductId);
                   return (
                     <div key={p.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
                       <img
@@ -2995,6 +2997,7 @@ function ZombieSkuTab({ orgId, orgSlug, products }: { orgId: string; orgSlug: st
         orgSlug={orgSlug}
         zombieCount={zombies.length}
         labelValue={config.labelValue}
+        currency={currency}
       />
     </div>
   );
@@ -3163,7 +3166,7 @@ export function ShoppingFeedsClient({
       {activeTab === 'rules' && <RulesTab orgId={orgId} />}
       {activeTab === 'promotions' && <PromotionsTab orgId={orgId} />}
       {activeTab === 'audiences' && <AudienceSyncTab orgId={orgId} />}
-      {activeTab === 'zombie' && <ZombieSkuTab orgId={orgId} orgSlug={orgSlug} products={products} />}
+      {activeTab === 'zombie' && <ZombieSkuTab orgId={orgId} orgSlug={orgSlug} products={products} currency={store?.currency ?? orgCurrency} />}
       {activeTab === 'advanced' && <AdvancedSettingsTab orgId={orgId} />}
 
       <GoogleSetupWizard

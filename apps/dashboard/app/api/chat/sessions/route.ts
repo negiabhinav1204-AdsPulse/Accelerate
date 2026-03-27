@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, callService, getService } from '~/lib/service-router';
 
 /**
  * POST /api/chat/sessions — save campaign messages to a session.
@@ -34,6 +35,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Verify membership
   const membership = await prisma.membership.findFirst({ where: { organizationId, userId: session.user.id } });
   if (!membership) return new NextResponse('Forbidden', { status: 403 });
+
+  if (SERVICES.chat.enabled) {
+    const res = await callService(SERVICES.chat.url, '/chat/sessions', { organizationId, sessionId, title, messages, userId: session.user.id });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  }
 
   let activeSessionId = sessionId;
 
@@ -69,6 +76,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const organizationId = request.nextUrl.searchParams.get('organizationId');
   if (!organizationId) {
     return new NextResponse('organizationId required', { status: 400 });
+  }
+
+  if (SERVICES.chat.enabled) {
+    const res = await getService(SERVICES.chat.url, `/chat/sessions?organizationId=${organizationId}&userId=${session.user.id}`);
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
   }
 
   const sessions = await prisma.chatSession.findMany({

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, callService } from '~/lib/service-router';
 
 /**
  * GET /api/shopping-feeds/rules?orgId=...
@@ -20,14 +21,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const store = await prisma.connectedStore.findFirst({
-    where: { organizationId: orgId, archivedAt: null },
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/rules?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const store = await prisma.commerceConnector.findFirst({
+    where: { organizationId: orgId, isActive: true },
     select: { id: true }
   });
   if (!store) return NextResponse.json({ rules: [] });
 
-  const rules = await prisma.feedRule.findMany({
-    where: { organizationId: orgId, connectedStoreId: store.id },
+  const rules = await prisma.feedTransformRule.findMany({
+    where: { organizationId: orgId, connectorId: store.id },
     orderBy: { priority: 'asc' }
   });
 
@@ -60,24 +67,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const store = await prisma.connectedStore.findFirst({
-    where: { organizationId: orgId, archivedAt: null },
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await callService(SERVICES.shoppingFeeds.url, '/shopping-feeds/rules', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const store = await prisma.commerceConnector.findFirst({
+    where: { organizationId: orgId, isActive: true },
     select: { id: true }
   });
   if (!store) return NextResponse.json({ error: 'No connected store' }, { status: 404 });
 
   // Priority = max existing + 1
-  const maxRule = await prisma.feedRule.findFirst({
-    where: { organizationId: orgId, connectedStoreId: store.id },
+  const maxRule = await prisma.feedTransformRule.findFirst({
+    where: { organizationId: orgId, connectorId: store.id },
     orderBy: { priority: 'desc' },
     select: { priority: true }
   });
   const priority = (maxRule?.priority ?? 0) + 1;
 
-  const rule = await prisma.feedRule.create({
+  const rule = await prisma.feedTransformRule.create({
     data: {
       organizationId: orgId,
-      connectedStoreId: store.id,
+      connectorId: store.id,
       name,
       channels,
       conditions: conditions as object[],

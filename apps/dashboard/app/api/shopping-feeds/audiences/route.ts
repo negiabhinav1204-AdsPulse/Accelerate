@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, callService } from '~/lib/service-router';
 
 // Mock contacts injected when org has none — gives the demo life
 const MOCK_CONTACTS = [
@@ -178,11 +179,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/audiences?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   // Seed mock data if org has no contacts/orders yet
   await ensureMockData(orgId);
 
   const [audiences, totalContacts, totalOrders] = await Promise.all([
-    prisma.audienceList.findMany({
+    prisma.audienceSegment.findMany({
       where: { organizationId: orgId },
       orderBy: { createdAt: 'desc' }
     }),
@@ -218,10 +225,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await callService(SERVICES.shoppingFeeds.url, '/shopping-feeds/audiences', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   await ensureMockData(orgId);
   const estimatedSize = await estimateSize(orgId, rules);
 
-  const audience = await prisma.audienceList.create({
+  const audience = await prisma.audienceSegment.create({
     data: {
       organizationId: orgId,
       name,

@@ -14,6 +14,7 @@ import { prisma } from '@workspace/database/client'
 
 import { runPlatformSync } from '~/lib/data-pipeline/sync'
 import type { PlatformSyncSummary } from '~/lib/data-pipeline/types'
+import { SERVICES, callService } from '~/lib/service-router'
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const session = await auth()
@@ -32,6 +33,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const membership = await prisma.membership.findFirst({ where: { organizationId: orgId, userId } })
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // Forward to sync service if enabled (auth already verified above)
+  if (SERVICES.sync.enabled) {
+    const res = await callService(SERVICES.sync.url, '/sync/trigger', { orgId })
+    const data = await res.json()
+    return NextResponse.json(data, { status: res.status })
+  }
 
   const accounts = await prisma.connectedAdAccount.findMany({
     where: {

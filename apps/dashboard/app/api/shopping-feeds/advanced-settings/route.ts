@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, patchService } from '~/lib/service-router';
 
 /**
  * GET /api/shopping-feeds/advanced-settings?orgId=...
@@ -18,6 +19,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     select: { id: true }
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/advanced-settings?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
 
   const settings = await prisma.shoppingFeedSettings.findFirst({
     where: { organizationId: orgId },
@@ -53,6 +60,12 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await patchService(SERVICES.shoppingFeeds.url, '/shopping-feeds/advanced-settings', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   const existing = await prisma.shoppingFeedSettings.findFirst({
     where: { organizationId: orgId },
     select: { id: true }
@@ -67,7 +80,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       }
     });
   } else {
-    const store = await prisma.connectedStore.findFirst({
+    const store = await prisma.commerceConnector.findFirst({
       where: { organizationId: orgId },
       select: { id: true }
     });
@@ -75,7 +88,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     await prisma.shoppingFeedSettings.create({
       data: {
         organizationId: orgId,
-        connectedStoreId: store.id,
+        connectorId: store.id,
         buyOnGoogleEnabled: fields.buyOnGoogleEnabled ?? false,
         localInventoryEnabled: fields.localInventoryEnabled ?? false
       }

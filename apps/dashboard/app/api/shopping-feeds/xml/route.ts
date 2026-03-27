@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@workspace/database/client';
-import { MOCK_SHOPIFY_PRODUCTS, MOCK_SHOPIFY_STORE } from '~/lib/platforms/shopify-mock';
+import { MOCK_SHOPIFY_PRODUCTS } from '~/lib/platforms/shopify-mock';
+import { SERVICES } from '~/lib/service-router';
 
 function escapeXml(str: string): string {
   return str
@@ -28,6 +29,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return new NextResponse('orgId required', { status: 400 });
   }
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const qs = new URLSearchParams({ orgId, channel, ...(marketId ? { marketId } : {}) }).toString();
+    const internalKey = process.env.INTERNAL_API_KEY;
+    const res = await fetch(`${SERVICES.shoppingFeeds.url}/shopping-feeds/xml?${qs}`, {
+      headers: internalKey ? { 'x-internal-api-key': internalKey } : {}
+    });
+    const xml = await res.text();
+    return new NextResponse(xml, {
+      status: res.status,
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600'
+      }
+    });
+  }
+
   // Verify org exists
   const org = await prisma.organization.findUnique({
     where: { id: orgId },
@@ -40,7 +57,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   let marketLang = 'en';
   let marketCountry = 'US';
   if (marketId) {
-    const market = await prisma.shopifyMarket.findFirst({
+    const market = await prisma.commerceMarket.findFirst({
       where: { id: marketId, organizationId: orgId },
       select: { currency: true, language: true, targetCountry: true }
     });
@@ -63,20 +80,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     take: 5000
   });
 
-  const store = await prisma.connectedStore.findFirst({
+  const connector = await prisma.commerceConnector.findFirst({
     where: { organizationId: orgId },
-    select: { shopDomain: true, storeName: true }
+    select: { name: true, metadata: true }
   });
 
-  const storeUrl = store ? `https://${store.shopDomain}` : 'https://demo-store.myshopify.com';
-  const storeName = store?.storeName ?? org.name ?? 'Store';
+  const storeUrl = connector ? `https://${(connector.metadata as Record<string, string>)?.storeUrl ?? 'demo-store.myshopify.com'}` : 'https://demo-store.myshopify.com';
+  const storeName = connector?.name ?? org.name ?? 'Store';
 
   // Build items XML
   let itemsXml = '';
 
   if (dbProducts.length > 0) {
     for (const p of dbProducts) {
-      const productUrl = `${storeUrl}/products/${p.shopifyProductId}`;
+      const productUrl = `${storeUrl}/products/${p.externalProductId}`;
       const utmSuffix = settings?.enableUtmTracking
         ? `?utm_source=${settings.utmSource}&utm_medium=${settings.utmMedium}&utm_campaign=${channel}`
         : '';
@@ -84,7 +101,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       itemsXml += `
     <item>
-      <g:id>${escapeXml(settings?.productIdFormat === 'sku' && p.sku ? p.sku : p.shopifyProductId)}</g:id>
+      <g:id>${escapeXml(settings?.productIdFormat === 'sku' && p.sku ? p.sku : p.externalProductId)}</g:id>
       <g:title>${escapeXml(p.title)}</g:title>
       <g:description>${escapeXml(p.description ?? '')}</g:description>
       <g:link>${escapeXml(productUrl + utmSuffix)}</g:link>
@@ -111,7 +128,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } else {
     // Fall back to mock products for demo
     for (const p of MOCK_SHOPIFY_PRODUCTS) {
-      const productUrl = `${storeUrl}/products/${p.shopifyProductId}`;
+      const productUrl = `${storeUrl}/products/${p.externalProductId}`;
       const utmSuffix = settings?.enableUtmTracking
         ? `?utm_source=${settings.utmSource ?? 'accelerate'}&utm_medium=${settings.utmMedium ?? 'cpc'}&utm_campaign=${channel}`
         : '';

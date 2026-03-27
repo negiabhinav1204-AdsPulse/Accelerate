@@ -213,7 +213,7 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
   // Redis enqueue — stores events for frontend polling
   const enqueue = (event: AgentEvent): void => {
     void updateJob(jobId, {
-      event: event as Record<string, unknown>
+      event: event as unknown as { type: string; [key: string]: unknown }
     }).catch(() => {});
   };
 

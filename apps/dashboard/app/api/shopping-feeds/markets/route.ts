@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, callService } from '~/lib/service-router';
 
 function buildFeedUrl(orgId: string, marketId: string): string {
   const base = process.env['NEXT_PUBLIC_DASHBOARD_URL'] ?? 'https://accelerate-dashboard-sable.vercel.app';
@@ -24,7 +25,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const markets = await prisma.shopifyMarket.findMany({
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/markets?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const markets = await prisma.commerceMarket.findMany({
     where: { organizationId: orgId },
     orderBy: { createdAt: 'asc' }
   });
@@ -63,14 +70,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const store = await prisma.connectedStore.findFirst({
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await callService(SERVICES.shoppingFeeds.url, '/shopping-feeds/markets', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const store = await prisma.commerceConnector.findFirst({
     where: { organizationId: orgId },
     select: { id: true }
   });
   if (!store) return NextResponse.json({ error: 'No connected store' }, { status: 400 });
 
-  const market = await prisma.shopifyMarket.create({
-    data: { organizationId: orgId, connectedStoreId: store.id, marketName, targetCountry, language, currency }
+  const market = await prisma.commerceMarket.create({
+    data: { organizationId: orgId, connectorId: store.id, marketName, targetCountry, language, currency }
   });
 
   return NextResponse.json({ market: { ...market, feedUrl: buildFeedUrl(orgId, market.id) } }, { status: 201 });

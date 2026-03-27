@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, getService, callService } from '~/lib/service-router';
 
 function deriveStatus(startDate: Date, endDate: Date): string {
   const now = new Date();
@@ -25,6 +26,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     select: { id: true }
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await getService(SERVICES.shoppingFeeds.url, `/shopping-feeds/promotions?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
 
   const promotions = await prisma.merchantPromotion.findMany({
     where: { organizationId: orgId },
@@ -75,12 +82,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await callService(SERVICES.shoppingFeeds.url, '/shopping-feeds/promotions', body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
   // Find connected store
-  const connectedStore = await prisma.connectedStore.findFirst({
+  const connector = await prisma.commerceConnector.findFirst({
     where: { organizationId: orgId },
     select: { id: true }
   });
-  if (!connectedStore) return NextResponse.json({ error: 'No connected store found' }, { status: 400 });
+  if (!connector) return NextResponse.json({ error: 'No connected store found' }, { status: 400 });
 
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -88,7 +101,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const promotion = await prisma.merchantPromotion.create({
     data: {
       organizationId: orgId,
-      connectedStoreId: connectedStore.id,
+      connectorId: connector.id,
       title,
       offerType,
       couponCode: couponCode || null,

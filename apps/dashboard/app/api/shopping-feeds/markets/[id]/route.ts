@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
+import { SERVICES, patchService, deleteService } from '~/lib/service-router';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -22,13 +23,25 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<N
   const { orgId, ...fields } = body;
   if (!orgId) return NextResponse.json({ error: 'orgId required' }, { status: 400 });
 
-  const existing = await prisma.shopifyMarket.findFirst({
+  const membership = await prisma.membership.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true }
+  });
+  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await patchService(SERVICES.shoppingFeeds.url, `/shopping-feeds/markets/${id}`, body);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const existing = await prisma.commerceMarket.findFirst({
     where: { id, organizationId: orgId },
     select: { id: true }
   });
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const updated = await prisma.shopifyMarket.update({
+  const updated = await prisma.commerceMarket.update({
     where: { id },
     data: {
       ...(fields.marketName !== undefined && { marketName: fields.marketName }),
@@ -50,12 +63,24 @@ export async function DELETE(request: NextRequest, { params }: Params): Promise<
   const orgId = request.nextUrl.searchParams.get('orgId');
   if (!orgId) return NextResponse.json({ error: 'orgId required' }, { status: 400 });
 
-  const existing = await prisma.shopifyMarket.findFirst({
+  const membership = await prisma.membership.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true }
+  });
+  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (SERVICES.shoppingFeeds.enabled) {
+    const res = await deleteService(SERVICES.shoppingFeeds.url, `/shopping-feeds/markets/${id}?orgId=${orgId}`);
+    const data = await res.json() as unknown;
+    return NextResponse.json(data, { status: res.status });
+  }
+
+  const existing = await prisma.commerceMarket.findFirst({
     where: { id, organizationId: orgId },
     select: { id: true }
   });
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  await prisma.shopifyMarket.delete({ where: { id } });
+  await prisma.commerceMarket.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

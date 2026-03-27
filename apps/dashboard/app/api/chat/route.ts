@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 import { searchMemory, upsertMemoryNode } from '~/lib/memory/memory-service';
+import { SERVICES } from '~/lib/service-router';
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -457,6 +458,27 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   } catch {
     return new Response('Invalid JSON', { status: 400 });
+  }
+
+  // Forward to chat microservice if enabled
+  if (SERVICES.chat.enabled) {
+    const internalKey = process.env.INTERNAL_API_KEY;
+    if (!internalKey) return new Response('Server configuration error', { status: 500 });
+
+    const res = await fetch(`${SERVICES.chat.url}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-api-key': internalKey },
+      body: JSON.stringify({ ...body, userId: session.user.id }),
+    });
+
+    return new Response(res.body, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
+        ...(res.headers.get('X-Session-Id') ? { 'X-Session-Id': res.headers.get('X-Session-Id')! } : {})
+      }
+    });
   }
 
   // Build context: user + org + connected accounts
