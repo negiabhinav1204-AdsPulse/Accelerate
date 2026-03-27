@@ -1127,6 +1127,31 @@ importers:
         specifier: 5.8.3
         version: 5.8.3
 
+  services/accelerate-shopping-feeds-service:
+    dependencies:
+      '@fastify/cors':
+        specifier: ^9.0.1
+        version: 9.0.1
+      '@prisma/client':
+        specifier: 6.9.0
+        version: 6.9.0(prisma@6.9.0(typescript@5.8.3))(typescript@5.8.3)
+      fastify:
+        specifier: ^4.28.1
+        version: 4.29.1
+    devDependencies:
+      '@types/node':
+        specifier: 22.15.30
+        version: 22.15.30
+      prisma:
+        specifier: 6.9.0
+        version: 6.9.0(typescript@5.8.3)
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
+
   services/accelerate-sync-service:
     dependencies:
       '@fastify/cors':
