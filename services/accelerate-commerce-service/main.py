@@ -12,6 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.database import close_pool, get_pool
 from routers.connectors import router as connectors_router
+from routers.inventory import router as inventory_router
+from routers.products import router as products_router
+from routers.revenue import router as revenue_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 
@@ -30,6 +33,9 @@ app.add_middleware(
 )
 
 app.include_router(connectors_router)
+app.include_router(products_router)
+app.include_router(revenue_router)
+app.include_router(inventory_router)
 
 
 @app.on_event("startup")
