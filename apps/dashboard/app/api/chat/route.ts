@@ -11,6 +11,35 @@ import {
   executeEcommerceTool,
   type ToolContext,
 } from './tools/ecommerce';
+import {
+  ANALYTICS_TOOL_NAMES,
+  ANALYTICS_TOOL_SCHEMAS,
+  executeAnalyticsTool,
+} from './tools/analytics';
+import {
+  CAMPAIGN_TOOL_NAMES,
+  CAMPAIGN_TOOL_SCHEMAS,
+  executeCampaignTool,
+} from './tools/campaigns';
+import {
+  AUDIENCE_TOOL_NAMES,
+  AUDIENCE_TOOL_SCHEMAS,
+  executeAudienceTool,
+} from './tools/audiences';
+import {
+  PLATFORM_TOOL_NAMES,
+  PLATFORM_TOOL_SCHEMAS,
+  executePlatformTool,
+} from './tools/platform';
+
+// Combined set of all data tools (server-side execution)
+const ALL_DATA_TOOL_NAMES = new Set([
+  ...ECOMMERCE_TOOL_NAMES,
+  ...ANALYTICS_TOOL_NAMES,
+  ...CAMPAIGN_TOOL_NAMES,
+  ...AUDIENCE_TOOL_NAMES,
+  ...PLATFORM_TOOL_NAMES,
+]);
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -48,13 +77,50 @@ Help users with:
 You have deep knowledge of digital advertising — Google Ads, Meta Ads (Facebook/Instagram), Microsoft Advertising, campaign structures, targeting options, bidding strategies, creatives, conversion tracking, and performance metrics.
 
 ## Data Tools (execute server-side — results returned to you)
-You have access to real ecommerce data tools. Call these to get LIVE data before answering:
-- \`get_products\` — list the product catalog with prices, inventory, and 30-day velocity
+IMPORTANT: Always call the appropriate data tool first to get LIVE data before answering. Never invent numbers.
+
+**Ecommerce:**
+- \`get_products\` — product catalog with prices, inventory, 30-day velocity
 - \`get_sales\` — revenue, orders, AOV for any time period with period-over-period comparison
 - \`get_ecommerce_overview\` — full KPI dashboard: revenue, orders, AOV, repeat rate, trends
-- \`get_inventory_health\` — flag low-stock and out-of-stock products with days-until-stockout
+- \`get_inventory_health\` — low-stock and out-of-stock products with days-until-stockout
 - \`get_product_insights\` — deep analysis of a specific product
 - \`get_product_suggestions\` — top products to advertise ranked by velocity and revenue
+
+**Analytics:**
+- \`get_analytics_overview\` — total spend, impressions, clicks, CTR, CPC, conversions, ROAS across all platforms
+- \`get_platform_comparison\` — side-by-side metrics for Meta vs Google vs Bing
+- \`get_funnel_analysis\` — conversion funnel: views → cart → checkout → purchase
+- \`get_daily_trends\` — daily revenue/spend trends over time
+- \`analyze_wasted_spend\` — campaigns with spend but zero/low conversions
+- \`get_revenue_breakdown\` — ad-attributed vs organic revenue
+- \`get_executive_summary\` — blended ROAS, MER, top platform summary
+- \`get_sales_regions\` — top geographic regions by revenue
+
+**Campaigns:**
+- \`campaign_health_check\` — score all campaigns: winner/learner/underperformer/bleeder
+- \`campaign_optimizer\` — prioritised optimisation action list
+- \`toggle_campaign\` — pause or activate a campaign
+- \`update_budget\` — change a campaign's daily budget
+- \`get_campaign_history\` — all campaigns with status and health scores
+
+**Audiences:**
+- \`list_audiences\` — all custom and lookalike audiences
+- \`create_custom_audience\` — create a customer list, website, or catalog audience
+- \`create_lookalike_audience\` — create a lookalike from an existing audience
+- \`get_audience_insights\` — size and details for a specific audience
+- \`smart_targeting\` — data-driven targeting recommendations from order history
+- \`search_locations\` — resolve location names to Meta targeting keys
+
+**Feeds & Platform:**
+- \`get_feed_health\` — product feed health scores
+- \`generate_product_feed\` — optimised feed snapshot from catalog
+- \`get_merchant_center_status\` — Google Merchant Center connection status
+- \`get_connected_platforms\` — list all connected ad accounts
+- \`get_ad_platform_status\` — connection health for Meta, Google, Bing
+- \`suggest_campaign_strategy\` — data-driven campaign mix recommendation
+- \`get_campaign_strategies\` — available campaign types for a platform
+- \`growth_opportunities\` — untapped growth gaps in current coverage
 
 ## Generative UI Tools (rendered in chat — use AFTER data tools)
 You have access to special UI rendering tools. Use them to show rich data visually:
@@ -63,6 +129,14 @@ You have access to special UI rendering tools. Use them to show rich data visual
 - Use \`show_chart\` to display a performance chart when showing trends over time
 - Use \`show_products\` to display a product leaderboard when showing product lists or suggestions
 - Use \`show_inventory\` to display an inventory health card when showing stock status
+- Use \`show_health_scores\` to display campaign health score table (after campaign_health_check)
+- Use \`show_executive_summary\` to display executive KPI card (after get_executive_summary)
+- Use \`show_funnel\` to display conversion funnel chart (after get_funnel_analysis)
+- Use \`show_revenue_breakdown\` to display revenue pie breakdown (after get_revenue_breakdown)
+- Use \`show_wasted_spend\` to display wasted spend alert card (after analyze_wasted_spend)
+- Use \`show_platform_comparison\` to display platform comparison table (after get_platform_comparison)
+- Use \`show_audience\` to display audience list card (after list_audiences)
+- Use \`show_feed_health\` to display feed health card (after get_feed_health)
 - Use \`navigate_to\` to suggest a platform navigation link when the user should go somewhere in the app (except campaign creation — see below)
 - Use \`connect_accounts_prompt\` when the user asks to analyse/optimise/create campaigns but no ad accounts are connected
 
@@ -261,8 +335,257 @@ const TOOLS: Anthropic.Tool[] = [
       required: ['title', 'summary', 'items']
     }
   },
-  // ── Ecommerce data tools (server-side execution) ──────────────────────────
+  {
+    name: 'show_health_scores',
+    description:
+      'Display a campaign health score table with winner/bleeder/underperformer categories. Use AFTER calling campaign_health_check.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        currency: { type: 'string' },
+        summary: {
+          type: 'object',
+          properties: {
+            total: { type: 'number' },
+            winners: { type: 'number' },
+            bleeders: { type: 'number' },
+            underperformers: { type: 'number' },
+            learners: { type: 'number' },
+            paused: { type: 'number' },
+          },
+          required: ['total', 'winners', 'bleeders', 'underperformers', 'learners', 'paused'],
+        },
+        campaigns: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              platform: { type: 'string' },
+              status: { type: 'string' },
+              budget: { type: 'string' },
+              spend: { type: 'string' },
+              roas: { type: 'number' },
+              category: { type: 'string', enum: ['winner', 'learner', 'underperformer', 'bleeder', 'paused'] },
+              score: { type: 'number' },
+              recommendation: { type: 'string' },
+            },
+            required: ['id', 'name', 'category', 'recommendation'],
+          },
+        },
+      },
+      required: ['summary', 'campaigns'],
+    },
+  },
+  {
+    name: 'show_executive_summary',
+    description:
+      'Display an executive KPI summary card with blended ROAS, MER, spend, revenue, and trends. Use AFTER calling get_executive_summary.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        currency: { type: 'string' },
+        blended_roas: { type: 'string' },
+        mer: { type: 'string' },
+        total_spend: { type: 'string' },
+        total_revenue: { type: 'string' },
+        total_orders: { type: 'number' },
+        total_impressions: { type: 'number' },
+        total_clicks: { type: 'number' },
+        total_conversions: { type: 'number' },
+        spend_change_pct: { type: 'string' },
+        revenue_change_pct: { type: 'string' },
+        top_platform: { type: 'string' },
+      },
+      required: ['blended_roas', 'total_spend', 'total_revenue'],
+    },
+  },
+  {
+    name: 'show_funnel',
+    description:
+      'Display a conversion funnel chart with drop-off rates. Use AFTER calling get_funnel_analysis.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        stages: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              stage: { type: 'string' },
+              count: { type: 'number' },
+              drop_off_pct: { type: 'string' },
+            },
+            required: ['stage', 'count'],
+          },
+        },
+        overall_conversion_rate: { type: 'string' },
+        biggest_opportunity: { type: 'string' },
+        note: { type: 'string' },
+      },
+      required: ['stages'],
+    },
+  },
+  {
+    name: 'show_revenue_breakdown',
+    description:
+      'Display a revenue breakdown pie with ad-attributed vs organic split. Use AFTER calling get_revenue_breakdown.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        currency: { type: 'string' },
+        total_revenue: { type: 'string' },
+        ad_attributed: { type: 'string' },
+        organic: { type: 'string' },
+        ad_share_pct: { type: 'string' },
+        organic_share_pct: { type: 'string' },
+        by_platform: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              platform: { type: 'string' },
+              attributed_revenue: { type: 'number' },
+              spend: { type: 'number' },
+            },
+            required: ['platform', 'attributed_revenue', 'spend'],
+          },
+        },
+      },
+      required: ['total_revenue', 'ad_attributed', 'organic'],
+    },
+  },
+  {
+    name: 'show_wasted_spend',
+    description:
+      'Display a wasted spend alert card with campaign breakdown. Use AFTER calling analyze_wasted_spend.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        currency: { type: 'string' },
+        total_wasted: { type: 'string' },
+        items_count: { type: 'number' },
+        summary: { type: 'string' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              platform: { type: 'string' },
+              campaign: { type: 'string' },
+              spend: { type: 'number' },
+              conversions: { type: 'number' },
+              roas: { type: 'number' },
+              recommendation: { type: 'string' },
+            },
+            required: ['platform', 'campaign', 'spend', 'conversions', 'roas', 'recommendation'],
+          },
+        },
+      },
+      required: ['total_wasted', 'items_count', 'items', 'summary'],
+    },
+  },
+  {
+    name: 'show_platform_comparison',
+    description:
+      'Display a platform comparison table (Meta vs Google vs Bing). Use AFTER calling get_platform_comparison.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        currency: { type: 'string' },
+        platforms: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              platform: { type: 'string' },
+              spend: { type: 'string' },
+              impressions: { type: 'number' },
+              clicks: { type: 'number' },
+              ctr: { type: 'string' },
+              cpc: { type: 'string' },
+              conversions: { type: 'number' },
+              roas: { type: 'string' },
+              cpa: { type: 'string' },
+            },
+            required: ['platform', 'spend'],
+          },
+        },
+      },
+      required: ['platforms'],
+    },
+  },
+  {
+    name: 'show_audience',
+    description:
+      'Display an audience list card with type badges and sync status. Use AFTER calling list_audiences.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        total: { type: 'number' },
+        audiences: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              type: { type: 'string' },
+              platforms: { type: 'array', items: { type: 'string' } },
+              estimated_size: { type: 'number' },
+              sync_status: { type: 'string' },
+              created_at: { type: 'string' },
+            },
+            required: ['id', 'name', 'type'],
+          },
+        },
+      },
+      required: ['total', 'audiences'],
+    },
+  },
+  {
+    name: 'show_feed_health',
+    description:
+      'Display a product feed health card with scores and last push times. Use AFTER calling get_feed_health.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        total: { type: 'number' },
+        message: { type: 'string', description: 'Set when no feeds exist' },
+        feeds: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              channel: { type: 'string' },
+              connector: { type: 'string' },
+              health_score: { type: 'number' },
+              last_pushed_at: { type: 'string' },
+              active_rules: { type: 'number' },
+              health_label: { type: 'string', enum: ['Excellent', 'Good', 'Fair', 'Needs attention', 'Unknown'] },
+            },
+            required: ['id', 'name', 'channel', 'health_label'],
+          },
+        },
+      },
+      required: ['total', 'feeds'],
+    },
+  },
+  // ── Data tools (server-side execution) ────────────────────────────────────
   ...ECOMMERCE_TOOL_SCHEMAS,
+  ...ANALYTICS_TOOL_SCHEMAS,
+  ...CAMPAIGN_TOOL_SCHEMAS,
+  ...AUDIENCE_TOOL_SCHEMAS,
+  ...PLATFORM_TOOL_SCHEMAS,
 ];
 
 // ---------------------------------------------------------------------------
@@ -730,7 +1053,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                   toolInput = JSON.parse(rawInput) as Record<string, unknown>;
                 } catch { /* ignore malformed */ }
 
-                if (ECOMMERCE_TOOL_NAMES.has(name)) {
+                if (ALL_DATA_TOOL_NAMES.has(name)) {
                   // Data tool — queue for server-side execution, don't stream to client
                   pendingDataToolCalls.push({ id: id!, name, input: toolInput });
                   enqueue({ type: 'tool_thinking', name });
@@ -755,7 +1078,20 @@ export async function POST(request: NextRequest): Promise<Response> {
           const toolResults = await Promise.all(
             pendingDataToolCalls.map(async ({ id, name, input }) => {
               try {
-                const result = await executeEcommerceTool(name, input, toolCtx);
+                let result: unknown;
+                if (ECOMMERCE_TOOL_NAMES.has(name)) {
+                  result = await executeEcommerceTool(name, input, toolCtx);
+                } else if (ANALYTICS_TOOL_NAMES.has(name)) {
+                  result = await executeAnalyticsTool(name, input, toolCtx);
+                } else if (CAMPAIGN_TOOL_NAMES.has(name)) {
+                  result = await executeCampaignTool(name, input, toolCtx);
+                } else if (AUDIENCE_TOOL_NAMES.has(name)) {
+                  result = await executeAudienceTool(name, input, toolCtx);
+                } else if (PLATFORM_TOOL_NAMES.has(name)) {
+                  result = await executePlatformTool(name, input, toolCtx);
+                } else {
+                  result = { error: `Unknown tool: ${name}` };
+                }
                 return {
                   type: 'tool_result' as const,
                   tool_use_id: id,

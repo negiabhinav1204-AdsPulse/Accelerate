@@ -20,13 +20,21 @@ import { CampaignEditPanel } from '../campaign/campaign-edit-panel';
 import { CampaignPreviewPanel } from '../campaign/campaign-preview-panel';
 import type { EditScope } from '../campaign/campaign-preview-panel';
 import type { AgentName, AgentState, MediaPlan, SSEEvent } from '../campaign/types';
+import { ChatAudienceCard } from './chat-audience-card';
 import { ChatCampaignTable } from './chat-campaign-table';
 import { ChatConnectPrompt } from './chat-connect-prompt';
+import { ChatExecutiveSummaryCard } from './chat-executive-summary-card';
+import { ChatFeedHealthCard } from './chat-feed-health-card';
+import { ChatFunnelChartCard } from './chat-funnel-chart-card';
+import { ChatHealthScoreCard } from './chat-health-score-card';
 import { ChatInventoryCard } from './chat-inventory-card';
 import { ChatMetricCard } from './chat-metric-card';
 import { ChatNavSuggestion } from './chat-nav-suggestion';
 import { ChatPerformanceChart } from './chat-performance-chart';
+import { ChatPlatformComparisonCard } from './chat-platform-comparison-card';
 import { ChatProductLeaderboard } from './chat-product-leaderboard';
+import { ChatRevenueBreakdownCard } from './chat-revenue-breakdown-card';
+import { ChatWastedSpendCard } from './chat-wasted-spend-card';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -61,7 +69,15 @@ type ToolBlock =
   | { name: 'navigate_to'; input: { label: string; description: string; path: 'create-campaign' | 'campaigns' | 'reporting' | 'connectors' | 'settings' | 'accelera-ai' } }
   | { name: 'connect_accounts_prompt'; input: { message: string } }
   | { name: 'show_products'; input: { title: string; products: { title: string; price?: string; sold_30d?: number; revenue_30d?: string; inventory?: number; badge?: string; insight?: string }[] } }
-  | { name: 'show_inventory'; input: { title: string; summary: { total_products: number; out_of_stock: number; low_stock: number; at_risk_revenue?: string }; items: { title: string; inventory: number; days_until_stockout?: number | null; weekly_velocity?: number; status: 'out_of_stock' | 'critical' | 'low' | 'ok' }[] } };
+  | { name: 'show_inventory'; input: { title: string; summary: { total_products: number; out_of_stock: number; low_stock: number; at_risk_revenue?: string }; items: { title: string; inventory: number; days_until_stockout?: number | null; weekly_velocity?: number; status: 'out_of_stock' | 'critical' | 'low' | 'ok' }[] } }
+  | { name: 'show_health_scores'; input: { period?: string; currency?: string; summary: { total: number; winners: number; bleeders: number; underperformers: number; learners: number; paused: number }; campaigns: { id: string; name: string; platform?: string; status?: string; budget?: string; spend?: string; roas?: number; category: 'winner' | 'learner' | 'underperformer' | 'bleeder' | 'paused'; score?: number; recommendation: string }[] } }
+  | { name: 'show_executive_summary'; input: { period?: string; currency?: string; blended_roas: string; mer?: string; total_spend: string; total_revenue: string; total_orders?: number; total_impressions?: number; total_clicks?: number; total_conversions?: number; spend_change_pct?: string; revenue_change_pct?: string; top_platform?: string } }
+  | { name: 'show_funnel'; input: { period?: string; stages: { stage: string; count: number; drop_off_pct?: string | null }[]; overall_conversion_rate?: string; biggest_opportunity?: string | null; note?: string } }
+  | { name: 'show_revenue_breakdown'; input: { period?: string; currency?: string; total_revenue: string; ad_attributed: string; organic: string; ad_share_pct?: string; organic_share_pct?: string; by_platform?: { platform: string; attributed_revenue: number; spend: number }[] } }
+  | { name: 'show_wasted_spend'; input: { period?: string; currency?: string; total_wasted: string; items_count: number; items: { platform: string; campaign: string; spend: number; conversions: number; roas: number; recommendation: string }[]; summary: string } }
+  | { name: 'show_platform_comparison'; input: { period?: string; currency?: string; platforms: { platform: string; spend: string; impressions?: number; clicks?: number; ctr?: string; cpc?: string; conversions?: number; roas?: string; cpa?: string }[] } }
+  | { name: 'show_audience'; input: { total: number; audiences: { id: string; name: string; type: string; platforms?: string[]; estimated_size?: number | null; sync_status?: string; created_at?: string }[] } }
+  | { name: 'show_feed_health'; input: { total: number; message?: string; feeds: { id: string; name: string; channel: string; connector?: string; health_score?: number | null; last_pushed_at?: string | null; active_rules?: number; health_label: string }[] } };
 
 type MessagePart =
   | { type: 'text'; text: string }
@@ -1155,7 +1171,7 @@ function ToolRenderer({
       return (
         <ChatProductLeaderboard
           title={tool.input.title}
-          products={tool.input.products}
+          products={tool.input.products as Parameters<typeof ChatProductLeaderboard>[0]['products']}
         />
       );
     case 'show_inventory':
@@ -1164,6 +1180,120 @@ function ToolRenderer({
           title={tool.input.title}
           summary={tool.input.summary}
           items={tool.input.items}
+        />
+      );
+    case 'show_health_scores':
+      return (
+        <ChatHealthScoreCard
+          period={tool.input.period ?? '30d'}
+          currency={tool.input.currency ?? 'USD'}
+          summary={tool.input.summary}
+          campaigns={tool.input.campaigns.map((c) => ({
+            ...c,
+            platform: c.platform ?? 'unknown',
+            status: c.status ?? 'unknown',
+            budget: c.budget ?? '0',
+            spend: c.spend ?? '0',
+            roas: c.roas ?? 0,
+            score: c.score ?? 0,
+          }))}
+        />
+      );
+    case 'show_executive_summary':
+      return (
+        <ChatExecutiveSummaryCard
+          period={tool.input.period ?? '30d'}
+          currency={tool.input.currency ?? 'USD'}
+          blended_roas={tool.input.blended_roas}
+          mer={tool.input.mer ?? '0'}
+          total_spend={tool.input.total_spend}
+          total_revenue={tool.input.total_revenue}
+          total_orders={tool.input.total_orders ?? 0}
+          total_impressions={tool.input.total_impressions ?? 0}
+          total_clicks={tool.input.total_clicks ?? 0}
+          total_conversions={tool.input.total_conversions ?? 0}
+          spend_change_pct={tool.input.spend_change_pct ?? '0'}
+          revenue_change_pct={tool.input.revenue_change_pct ?? '0'}
+          top_platform={tool.input.top_platform ?? 'N/A'}
+        />
+      );
+    case 'show_funnel':
+      return (
+        <ChatFunnelChartCard
+          period={tool.input.period ?? '30d'}
+          stages={tool.input.stages.map((s) => ({ ...s, drop_off_pct: s.drop_off_pct ?? null }))}
+          overall_conversion_rate={tool.input.overall_conversion_rate ?? 'N/A'}
+          biggest_opportunity={tool.input.biggest_opportunity ?? null}
+          note={tool.input.note}
+        />
+      );
+    case 'show_revenue_breakdown':
+      return (
+        <ChatRevenueBreakdownCard
+          period={tool.input.period ?? '30d'}
+          currency={tool.input.currency ?? 'USD'}
+          total_revenue={tool.input.total_revenue}
+          ad_attributed={tool.input.ad_attributed}
+          organic={tool.input.organic}
+          ad_share_pct={tool.input.ad_share_pct ?? '0'}
+          organic_share_pct={tool.input.organic_share_pct ?? '0'}
+          by_platform={tool.input.by_platform ?? []}
+        />
+      );
+    case 'show_wasted_spend':
+      return (
+        <ChatWastedSpendCard
+          period={tool.input.period ?? '30d'}
+          currency={tool.input.currency ?? 'USD'}
+          total_wasted={tool.input.total_wasted}
+          items_count={tool.input.items_count}
+          items={tool.input.items}
+          summary={tool.input.summary}
+        />
+      );
+    case 'show_platform_comparison':
+      return (
+        <ChatPlatformComparisonCard
+          period={tool.input.period ?? '30d'}
+          currency={tool.input.currency ?? 'USD'}
+          platforms={tool.input.platforms.map((p) => ({
+            platform: p.platform,
+            spend: p.spend,
+            impressions: p.impressions ?? 0,
+            clicks: p.clicks ?? 0,
+            ctr: p.ctr ?? '0%',
+            cpc: p.cpc ?? '0',
+            conversions: p.conversions ?? 0,
+            roas: p.roas ?? '0',
+            cpa: p.cpa ?? '0',
+          }))}
+        />
+      );
+    case 'show_audience':
+      return (
+        <ChatAudienceCard
+          total={tool.input.total}
+          audiences={tool.input.audiences.map((a) => ({
+            ...a,
+            platforms: a.platforms ?? [],
+            estimated_size: a.estimated_size ?? null,
+            sync_status: a.sync_status ?? 'pending',
+            created_at: a.created_at ?? '',
+          }))}
+        />
+      );
+    case 'show_feed_health':
+      return (
+        <ChatFeedHealthCard
+          total={tool.input.total}
+          message={tool.input.message}
+          feeds={tool.input.feeds.map((f) => ({
+            ...f,
+            connector: f.connector ?? '',
+            health_score: f.health_score ?? null,
+            last_pushed_at: f.last_pushed_at ?? null,
+            active_rules: f.active_rules ?? 0,
+          }))}
         />
       );
     default:
