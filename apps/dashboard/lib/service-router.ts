@@ -35,6 +35,14 @@ export const SERVICES = {
     enabled: !!(process.env.SHOPPING_FEEDS_SERVICE_URL && process.env.USE_SHOPPING_FEEDS_SERVICE === 'true'),
     url: process.env.SHOPPING_FEEDS_SERVICE_URL ?? '',
   },
+  commerce: {
+    enabled: !!(process.env.COMMERCE_SERVICE_URL && process.env.USE_COMMERCE_SERVICE === 'true'),
+    url: process.env.COMMERCE_SERVICE_URL ?? '',
+  },
+  cdp: {
+    enabled: !!(process.env.CDP_SERVICE_URL && process.env.USE_CDP_SERVICE === 'true'),
+    url: process.env.CDP_SERVICE_URL ?? '',
+  },
 } as const;
 
 /**

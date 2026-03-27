@@ -71,6 +71,10 @@ export const routes = {
         Index: `${baseUrl.Dashboard}/organizations/[slug]`,
         Reporting: `${baseUrl.Dashboard}/organizations/[slug]/reporting`,
         ShoppingFeeds: `${baseUrl.Dashboard}/organizations/[slug]/shopping-feeds`,
+        CommerceConnectors: `${baseUrl.Dashboard}/organizations/[slug]/connectors/commerce`,
+        Products: `${baseUrl.Dashboard}/organizations/[slug]/products`,
+        Cdp: `${baseUrl.Dashboard}/organizations/[slug]/cdp`,
+        CdpSegments: `${baseUrl.Dashboard}/organizations/[slug]/cdp/segments`,
         settings: {
           account: {
             Index: `${baseUrl.Dashboard}/organizations/[slug]/settings/account`,
