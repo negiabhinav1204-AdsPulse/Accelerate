@@ -21,12 +21,10 @@ import { ChatExecutiveSummaryCard } from './chat-executive-summary-card';
 import { ChatFeedHealthCard } from './chat-feed-health-card';
 import { ChatFunnelChartCard } from './chat-funnel-chart-card';
 import { ChatHealthScoreCard } from './chat-health-score-card';
-import { ChatInventoryCard } from './chat-inventory-card';
 import { ChatMetricCard } from './chat-metric-card';
 import { ChatNavSuggestion } from './chat-nav-suggestion';
 import { ChatPerformanceChart } from './chat-performance-chart';
 import { ChatPlatformComparisonCard } from './chat-platform-comparison-card';
-import { ChatProductLeaderboard } from './chat-product-leaderboard';
 import { ChatRevenueBreakdownCard } from './chat-revenue-breakdown-card';
 import { ChatWastedSpendCard } from './chat-wasted-spend-card';
 
@@ -38,8 +36,6 @@ type ToolBlock =
   | { name: 'show_chart'; input: { title: string; metric: string; data: { date: string; value: number }[] } }
   | { name: 'navigate_to'; input: { label: string; description: string; path: 'campaigns' | 'reporting' | 'connectors' | 'settings' | 'accelera-ai' } }
   | { name: 'connect_accounts_prompt'; input: { message: string } }
-  | { name: 'show_products'; input: { title: string; products: { title: string; price?: string; sold_30d?: number; revenue_30d?: string; inventory?: number; badge?: string; insight?: string }[] } }
-  | { name: 'show_inventory'; input: { title: string; summary: { total_products: number; out_of_stock: number; low_stock: number; at_risk_revenue?: string }; items: { title: string; inventory: number; days_until_stockout?: number | null; weekly_velocity?: number; status: 'out_of_stock' | 'critical' | 'low' | 'ok' }[] } }
   | { name: 'show_health_scores'; input: { period?: string; currency?: string; summary: { total: number; winners: number; bleeders: number; underperformers: number; learners: number; paused: number }; campaigns: { id: string; name: string; platform?: string; status?: string; budget?: string; spend?: string; roas?: number; category: 'winner' | 'learner' | 'underperformer' | 'bleeder' | 'paused'; score?: number; recommendation: string }[] } }
   | { name: 'show_executive_summary'; input: { period?: string; currency?: string; blended_roas: string; mer?: string; total_spend: string; total_revenue: string; total_orders?: number; total_impressions?: number; total_clicks?: number; total_conversions?: number; spend_change_pct?: string; revenue_change_pct?: string; top_platform?: string } }
   | { name: 'show_funnel'; input: { period?: string; stages: { stage: string; count: number; drop_off_pct?: string | null }[]; overall_conversion_rate?: string; biggest_opportunity?: string | null; note?: string } }
@@ -692,21 +688,6 @@ function ToolRenderer({
         <ChatConnectPrompt
           message={tool.input.message}
           orgSlug={orgSlug}
-        />
-      );
-    case 'show_products':
-      return (
-        <ChatProductLeaderboard
-          title={tool.input.title}
-          products={tool.input.products as Parameters<typeof ChatProductLeaderboard>[0]['products']}
-        />
-      );
-    case 'show_inventory':
-      return (
-        <ChatInventoryCard
-          title={tool.input.title}
-          summary={tool.input.summary}
-          items={tool.input.items}
         />
       );
     case 'show_health_scores':

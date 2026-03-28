@@ -6,15 +6,10 @@ import { prisma } from '@workspace/database/client';
 import { searchMemory, upsertMemoryNode } from '~/lib/memory/memory-service';
 import { SERVICES } from '~/lib/service-router';
 import {
-  ECOMMERCE_TOOL_NAMES,
-  ECOMMERCE_TOOL_SCHEMAS,
-  executeEcommerceTool,
-  type ToolContext,
-} from './tools/ecommerce';
-import {
   ANALYTICS_TOOL_NAMES,
   ANALYTICS_TOOL_SCHEMAS,
   executeAnalyticsTool,
+  type ToolContext,
 } from './tools/analytics';
 import {
   CAMPAIGN_TOOL_NAMES,
@@ -34,7 +29,6 @@ import {
 
 // Combined set of all data tools (server-side execution)
 const ALL_DATA_TOOL_NAMES = new Set([
-  ...ECOMMERCE_TOOL_NAMES,
   ...ANALYTICS_TOOL_NAMES,
   ...CAMPAIGN_TOOL_NAMES,
   ...AUDIENCE_TOOL_NAMES,
@@ -79,14 +73,6 @@ You have deep knowledge of digital advertising — Google Ads, Meta Ads (Faceboo
 ## Data Tools (execute server-side — results returned to you)
 IMPORTANT: Always call the appropriate data tool first to get LIVE data before answering. Never invent numbers.
 
-**Ecommerce:**
-- \`get_products\` — product catalog with prices, inventory, 30-day velocity
-- \`get_sales\` — revenue, orders, AOV for any time period with period-over-period comparison
-- \`get_ecommerce_overview\` — full KPI dashboard: revenue, orders, AOV, repeat rate, trends
-- \`get_inventory_health\` — low-stock and out-of-stock products with days-until-stockout
-- \`get_product_insights\` — deep analysis of a specific product
-- \`get_product_suggestions\` — top products to advertise ranked by velocity and revenue
-
 **Analytics:**
 - \`get_analytics_overview\` — total spend, impressions, clicks, CTR, CPC, conversions, ROAS across all platforms
 - \`get_platform_comparison\` — side-by-side metrics for Meta vs Google vs Bing
@@ -127,8 +113,6 @@ You have access to special UI rendering tools. Use them to show rich data visual
 - Use \`show_metrics\` to display KPI cards when discussing performance numbers
 - Use \`show_campaigns\` to display a campaign table when listing campaigns
 - Use \`show_chart\` to display a performance chart when showing trends over time
-- Use \`show_products\` to display a product leaderboard when showing product lists or suggestions
-- Use \`show_inventory\` to display an inventory health card when showing stock status
 - Use \`show_health_scores\` to display campaign health score table (after campaign_health_check)
 - Use \`show_executive_summary\` to display executive KPI card (after get_executive_summary)
 - Use \`show_funnel\` to display conversion funnel chart (after get_funnel_analysis)
@@ -268,70 +252,6 @@ const TOOLS: Anthropic.Tool[] = [
         }
       },
       required: ['message']
-    }
-  },
-  {
-    name: 'show_products',
-    description:
-      'Display a product leaderboard table with velocity badges. Use AFTER calling get_products or get_product_suggestions to show the results visually.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        title: { type: 'string', description: 'Card title, e.g. "Top Products by Velocity"' },
-        products: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              title: { type: 'string' },
-              price: { type: 'string', description: 'Formatted price, e.g. "$49.99"' },
-              sold_30d: { type: 'number', description: '30-day units sold' },
-              revenue_30d: { type: 'string', description: 'Formatted revenue, e.g. "$1,200"' },
-              inventory: { type: 'number', description: 'Current inventory quantity' },
-              badge: { type: 'string', enum: ['best_seller', 'trending', 'high_value', 'low_stock', 'new', ''] },
-              insight: { type: 'string', description: 'One-line AI insight about this product' }
-            },
-            required: ['title']
-          }
-        }
-      },
-      required: ['title', 'products']
-    }
-  },
-  {
-    name: 'show_inventory',
-    description:
-      'Display an inventory health card with alerts. Use AFTER calling get_inventory_health to show the results visually.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        title: { type: 'string' },
-        summary: {
-          type: 'object',
-          properties: {
-            total_products: { type: 'number' },
-            out_of_stock: { type: 'number' },
-            low_stock: { type: 'number' },
-            at_risk_revenue: { type: 'string', description: 'Weekly revenue at risk, e.g. "$450"' }
-          },
-          required: ['total_products', 'out_of_stock', 'low_stock']
-        },
-        items: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              title: { type: 'string' },
-              inventory: { type: 'number' },
-              days_until_stockout: { type: 'number' },
-              weekly_velocity: { type: 'number' },
-              status: { type: 'string', enum: ['out_of_stock', 'critical', 'low', 'ok'] }
-            },
-            required: ['title', 'inventory', 'status']
-          }
-        }
-      },
-      required: ['title', 'summary', 'items']
     }
   },
   {
@@ -580,7 +500,6 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   // ── Data tools (server-side execution) ────────────────────────────────────
-  ...ECOMMERCE_TOOL_SCHEMAS,
   ...ANALYTICS_TOOL_SCHEMAS,
   ...CAMPAIGN_TOOL_SCHEMAS,
   ...AUDIENCE_TOOL_SCHEMAS,
@@ -1078,9 +997,7 @@ export async function POST(request: NextRequest): Promise<Response> {
             pendingDataToolCalls.map(async ({ id, name, input }) => {
               try {
                 let result: unknown;
-                if (ECOMMERCE_TOOL_NAMES.has(name)) {
-                  result = await executeEcommerceTool(name, input, toolCtx);
-                } else if (ANALYTICS_TOOL_NAMES.has(name)) {
+                if (ANALYTICS_TOOL_NAMES.has(name)) {
                   result = await executeAnalyticsTool(name, input, toolCtx);
                 } else if (CAMPAIGN_TOOL_NAMES.has(name)) {
                   result = await executeCampaignTool(name, input, toolCtx);

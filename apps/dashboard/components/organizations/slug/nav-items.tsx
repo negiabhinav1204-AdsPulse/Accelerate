@@ -6,7 +6,6 @@ import {
   LayoutDashboardIcon,
   LockKeyholeIcon,
   MegaphoneIcon,
-  PackageIcon,
   PlugIcon,
   BarChart3Icon,
   ShoppingCartIcon,
@@ -53,11 +52,6 @@ export function createMainNavItems(slug: string): NavItem[] {
       title: 'Shopping Feeds',
       href: replaceOrgSlug(routes.dashboard.organizations.slug.ShoppingFeeds, slug),
       icon: ShoppingCartIcon
-    },
-    {
-      title: 'Commerce',
-      href: replaceOrgSlug(routes.dashboard.organizations.slug.Products, slug),
-      icon: PackageIcon
     },
     {
       title: 'Customers',
