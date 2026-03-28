@@ -40,18 +40,13 @@ type WorkerPayload = {
 
 async function generateCampaignImages(
   mediaPlan: MediaPlan,
-  /** Product-specific image prompts from the Creative Agent — preferred over generic ones */
+  /** Product-specific image prompts from the Creative Agent */
   creativeImagePrompts: string[],
+  /** Real product images scraped from the product page — if present, used instead of AI generation */
+  realProductImages: string[],
   enqueue: (event: AgentEvent) => void
 ): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return;
-
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash-preview-image-generation'
-  });
 
   const brandName = mediaPlan.summary?.brandName ?? '';
   let promptIndex = 0;
@@ -61,46 +56,60 @@ async function generateCampaignImages(
       const normalizedType = adType.adType.toLowerCase();
       if (['search', 'rsa'].includes(normalizedType)) continue;
 
-      const aspectRatio =
-        normalizedType.includes('stories') || normalizedType.includes('reels')
-          ? '9:16'
-          : platform.platform === 'meta'
-          ? '1:1'
-          : '16:9';
-
       const imageUrls: string[] = [];
 
-      for (const ad of adType.ads.slice(0, 3)) {
-        // Use the Creative Agent's specific image prompt — it knows what the
-        // actual product looks like. Fall back to a basic prompt only if none available.
+      for (let i = 0; i < Math.min(adType.ads.length, 3); i++) {
+        const ad = adType.ads[i]!;
+
+        // ── Priority 1: real product image already on the ad (applied in agents.ts) ──
+        if (ad.imageUrls.length > 0) {
+          imageUrls.push(ad.imageUrls[0]!);
+          continue;
+        }
+
+        // ── Priority 2: real product image scraped from the page ──
+        if (realProductImages.length > 0) {
+          imageUrls.push(realProductImages[i % realProductImages.length]!);
+          continue;
+        }
+
+        // ── Priority 3: AI generation (only when no real image is available) ──
+        if (!apiKey) continue;
+
+        const aspectRatio =
+          normalizedType.includes('stories') || normalizedType.includes('reels')
+            ? '9:16'
+            : platform.platform === 'meta'
+            ? '1:1'
+            : '16:9';
+
         const creativePrompt = creativeImagePrompts[promptIndex % Math.max(creativeImagePrompts.length, 1)];
         promptIndex++;
 
         const prompt = creativePrompt
           ? `${creativePrompt}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`
-          : `Professional product advertisement for ${brandName}. Product: ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. Show the actual product prominently, high quality commercial photography, no text.`;
+          : `Professional product advertisement for ${brandName}. Product: ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. Show the actual product prominently, no text.`;
 
         try {
+          const { GoogleGenerativeAI } = await import('@google/generative-ai');
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-preview-image-generation' });
+
           const result = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } as any
           });
 
-          const parts =
-            result.response.candidates?.[0]?.content?.parts ?? [];
+          const parts = result.response.candidates?.[0]?.content?.parts ?? [];
           for (const part of parts) {
-            const pd = (
-              part as { inlineData?: { mimeType?: string; data?: string } }
-            ).inlineData;
+            const pd = (part as { inlineData?: { mimeType?: string; data?: string } }).inlineData;
             if (pd?.mimeType?.startsWith('image/') && pd.data) {
               imageUrls.push(`data:${pd.mimeType};base64,${pd.data}`);
               break;
             }
           }
-        } catch {
-          // Non-fatal per ad
-        }
+        } catch { /* non-fatal */ }
       }
 
       if (imageUrls.length > 0) {
@@ -274,7 +283,7 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
       enqueue
     });
 
-    const { mediaPlan, agentOutputs } = result;
+    const { mediaPlan, productImages: realProductImages, agentOutputs } = result;
 
     if (!mediaPlan) {
       await updateJob(jobId, { status: 'failed', error: 'No media plan generated' });
@@ -329,7 +338,7 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
 
       // ── 6. Generate images (fire-and-forget after job marked complete) ───────
       const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
-      void generateCampaignImages(mediaPlan, creativeImagePrompts, enqueue).catch(() => {});
+      void generateCampaignImages(mediaPlan, creativeImagePrompts, realProductImages ?? [], enqueue).catch(() => {});
 
       // ── 7. Save memory nodes ─────────────────────────────────────────────────
       void saveCampaignMemory({

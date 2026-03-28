@@ -300,6 +300,30 @@ async function scrapeUrl(url: string): Promise<string> {
  *  3. og:image from Firecrawl metadata (last resort — often shows a different product)
  */
 async function scrapeProductImages(url: string): Promise<string[]> {
+  // 0. Direct fetch — cheapest, fastest. Works for any store that sets og:image server-side
+  //    (most modern e-commerce platforms do, including JD Sports, Nike, ASOS, etc.)
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'Accept': 'text/html,application/xhtml+xml'
+      },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (res.ok) {
+      const html = await res.text();
+      // og:image (highest quality, set by the store specifically for sharing/ads)
+      const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+        ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      if (ogMatch?.[1]?.startsWith('http')) return [ogMatch[1]];
+
+      // twitter:image fallback
+      const twMatch = html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)
+        ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+      if (twMatch?.[1]?.startsWith('http')) return [twMatch[1]];
+    }
+  } catch { /* non-fatal — continue to other methods */ }
+
   // 1. Shopify product JSON API — standard on all Shopify stores, returns exact images
   try {
     const productJsonUrl = url.replace(/\?.*$/, '') + '.json';
@@ -1856,6 +1880,7 @@ export async function runCampaignAgents(params: {
 
   return {
     mediaPlan,
+    productImages,
     agentOutputs: {
       brand: brandOut,
       lpu: lpuOut,
