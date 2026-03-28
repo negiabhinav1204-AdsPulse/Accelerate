@@ -21,8 +21,10 @@ import { CampaignPreviewPanel } from '../campaign/campaign-preview-panel';
 import type { EditScope } from '../campaign/campaign-preview-panel';
 import type { AgentName, AgentState, MediaPlan, SSEEvent } from '../campaign/types';
 import { ChatAudienceCard } from './chat-audience-card';
+import { ChatAutoSetupCard } from './chat-auto-setup-card';
 import { ChatCampaignTable } from './chat-campaign-table';
 import { ChatConnectPrompt } from './chat-connect-prompt';
+import { ChatDemographicsCard } from './chat-demographics-card';
 import { ChatExecutiveSummaryCard } from './chat-executive-summary-card';
 import { ChatFeedHealthCard } from './chat-feed-health-card';
 import { ChatFunnelChartCard } from './chat-funnel-chart-card';
@@ -31,9 +33,11 @@ import { ChatInventoryCard } from './chat-inventory-card';
 import { ChatMetricCard } from './chat-metric-card';
 import { ChatNavSuggestion } from './chat-nav-suggestion';
 import { ChatPerformanceChart } from './chat-performance-chart';
+import { ChatPlacementsCard } from './chat-placements-card';
 import { ChatPlatformComparisonCard } from './chat-platform-comparison-card';
 import { ChatProductLeaderboard } from './chat-product-leaderboard';
 import { ChatRevenueBreakdownCard } from './chat-revenue-breakdown-card';
+import { ChatStrategyCard } from './chat-strategy-card';
 import { ChatWastedSpendCard } from './chat-wasted-spend-card';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -77,7 +81,11 @@ type ToolBlock =
   | { name: 'show_wasted_spend'; input: { period?: string; currency?: string; total_wasted: string; items_count: number; items: { platform: string; campaign: string; spend: number; conversions: number; roas: number; recommendation: string }[]; summary: string } }
   | { name: 'show_platform_comparison'; input: { period?: string; currency?: string; platforms: { platform: string; spend: string; impressions?: number; clicks?: number; ctr?: string; cpc?: string; conversions?: number; roas?: string; cpa?: string }[] } }
   | { name: 'show_audience'; input: { total: number; audiences: { id: string; name: string; type: string; platforms?: string[]; estimated_size?: number | null; sync_status?: string; created_at?: string }[] } }
-  | { name: 'show_feed_health'; input: { total: number; message?: string; feeds: { id: string; name: string; channel: string; connector?: string; health_score?: number | null; last_pushed_at?: string | null; active_rules?: number; health_label: string }[] } };
+  | { name: 'show_feed_health'; input: { total: number; message?: string; feeds: { id: string; name: string; channel: string; connector?: string; health_score?: number | null; last_pushed_at?: string | null; active_rules?: number; health_label: string }[] } }
+  | { name: 'show_strategy'; input: { title?: string; total_campaigns: number; total_daily_budget: string; total_monthly_estimate: string; currency?: string; campaigns: { segment: string; label: string; strategy: string; product_count: number; revenue_60d?: number; suggested_budget_daily: string; priority: 'high' | 'medium' | 'low'; campaign_type?: string; top_products?: { title: string; revenue?: number }[] }[] } }
+  | { name: 'show_demographics'; input: { period?: string; currency?: string; best_roas_segment?: string; highest_spend_segment?: string; note?: string; data: { age_range: string; spend: number; revenue: number; conversions: number; roas: number; cpa: number; currency: string }[] } }
+  | { name: 'show_placements'; input: { period?: string; currency?: string; best_placement?: string; note?: string; data: { publisher: string; placement: string; spend: number; revenue: number; conversions: number; roas: number; cpa: number; currency: string }[] } }
+  | { name: 'show_auto_setup'; input: { products_configured: number; total_daily_budget: string; total_monthly_estimate: string; message?: string; next_step?: string; results: { title: string; badge: string; suggested_strategy: string; suggested_platforms: string[]; daily_budget: string; monthly_estimate: string; status: string }[] } };
 
 type MessagePart =
   | { type: 'text'; text: string }
@@ -1294,6 +1302,49 @@ function ToolRenderer({
             last_pushed_at: f.last_pushed_at ?? null,
             active_rules: f.active_rules ?? 0,
           }))}
+        />
+      );
+    case 'show_strategy':
+      return (
+        <ChatStrategyCard
+          title={tool.input.title}
+          total_campaigns={tool.input.total_campaigns}
+          total_daily_budget={tool.input.total_daily_budget}
+          total_monthly_estimate={tool.input.total_monthly_estimate}
+          currency={tool.input.currency}
+          campaigns={tool.input.campaigns}
+        />
+      );
+    case 'show_demographics':
+      return (
+        <ChatDemographicsCard
+          period={tool.input.period}
+          currency={tool.input.currency}
+          best_roas_segment={tool.input.best_roas_segment}
+          highest_spend_segment={tool.input.highest_spend_segment}
+          note={tool.input.note}
+          data={tool.input.data}
+        />
+      );
+    case 'show_placements':
+      return (
+        <ChatPlacementsCard
+          period={tool.input.period}
+          currency={tool.input.currency}
+          best_placement={tool.input.best_placement}
+          note={tool.input.note}
+          data={tool.input.data}
+        />
+      );
+    case 'show_auto_setup':
+      return (
+        <ChatAutoSetupCard
+          products_configured={tool.input.products_configured}
+          total_daily_budget={tool.input.total_daily_budget}
+          total_monthly_estimate={tool.input.total_monthly_estimate}
+          message={tool.input.message}
+          next_step={tool.input.next_step}
+          results={tool.input.results}
         />
       );
     default:

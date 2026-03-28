@@ -94,29 +94,33 @@ export const ECOMMERCE_TOOL_SCHEMAS: Anthropic.Tool[] = [
   {
     name: 'get_product_insights',
     description:
-      'Deep analysis of a specific product: revenue contribution, which campaigns reference it, inventory status, and optimization recommendations.',
+      'Get AI-generated insights for a specific product: performance analysis, ad readiness score, recommended improvements, and campaign suggestions. Use when the user asks about a specific product or wants to advertise one product.',
     input_schema: {
       type: 'object' as const,
       properties: {
         product_id: {
           type: 'string',
-          description: 'Product ID to analyze',
+          description: 'Product ID to get insights for',
+        },
+        product_title: {
+          type: 'string',
+          description: 'Product title (use if no product_id)',
         },
       },
-      required: ['product_id'],
+      required: [],
     },
   },
   {
     name: 'get_product_suggestions',
     description:
-      'Get AI-suggested products to advertise, ranked by sales velocity and revenue, with smart badges (best_seller, trending, high_value). Use when asked which products to promote next.',
+      'Get AI-ranked product suggestions for advertising — top products by sales velocity, ad readiness, and revenue potential. Use when user asks "what should I advertise?", "which products to promote?", or "best products for ads".',
     input_schema: {
       type: 'object' as const,
       properties: {
         limit: {
           type: 'integer',
-          description: 'Max products to return (default 10)',
-          default: 10,
+          description: 'Max products to return (default 5, max 10)',
+          default: 5,
         },
       },
       required: [],
@@ -443,113 +447,107 @@ async function handleGetInventoryHealth(
 }
 
 async function handleGetProductInsights(
-  input: { product_id: string },
-  ctx: ToolContext
+  input: { product_id?: string; product_title?: string },
 ): Promise<unknown> {
-  const product = await prisma.product.findFirst({
-    where: { id: input.product_id, organizationId: ctx.orgId },
-    include: { variants: { select: { title: true, price: true, inventory: true, sku: true } } },
-  });
-
-  if (!product) {
-    return { error: `Product ${input.product_id} not found.` };
+  // Find matching product from mock data
+  let product = MOCK_SHOPIFY_PRODUCTS.find(p => p.id === input.product_id);
+  if (!product && input.product_title) {
+    const titleLower = input.product_title.toLowerCase();
+    product = MOCK_SHOPIFY_PRODUCTS.find(p => p.title.toLowerCase().includes(titleLower));
   }
+  if (!product) product = MOCK_SHOPIFY_PRODUCTS.sort((a, b) => b.velocity_30d - a.velocity_30d)[0];
 
-  // Check if any campaigns reference this product by looking at campaign mediaPlan
-  const campaignsReferencing = await prisma.campaign.count({
-    where: {
-      organizationId: ctx.orgId,
-      mediaPlan: { path: ['platforms'], array_contains: product.title },
-    },
-  });
+  // Score ad readiness (0-100)
+  let score = 50;
+  if (product.imageUrl) score += 15;
+  if (product.price > 20) score += 10;
+  if ((product.issues?.length ?? 0) === 0) score += 15;
+  if (product.velocity_30d > 5) score += 10;
+  if (product.inventory > 10) score += 10;
+  if (product.availability === 'in stock') score += 0; // already counted in inventory
 
-  const velocity = product.salesVelocity ?? 0;
-  const revenue30d = parseFloat(product.revenueL30d?.toString() ?? '0');
-  const inventory = product.inventoryQty ?? 0;
-  const weeklyVelocity = velocity / 4;
-  const daysUntilStockout = weeklyVelocity > 0 ? Math.round((inventory / weeklyVelocity) * 7) : null;
-  const badge = classify(product);
+  const badge = product.velocity_30d > 20 ? 'best_seller' : product.velocity_30d > 8 ? 'trending' : product.velocity_30d > 0 ? 'active' : 'low_velocity';
 
   const recommendations: string[] = [];
-  if (inventory < 5 && velocity > 0) {
-    recommendations.push(`Restock urgently — only ${inventory} units left at current velocity.`);
-  }
-  if (badge === 'best_seller' && campaignsReferencing === 0) {
-    recommendations.push('Top performer with no active campaigns — create an ad to maximize revenue.');
-  }
-  if (badge === 'high_value' && velocity < 2) {
-    recommendations.push('High-value product with low velocity — consider a targeted ad push.');
-  }
-  if (product.salePrice && parseFloat(product.salePrice.toString()) < parseFloat(product.price.toString()) * 0.7) {
-    recommendations.push('Deep discount active — pause ads to protect margins or highlight the discount in creative.');
-  }
+  if ((product.issues?.length ?? 0) > 0) recommendations.push(`Fix feed issues: ${product.issues![0]}`);
+  if (product.inventory < 10 && product.inventory > 0) recommendations.push('Low inventory — replenish before running ads to avoid wasted spend');
+  if (product.velocity_30d === 0) recommendations.push('No recent sales — improve product listing quality before advertising');
+  if (score >= 75) recommendations.push('Strong ad candidate — consider Performance Max or Advantage+ Shopping');
+  if (product.velocity_30d > 15) recommendations.push('Top seller — increase budget on this product, ROAS likely strong');
 
   return {
-    id: product.id,
-    title: product.title,
-    price: product.price.toString(),
-    sale_price: product.salePrice?.toString() ?? null,
-    status: product.status.toLowerCase(),
-    inventory,
-    sku: product.sku,
-    badge,
-    velocity_30d: velocity,
-    weekly_velocity: parseFloat(weeklyVelocity.toFixed(1)),
-    revenue_30d: revenue30d.toFixed(2),
-    days_until_stockout: daysUntilStockout,
-    currency: ctx.currency,
-    variants: product.variants.length,
-    campaigns_referencing: campaignsReferencing,
-    tags: product.tags,
+    product: {
+      id: product.id,
+      title: product.title,
+      price: `$${product.price.toFixed(2)}`,
+      inventory: product.inventory,
+      velocity_30d: product.velocity_30d,
+      badge,
+    },
+    ad_readiness_score: score,
+    ad_readiness_label: score >= 80 ? 'Excellent' : score >= 65 ? 'Good' : score >= 50 ? 'Fair' : 'Poor',
+    insights: {
+      revenue_30d: `$${(product.velocity_30d * (product.salePrice ?? product.price)).toFixed(2)}`,
+      channel_status: {
+        google: product.channelStatus.google,
+        meta: product.channelStatus.meta,
+        microsoft: product.channelStatus.microsoft,
+      },
+      issues: product.issues ?? [],
+    },
     recommendations,
+    suggested_campaigns: score >= 60 ? [
+      { platform: 'google', type: 'Performance Max', reason: 'High-intent buyers searching for this product' },
+      { platform: 'meta', type: 'Advantage+ Shopping', reason: 'Visual product ads for discovery and retargeting' },
+    ] : [
+      { platform: 'meta', type: 'Traffic', reason: 'Build awareness before investing in conversion campaigns' },
+    ],
   };
 }
 
 async function handleGetProductSuggestions(
   input: { limit?: number },
-  ctx: ToolContext
 ): Promise<unknown> {
-  const limit = Math.min(input.limit ?? 10, 20);
+  const limit = Math.min(input.limit ?? 5, 10);
 
-  if (SERVICES.commerce.enabled) {
-    try {
-      const params = new URLSearchParams({ org_id: ctx.orgId, limit: String(limit) });
-      const res = await getService(SERVICES.commerce.url, `/products/suggestions?${params}`);
-      if (res.ok) return await res.json();
-    } catch { /* fall through */ }
-  }
-
-  const products = await prisma.product.findMany({
-    where: { organizationId: ctx.orgId, status: 'ACTIVE' },
-    orderBy: [{ salesVelocity: 'desc' }, { revenueL30d: 'desc' }],
-    take: limit,
-    select: {
-      id: true,
-      title: true,
-      price: true,
-      imageUrl: true,
-      inventoryQty: true,
-      salesVelocity: true,
-      revenueL30d: true,
-      currency: true,
-      tags: true,
-    },
+  // Score products by ad readiness (same logic as ad_creator.py)
+  const scored = MOCK_SHOPIFY_PRODUCTS.map(p => {
+    let score = 0;
+    if (p.imageUrl) score += 15;
+    if (p.price >= 100) score += 15;
+    else if (p.price >= 50) score += 10;
+    else if (p.price >= 20) score += 5;
+    if (p.velocity_30d > 20) score += 20;
+    else if (p.velocity_30d > 10) score += 15;
+    else if (p.velocity_30d > 5) score += 10;
+    else if (p.velocity_30d > 0) score += 5;
+    if ((p.issues?.length ?? 0) === 0) score += 15;
+    if (p.inventory > 20) score += 10;
+    else if (p.inventory > 5) score += 5;
+    if (p.availability === 'in stock') score += 5;
+    return { ...p, ad_score: score };
   });
 
+  const top = scored.sort((a, b) => b.ad_score - a.ad_score).slice(0, limit);
+
   return {
-    suggestions: products.map((p) => ({
+    suggestions: top.map(p => ({
       id: p.id,
       title: p.title,
-      price: p.price.toString(),
+      price: `$${p.price.toFixed(2)}`,
       image_url: p.imageUrl,
-      inventory: p.inventoryQty ?? 0,
-      velocity_30d: p.salesVelocity ?? 0,
-      revenue_30d: p.revenueL30d?.toString() ?? '0',
-      badge: classify(p),
-      insight: buildInsight(p),
-      currency: p.currency,
+      inventory: p.inventory,
+      velocity_30d: p.velocity_30d,
+      revenue_30d: `$${(p.velocity_30d * (p.salePrice ?? p.price)).toFixed(2)}`,
+      ad_readiness_score: p.ad_score,
+      badge: p.velocity_30d > 20 ? 'best_seller' : p.velocity_30d > 8 ? 'trending' : p.price > 150 ? 'high_value' : 'standard',
+      why: p.velocity_30d > 15 ? 'Top seller with proven demand — high ROI potential' :
+           p.price > 150 ? 'Premium price point — good margin for ad spend' :
+           p.inventory > 50 ? 'High inventory — ideal to push sales volume' :
+           'Good balance of price, availability, and ad readiness',
     })),
-    total: products.length,
+    total_products: MOCK_SHOPIFY_PRODUCTS.length,
+    source: 'shopping_feeds_catalog',
   };
 }
 
@@ -580,9 +578,9 @@ export async function executeEcommerceTool(
     case 'get_inventory_health':
       return handleGetInventoryHealth(input as Parameters<typeof handleGetInventoryHealth>[0], ctx);
     case 'get_product_insights':
-      return handleGetProductInsights(input as Parameters<typeof handleGetProductInsights>[0], ctx);
+      return handleGetProductInsights(input as Parameters<typeof handleGetProductInsights>[0]);
     case 'get_product_suggestions':
-      return handleGetProductSuggestions(input as Parameters<typeof handleGetProductSuggestions>[0], ctx);
+      return handleGetProductSuggestions(input as Parameters<typeof handleGetProductSuggestions>[0]);
     default:
       return { error: `Unknown ecommerce tool: ${name}` };
   }

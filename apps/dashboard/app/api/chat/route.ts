@@ -116,11 +116,18 @@ IMPORTANT: Always call the appropriate data tool first to get LIVE data before a
 - \`get_feed_health\` — product feed health scores
 - \`generate_product_feed\` — optimised feed snapshot from catalog
 - \`get_merchant_center_status\` — Google Merchant Center connection status
+- \`push_feed_to_merchant_center\` — push product feed to Google Merchant Center by segment (all/low_stock/high_velocity)
+- \`get_merchant_center_diagnostics\` — per-product issue list with fix suggestions for GMC disapprovals
 - \`get_connected_platforms\` — list all connected ad accounts
 - \`get_ad_platform_status\` — connection health for Meta, Google, Bing
 - \`suggest_campaign_strategy\` — data-driven campaign mix recommendation
 - \`get_campaign_strategies\` — available campaign types for a platform
 - \`growth_opportunities\` — untapped growth gaps in current coverage
+- \`auto_setup_everything\` — generate a full campaign plan for top products across platforms automatically
+
+**Demographics & Placements:**
+- \`get_demographic_insights\` — age/gender breakdown with ROAS per segment
+- \`get_placement_insights\` — spend and ROAS by placement (feed, story, search, display, etc.)
 
 ## Generative UI Tools (rendered in chat — use AFTER data tools)
 You have access to special UI rendering tools. Use them to show rich data visually:
@@ -137,6 +144,10 @@ You have access to special UI rendering tools. Use them to show rich data visual
 - Use \`show_platform_comparison\` to display platform comparison table (after get_platform_comparison)
 - Use \`show_audience\` to display audience list card (after list_audiences)
 - Use \`show_feed_health\` to display feed health card (after get_feed_health)
+- Use \`show_strategy\` to display a campaign strategy recommendation card (after suggest_campaign_strategy or growth_opportunities)
+- Use \`show_demographics\` to display a demographic breakdown table (after get_demographic_insights)
+- Use \`show_placements\` to display a placement performance table (after get_placement_insights)
+- Use \`show_auto_setup\` to display the auto-setup campaign plan card (after auto_setup_everything)
 - Use \`navigate_to\` to suggest a platform navigation link when the user should go somewhere in the app (except campaign creation — see below)
 - Use \`connect_accounts_prompt\` when the user asks to analyse/optimise/create campaigns but no ad accounts are connected
 
@@ -579,6 +590,143 @@ const TOOLS: Anthropic.Tool[] = [
       },
       required: ['total', 'feeds'],
     },
+  },
+  {
+    name: 'show_strategy',
+    description:
+      'Display a campaign strategy recommendation card. Use AFTER calling suggest_campaign_strategy or growth_opportunities. Map the tool result into this structure.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string', description: 'Card title, e.g. "Recommended Campaign Strategy"' },
+        total_campaigns: { type: 'number', description: 'Total number of suggested campaigns' },
+        total_daily_budget: { type: 'string', description: 'Total daily budget across all campaigns, e.g. "$50"' },
+        total_monthly_estimate: { type: 'string', description: 'Total monthly estimate, e.g. "$1,500"' },
+        currency: { type: 'string' },
+        campaigns: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              segment: { type: 'string', description: 'Campaign segment identifier, e.g. "best_sellers"' },
+              label: { type: 'string', description: 'Human-readable label, e.g. "Best Sellers — Google PMax"' },
+              strategy: { type: 'string', description: 'Strategy description' },
+              product_count: { type: 'number' },
+              revenue_60d: { type: 'number', description: '60-day revenue for this segment (optional)' },
+              suggested_budget_daily: { type: 'string', description: 'e.g. "$20/day"' },
+              priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+              campaign_type: { type: 'string', description: 'e.g. "shopping", "performance_max", "search"' },
+              top_products: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { title: { type: 'string' }, revenue: { type: 'number' } },
+                  required: ['title']
+                }
+              }
+            },
+            required: ['segment', 'label', 'strategy', 'product_count', 'suggested_budget_daily', 'priority']
+          }
+        }
+      },
+      required: ['total_campaigns', 'total_daily_budget', 'total_monthly_estimate', 'campaigns']
+    }
+  },
+  {
+    name: 'show_demographics',
+    description:
+      'Display a demographic breakdown table. Use AFTER calling get_demographic_insights. Pass the data array exactly as returned.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        currency: { type: 'string' },
+        best_roas_segment: { type: 'string', description: 'e.g. "25-34"' },
+        highest_spend_segment: { type: 'string' },
+        note: { type: 'string' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              age_range: { type: 'string' },
+              spend: { type: 'number' },
+              revenue: { type: 'number' },
+              conversions: { type: 'number' },
+              roas: { type: 'number' },
+              cpa: { type: 'number' },
+              currency: { type: 'string' }
+            },
+            required: ['age_range', 'spend', 'revenue', 'conversions', 'roas', 'cpa', 'currency']
+          }
+        }
+      },
+      required: ['data']
+    }
+  },
+  {
+    name: 'show_placements',
+    description:
+      'Display a placement performance table. Use AFTER calling get_placement_insights. Pass the data array exactly as returned.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        period: { type: 'string' },
+        currency: { type: 'string' },
+        best_placement: { type: 'string', description: 'Key of the best placement, e.g. "google:Search"' },
+        note: { type: 'string' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              publisher: { type: 'string', description: 'e.g. "google", "facebook", "instagram"' },
+              placement: { type: 'string', description: 'e.g. "Search", "Feed", "Stories"' },
+              spend: { type: 'number' },
+              revenue: { type: 'number' },
+              conversions: { type: 'number' },
+              roas: { type: 'number' },
+              cpa: { type: 'number' },
+              currency: { type: 'string' }
+            },
+            required: ['publisher', 'placement', 'spend', 'revenue', 'conversions', 'roas', 'cpa', 'currency']
+          }
+        }
+      },
+      required: ['data']
+    }
+  },
+  {
+    name: 'show_auto_setup',
+    description:
+      'Display the auto-setup campaign plan card. Use AFTER calling auto_setup_everything. Pass the result fields directly.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        products_configured: { type: 'number' },
+        total_daily_budget: { type: 'string', description: 'e.g. "$60"' },
+        total_monthly_estimate: { type: 'string', description: 'e.g. "$1,800"' },
+        message: { type: 'string' },
+        next_step: { type: 'string' },
+        results: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              badge: { type: 'string' },
+              suggested_strategy: { type: 'string' },
+              suggested_platforms: { type: 'array', items: { type: 'string' } },
+              daily_budget: { type: 'string' },
+              monthly_estimate: { type: 'string' },
+              status: { type: 'string' }
+            },
+            required: ['title', 'badge', 'suggested_strategy', 'suggested_platforms', 'daily_budget', 'monthly_estimate', 'status']
+          }
+        }
+      },
+      required: ['products_configured', 'total_daily_budget', 'total_monthly_estimate', 'results']
+    }
   },
   // ── Data tools (server-side execution) ────────────────────────────────────
   ...ECOMMERCE_TOOL_SCHEMAS,

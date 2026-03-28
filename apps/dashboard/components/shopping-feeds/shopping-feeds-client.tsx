@@ -14,6 +14,7 @@ import {
   FilterIcon,
   Loader2Icon,
   PackageIcon,
+  PlusIcon,
   RefreshCwIcon,
   SearchIcon,
   ShoppingCartIcon,
@@ -21,6 +22,7 @@ import {
   StoreIcon,
   TagIcon,
   TrendingUpIcon,
+  UploadIcon,
   UsersIcon,
   XCircleIcon,
   ZapIcon,
@@ -223,11 +225,47 @@ const BADGE_CONFIG = {
   low_stock: { label: 'Low Stock', icon: ArrowDownIcon, className: 'bg-red-50 text-red-600 border-red-200' },
 };
 
-function ProductsTab({ products, loading }: { products: MockProduct[]; loading: boolean }): React.JSX.Element {
+function ProductsTab({ products, loading, orgId }: { products: MockProduct[]; loading: boolean; orgId: string }): React.JSX.Element {
   const [search, setSearch] = React.useState('');
   const [viewTab, setViewTab] = React.useState<ProductViewTab>('all');
   const [stockFilter, setStockFilter] = React.useState<StockFilter>('all');
   const [sortBy, setSortBy] = React.useState<SortOption>('velocity_desc');
+  const [showUpload, setShowUpload] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const [uploadResult, setUploadResult] = React.useState<{ imported: number; errors: string[] } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  async function handleCSVUpload(file: File) {
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`/api/products/upload?orgId=${orgId}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json() as { imported: number; errors: string[]; total: number };
+      setUploadResult({ imported: data.imported, errors: data.errors ?? [] });
+      if (data.imported > 0) {
+        toast.success(`Imported ${data.imported} product${data.imported !== 1 ? 's' : ''}`);
+      }
+    } catch {
+      toast.error('Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) {
+      void handleCSVUpload(file);
+    } else {
+      toast.error('Please drop a CSV file');
+    }
+  }
 
   // Derive per-tab counts from full product list
   const counts = React.useMemo(() => {
@@ -305,6 +343,108 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
 
   return (
     <div>
+      {/* Upload banner */}
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-muted-foreground">
+          Showing mock product data. Connect Shopify or upload a CSV to use your real catalog.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5 h-8 text-xs"
+          onClick={() => { setShowUpload((v) => !v); setUploadResult(null); }}
+        >
+          <UploadIcon className="size-3.5" />
+          Add Products
+        </Button>
+      </div>
+
+      {/* Upload panel */}
+      {showUpload && (
+        <div className="rounded-xl border border-border bg-muted/30 p-4 mb-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Upload Product Catalog</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Upload a CSV or add individual products. Required columns: title, price. Optional: sku, description, brand, category, image url, inventory, currency, barcode.
+              </p>
+            </div>
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setShowUpload(false)}>
+              <XCircleIcon className="size-4" />
+            </Button>
+          </div>
+
+          {/* CSV drop zone */}
+          <div
+            className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? (
+              <div className="flex flex-col items-center gap-2">
+                <Loader2Icon className="size-6 text-blue-500 animate-spin" />
+                <p className="text-sm text-muted-foreground">Uploading...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <UploadIcon className="size-6 text-muted-foreground" />
+                <p className="text-sm font-medium">Drop CSV here or click to browse</p>
+                <p className="text-xs text-muted-foreground">Supports .csv files up to 10MB</p>
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleCSVUpload(file);
+                e.target.value = '';
+              }}
+            />
+          </div>
+
+          {/* Upload result */}
+          {uploadResult && (
+            <div className={cn('rounded-lg border p-3 text-xs', uploadResult.imported > 0 ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50')}>
+              {uploadResult.imported > 0 && (
+                <p className="text-green-700 font-medium mb-1">
+                  <CheckCircle2Icon className="inline size-3.5 mr-1" />
+                  {uploadResult.imported} product{uploadResult.imported !== 1 ? 's' : ''} imported successfully
+                </p>
+              )}
+              {uploadResult.errors.length > 0 && (
+                <div>
+                  <p className="text-red-700 font-medium mb-1">{uploadResult.errors.length} error{uploadResult.errors.length !== 1 ? 's' : ''}:</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {uploadResult.errors.slice(0, 5).map((err, i) => (
+                      <li key={i} className="text-red-600">{err}</li>
+                    ))}
+                    {uploadResult.errors.length > 5 && (
+                      <li className="text-red-500">...and {uploadResult.errors.length - 5} more</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CSV template download */}
+          <div className="flex items-center gap-2">
+            <PlusIcon className="size-3.5 text-muted-foreground" />
+            <a
+              href="data:text/csv;charset=utf-8,title,sku,price,sale price,description,brand,category,image url,inventory,currency,barcode%0AExample Product,SKU-001,29.99,,A great product,My Brand,Apparel,,100,USD,"
+              download="product-template.csv"
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Download CSV template
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Stats row */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
@@ -3261,7 +3401,7 @@ export function ShoppingFeedsClient({
       </div>
 
       {/* Tab content */}
-      {activeTab === 'products' && <ProductsTab products={products} loading={loading} />}
+      {activeTab === 'products' && <ProductsTab products={products} loading={loading} orgId={orgId} />}
       {activeTab === 'settings' && <FeedSettingsTab orgId={orgId} />}
       {activeTab === 'rules' && <RulesTab orgId={orgId} />}
       {activeTab === 'promotions' && <PromotionsTab orgId={orgId} />}
