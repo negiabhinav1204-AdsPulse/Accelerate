@@ -1201,11 +1201,15 @@ Instructions:
 4. Generate ad extensions: 4 sitelinks, 6 callouts, 1 structured snippet
 5. Generate 5 image generation prompts that will be fed directly into an AI image generation model (Gemini Imagen).
    Each prompt MUST describe the ACTUAL product from this specific URL — its physical form, colour, material, and style — so the generated image clearly shows that product.
-   Start each prompt by naming the exact product type and its key visual attributes (e.g. "Grey marl jogger pants with embroidered country club crest on the left leg, worn by a male model").
-   Then add a lifestyle or setting context appropriate to the brand.
-   CRITICAL: Do NOT describe generic people, random settings, or stock-photo clichés. The product must be the visual hero of every image.
-   CRITICAL: If the user's Campaign Notes mention a seasonal event (e.g. Holi, Diwali, Christmas), set the scene in that festive context while still keeping the product as the focus. Example for Holi: "Grey jogger pants with country club crest, worn by a young man in a colourful Holi celebration, vibrant powder colors in the air, joyful outdoor setting, professional product photography"
-   If no seasonal notes are given, use aspirational lifestyle contexts matching the product category (sport, athleisure, streetwear, etc.).
+   Start each prompt by naming the exact product type and its key visual attributes (e.g. "Black lightweight windrunner jacket with The North Face logo, worn by a male model").
+   CRITICAL: Each of the 5 prompts MUST use a completely different visual treatment — assign one treatment per prompt in this order:
+     Prompt 1 (lifestyle_action): Product worn/used by a person in an active, real-world lifestyle scenario. Dynamic, candid feel. Show environment (urban street, trail, gym, etc.).
+     Prompt 2 (mood_editorial): High-fashion editorial shot. Bold lighting, graphic composition, minimal props. Evokes emotion and aspiration. Focus on the product's texture and silhouette.
+     Prompt 3 (social_context): Product in a social/group setting (friends, team, crowd). Joyful, energetic, relatable. Shows the product fitting naturally into real life.
+     Prompt 4 (clean_product_hero): Flat-lay or mannequin/ghost-model studio shot with clean background. Crisp, high-detail. Product fills the frame. Good for performance ads.
+     Prompt 5 (seasonal_or_contextual): If the user's Campaign Notes mention a seasonal event (Holi, Diwali, Christmas, Black Friday, etc.), show the product in that festive scene. Otherwise, show the product in a cinematic environmental context (golden hour, rain, fog, neon city night, etc.) that matches the brand's emotional tone.
+   CRITICAL: Do NOT describe generic people, random settings, or stock-photo clichés. The product must be the visual hero of every image. No text overlays in any image.
+   Each prompt should be 2-4 sentences with enough visual specificity that an AI image model can generate a distinct, high-quality commercial image.
 
 Return a JSON object with these exact fields:
 {

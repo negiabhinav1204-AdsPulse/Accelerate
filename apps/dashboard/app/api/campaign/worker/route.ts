@@ -67,14 +67,22 @@ async function generateCampaignImages(
           continue;
         }
 
-        // ── Priority 2: real product image scraped from the page ──
-        if (realProductImages.length > 0) {
-          imageUrls.push(realProductImages[i % realProductImages.length]!);
+        // ── Priority 2: real product image for the FIRST ad only ──
+        // Subsequent ads use AI generation with creative prompts so each ad
+        // has a distinct visual treatment rather than repeating the same photo.
+        if (i === 0 && realProductImages.length > 0) {
+          imageUrls.push(realProductImages[0]!);
           continue;
         }
 
-        // ── Priority 3: AI generation (only when no real image is available) ──
-        if (!apiKey) continue;
+        // ── Priority 3: AI generation with creative-agent prompts ──
+        if (!apiKey) {
+          // No AI key — fall back to real image for all slots
+          if (realProductImages.length > 0) {
+            imageUrls.push(realProductImages[i % realProductImages.length]!);
+          }
+          continue;
+        }
 
         const aspectRatio =
           normalizedType.includes('stories') || normalizedType.includes('reels')
