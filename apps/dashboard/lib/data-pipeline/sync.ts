@@ -9,7 +9,7 @@
 import { prisma } from '@workspace/database/client';
 
 import { syncGoogleAccount } from './google-sync';
-import { syncMetaAccount } from './meta-sync';
+import { MetaTokenExpiredError, syncMetaAccount } from './meta-sync';
 import { syncBingAccount } from './bing-sync';
 import type { PlatformSyncSummary, SyncResult } from './types';
 
@@ -34,7 +34,19 @@ export async function runPlatformSync(account: ConnectedAccount): Promise<Platfo
   if (platformKey === 'GOOGLE') {
     results = (await syncGoogleAccount(id, accessToken, accountId)) as (SyncResult & { rows?: unknown[] })[];
   } else if (platformKey === 'META') {
-    results = (await syncMetaAccount(id, accessToken, accountId)) as (SyncResult & { rows?: unknown[] })[];
+    try {
+      results = (await syncMetaAccount(id, accessToken, accountId)) as (SyncResult & { rows?: unknown[] })[];
+    } catch (e) {
+      if (e instanceof MetaTokenExpiredError) {
+        // Mark the account as needing reconnect so the UI can surface this
+        await prisma.connectedAdAccount.update({
+          where: { id },
+          data: { status: 'token_expired' }
+        }).catch(() => {});
+        return { platform: platformKey, accountId, results: [], completedAt: new Date(), tokenExpired: true };
+      }
+      throw e;
+    }
   } else if (platformKey === 'BING') {
     results = (await syncBingAccount(id, accessToken, accountId)) as (SyncResult & { rows?: unknown[] })[];
   }

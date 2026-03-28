@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  AlertTriangleIcon,
   CheckCircle2Icon,
   ClockIcon,
   Loader2Icon,
@@ -87,7 +88,7 @@ function RedditIcon(): React.JSX.Element {
 
 export type ConnectedPlatformData = {
   platform: string;
-  defaultAccount: { accountId: string; accountName: string; lastSyncAt: Date | null } | null;
+  defaultAccount: { accountId: string; accountName: string; lastSyncAt: Date | null; status: string } | null;
   accountCount: number;
 };
 
@@ -296,6 +297,7 @@ function ConnectedTile({
   platform,
   config,
   data,
+  orgSlug,
   orgId,
   isAdmin
 }: {
@@ -309,6 +311,8 @@ function ConnectedTile({
   const router = useRouter();
   const [disconnectState, setDisconnectState] = React.useState<'idle' | 'confirming' | 'loading'>('idle');
   const [syncing, setSyncing] = React.useState(false);
+
+  const isTokenExpired = data.defaultAccount?.status === 'token_expired';
 
   const lastSync = data.defaultAccount?.lastSyncAt
     ? new Date(data.defaultAccount.lastSyncAt).toLocaleString(undefined, {
@@ -353,10 +357,17 @@ function ConnectedTile({
       <div className="flex-1 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <h3 className="text-base font-bold text-foreground">{config.label}</h3>
-          <span className="flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full shrink-0">
-            <CheckCircle2Icon className="size-3" />
-            Connected
-          </span>
+          {isTokenExpired ? (
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full shrink-0">
+              <AlertTriangleIcon className="size-3" />
+              Reconnect required
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full shrink-0">
+              <CheckCircle2Icon className="size-3" />
+              Connected
+            </span>
+          )}
         </div>
         <p className="text-sm font-medium text-foreground truncate">
           {data.defaultAccount?.accountName ?? '—'}
@@ -374,16 +385,30 @@ function ConnectedTile({
 
       {isAdmin && (
         <div className="space-y-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full gap-2"
-            onClick={() => void handleSync()}
-            disabled={syncing || disconnectState === 'loading'}
-          >
-            <RefreshCwIcon className={`size-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing…' : 'Sync now'}
-          </Button>
+          {isTokenExpired ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-2 border-amber-400 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-600 dark:text-amber-400 dark:hover:bg-amber-900/20 font-semibold"
+              onClick={() => {
+                window.location.href = `/api/connectors/${platform}/authorize?return=/organizations/${orgSlug}/connectors&org=${orgSlug}`;
+              }}
+            >
+              <ZapIcon className="size-3.5" />
+              Reconnect
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-2"
+              onClick={() => void handleSync()}
+              disabled={syncing || disconnectState === 'loading'}
+            >
+              <RefreshCwIcon className={`size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing…' : 'Sync now'}
+            </Button>
+          )}
           {disconnectState === 'idle' && (
             <Button
               variant="outline"

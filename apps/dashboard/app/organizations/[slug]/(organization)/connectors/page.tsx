@@ -79,7 +79,8 @@ export default async function ConnectorsPage({
         ? {
             accountId: defaultAccount.accountId,
             accountName: defaultAccount.accountName,
-            lastSyncAt: defaultAccount.lastSyncAt
+            lastSyncAt: defaultAccount.lastSyncAt,
+            status: defaultAccount.status
           }
         : null,
       accountCount: accs.length

@@ -10,4 +10,5 @@ export type PlatformSyncSummary = {
   accountId: string;
   results: SyncResult[];
   completedAt: Date;
+  tokenExpired?: boolean;
 };
