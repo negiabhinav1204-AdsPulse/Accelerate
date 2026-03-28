@@ -40,6 +40,8 @@ type WorkerPayload = {
 
 async function generateCampaignImages(
   mediaPlan: MediaPlan,
+  /** Product-specific image prompts from the Creative Agent — preferred over generic ones */
+  creativeImagePrompts: string[],
   enqueue: (event: AgentEvent) => void
 ): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -52,6 +54,7 @@ async function generateCampaignImages(
   });
 
   const brandName = mediaPlan.summary?.brandName ?? '';
+  let promptIndex = 0;
 
   for (const platform of mediaPlan.platforms) {
     for (const adType of platform.adTypes) {
@@ -68,9 +71,14 @@ async function generateCampaignImages(
       const imageUrls: string[] = [];
 
       for (const ad of adType.ads.slice(0, 3)) {
-        const headline = ad.headlines[0] ?? brandName;
-        const description = ad.descriptions[0] ?? '';
-        const prompt = `Professional advertising photograph for ${brandName}. ${headline}. ${description}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text, clean composition.`;
+        // Use the Creative Agent's specific image prompt — it knows what the
+        // actual product looks like. Fall back to a basic prompt only if none available.
+        const creativePrompt = creativeImagePrompts[promptIndex % Math.max(creativeImagePrompts.length, 1)];
+        promptIndex++;
+
+        const prompt = creativePrompt
+          ? `${creativePrompt}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`
+          : `Professional product advertisement for ${brandName}. Product: ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. Show the actual product prominently, high quality commercial photography, no text.`;
 
         try {
           const result = await model.generateContent({
@@ -320,7 +328,8 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
       });
 
       // ── 6. Generate images (fire-and-forget after job marked complete) ───────
-      void generateCampaignImages(mediaPlan, enqueue).catch(() => {});
+      const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
+      void generateCampaignImages(mediaPlan, creativeImagePrompts, enqueue).catch(() => {});
 
       // ── 7. Save memory nodes ─────────────────────────────────────────────────
       void saveCampaignMemory({

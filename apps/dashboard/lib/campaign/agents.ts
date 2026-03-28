@@ -355,6 +355,20 @@ async function scrapeProductImages(url: string): Promise<string[]> {
       const v = meta?.[key];
       if (typeof v === 'string' && v.startsWith('http')) return [v];
     }
+
+    // Last resort: find large product images in raw HTML by looking for
+    // common CDN/product image patterns in <img> src attributes
+    if (html) {
+      const imgMatches = [...html.matchAll(/<img[^>]+src="(https?:\/\/[^"]+)"/gi)]
+        .map((m) => m[1]!)
+        .filter((src) =>
+          // Likely a product image: large file, common product CDN patterns
+          /\.(jpg|jpeg|png|webp)(\?|$)/i.test(src) &&
+          !/logo|icon|sprite|banner|svg|gif|thumb[^/]*16|placeholder/i.test(src) &&
+          (src.includes('/product') || src.includes('/media') || src.includes('/images') || src.includes('cdn'))
+        );
+      if (imgMatches.length > 0) return imgMatches.slice(0, 3);
+    }
   } catch { /* non-fatal */ }
 
   return [];
@@ -1161,8 +1175,13 @@ Instructions:
    - Each concept: headline (40 chars for Meta/30 for Google), bodyText (125 chars for Meta), cta, imageDirection
    - Score each concept for brand alignment (0-1) and competitive differentiation (0-1)
 4. Generate ad extensions: 4 sitelinks, 6 callouts, 1 structured snippet
-5. Generate 5 image generation prompts that are specific, brand-aligned, and visually compelling for digital ads.
-   CRITICAL: If the user's Campaign Notes mention a seasonal event, festival, or occasion (e.g. Holi, Diwali, Christmas), ALL image prompts MUST be set in that context — show the product being used/displayed in that festive setting. Example for Holi: "Hand-painted Chumbak bar tool set surrounded by vibrant Holi powder colors — pink, yellow, green — in a joyful celebration scene, professional product photography"
+5. Generate 5 image generation prompts that will be fed directly into an AI image generation model (Gemini Imagen).
+   Each prompt MUST describe the ACTUAL product from this specific URL — its physical form, colour, material, and style — so the generated image clearly shows that product.
+   Start each prompt by naming the exact product type and its key visual attributes (e.g. "Grey marl jogger pants with embroidered country club crest on the left leg, worn by a male model").
+   Then add a lifestyle or setting context appropriate to the brand.
+   CRITICAL: Do NOT describe generic people, random settings, or stock-photo clichés. The product must be the visual hero of every image.
+   CRITICAL: If the user's Campaign Notes mention a seasonal event (e.g. Holi, Diwali, Christmas), set the scene in that festive context while still keeping the product as the focus. Example for Holi: "Grey jogger pants with country club crest, worn by a young man in a colourful Holi celebration, vibrant powder colors in the air, joyful outdoor setting, professional product photography"
+   If no seasonal notes are given, use aspirational lifestyle contexts matching the product category (sport, athleisure, streetwear, etc.).
 
 Return a JSON object with these exact fields:
 {
