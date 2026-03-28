@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '@workspace/database/client';
-import type { ToolContext } from './analytics';
+import type { ToolContext } from './ecommerce';
 
 // ---------------------------------------------------------------------------
 // Campaign Tool Schemas

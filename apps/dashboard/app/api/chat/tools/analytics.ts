@@ -1,10 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '@workspace/database/client';
-
-export type ToolContext = {
-  orgId: string;
-  currency: string;
-};
+import type { ToolContext } from './ecommerce';
 
 // ---------------------------------------------------------------------------
 // Analytics Tool Schemas
