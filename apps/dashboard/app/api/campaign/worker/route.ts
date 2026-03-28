@@ -15,7 +15,7 @@ import { prisma } from '@workspace/database/client';
 
 import { runCampaignAgents } from '~/lib/campaign/agents';
 import type { AgentEvent, UserPreferences } from '~/lib/campaign/agents';
-import { updateJob } from '~/lib/job-store';
+import { appendJobEvent, updateJob } from '~/lib/job-store';
 import type { MediaPlan } from '~/lib/campaign/transformers';
 import {
   extractDomain,
@@ -210,11 +210,9 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
 
   await updateJob(jobId, { status: 'running' });
 
-  // Redis enqueue — stores events for frontend polling
+  // Redis enqueue — uses RPUSH (atomic) so concurrent agent calls don't race
   const enqueue = (event: AgentEvent): void => {
-    void updateJob(jobId, {
-      event: event as unknown as { type: string; [key: string]: unknown }
-    }).catch(() => {});
+    void appendJobEvent(jobId, event as unknown as { type: string; [key: string]: unknown }).catch(() => {});
   };
 
   try {
@@ -303,23 +301,23 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
         select: { id: true }
       });
 
-      // Store final media_plan event with campaign ID
-      enqueue({
-        type: 'media_plan',
-        plan: {
-          ...mediaPlan,
-          _campaignId: campaign.id
-        } as MediaPlan & { _campaignId: string }
-      });
-
       // Invalidate campaigns list cache
       void redis.del(
         orgKey(organizationId, 'campaigns:all:p1'),
         orgKey(organizationId, 'campaigns:accelerate:p1')
       ).catch(() => {});
 
-      // Mark job complete
-      await updateJob(jobId, { status: 'completed', campaignId: campaign.id });
+      // Mark job complete — media_plan event is included here so it is
+      // guaranteed written to the events list BEFORE status becomes 'completed'.
+      // This prevents the frontend from stopping its poll before receiving the plan.
+      await updateJob(jobId, {
+        status: 'completed',
+        campaignId: campaign.id,
+        event: {
+          type: 'media_plan',
+          plan: { ...mediaPlan, _campaignId: campaign.id }
+        }
+      });
 
       // ── 6. Generate images (fire-and-forget after job marked complete) ───────
       void generateCampaignImages(mediaPlan, enqueue).catch(() => {});

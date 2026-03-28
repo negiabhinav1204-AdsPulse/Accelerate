@@ -26,3 +26,8 @@ export function userKey(userId: string, suffix: string): string {
 export function jobKey(jobId: string): string {
   return `job:${jobId}`;
 }
+
+/** Separate Redis list key for job events — allows atomic RPUSH without read-modify-write races */
+export function jobEventsKey(jobId: string): string {
+  return `job:${jobId}:events`;
+}
