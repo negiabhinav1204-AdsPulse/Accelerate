@@ -8,6 +8,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 
+// Sync can take up to 2 min (10 parallel Meta API calls × 30s timeout each)
+export const maxDuration = 120;
+
 import { auth } from '@workspace/auth'
 import { symmetricDecrypt } from '@workspace/auth/encryption'
 import { prisma } from '@workspace/database/client'

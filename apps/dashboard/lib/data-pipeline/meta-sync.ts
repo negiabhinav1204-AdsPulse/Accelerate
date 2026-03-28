@@ -141,6 +141,10 @@ function buildReports(adAccountId: string): MetaReport[] {
   ];
 }
 
+export class MetaTokenExpiredError extends Error {
+  constructor() { super('Meta access token expired or invalid — reconnect required'); this.name = 'MetaTokenExpiredError'; }
+}
+
 async function fetchMetaReport(
   accessToken: string,
   report: MetaReport
@@ -153,14 +157,25 @@ async function fetchMetaReport(
     );
 
     if (!res.ok) {
-      const err = await res.text();
-      console.warn(`[meta-sync] ${report.reportType} API error:`, err.slice(0, 200));
+      const errText = await res.text();
+      console.warn(`[meta-sync] ${report.reportType} API error:`, errText.slice(0, 200));
+      // Detect expired / invalid token errors (190, 102, 463, 467)
+      try {
+        const errJson = JSON.parse(errText) as { error?: { code?: number; type?: string } };
+        const code = errJson.error?.code;
+        if (code === 190 || code === 102 || code === 463 || code === 467) {
+          throw new MetaTokenExpiredError();
+        }
+      } catch (parseErr) {
+        if (parseErr instanceof MetaTokenExpiredError) throw parseErr;
+      }
       return { rows: [], source: 'api' };
     }
 
     const data = (await res.json()) as { data?: unknown[] };
     return { rows: data.data ?? [], source: 'api' };
   } catch (e) {
+    if (e instanceof MetaTokenExpiredError) throw e; // propagate so caller can mark account as needing reconnect
     console.warn(`[meta-sync] ${report.reportType} fetch failed:`, e);
     return { rows: [], source: 'api' };
   }
@@ -172,21 +187,24 @@ export async function syncMetaAccount(
   adAccountId: string
 ): Promise<SyncResult[]> {
   const reports = buildReports(adAccountId);
-  const results: SyncResult[] = [];
 
-  for (const report of reports) {
-    try {
-      const { rows, source } = await fetchMetaReport(accessToken, report);
-      results.push({ reportType: report.reportType, rowCount: rows.length, source, rows } as SyncResult & { rows: unknown[] });
-    } catch (e) {
-      results.push({
-        reportType: report.reportType,
-        rowCount: 0,
-        source: 'mock',
-        error: e instanceof Error ? e.message : 'unknown'
-      });
+  // Fetch all reports in parallel — reduces total time from ~50s sequential
+  // to ~5–10s (slowest single report). Each report is an independent endpoint.
+  const settled = await Promise.allSettled(
+    reports.map((report) => fetchMetaReport(accessToken, report))
+  );
+
+  return settled.map((result, i) => {
+    const report = reports[i]!;
+    if (result.status === 'fulfilled') {
+      const { rows, source } = result.value;
+      return { reportType: report.reportType, rowCount: rows.length, source, rows } as SyncResult & { rows: unknown[] };
     }
-  }
-
-  return results;
+    return {
+      reportType: report.reportType,
+      rowCount: 0,
+      source: 'mock' as const,
+      error: result.reason instanceof Error ? result.reason.message : 'unknown'
+    };
+  });
 }

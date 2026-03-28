@@ -372,6 +372,35 @@ export async function GET(
     );
   }
 
+  // For Meta: exchange the short-lived access token (1–2h TTL) for a long-lived
+  // token (60-day TTL). Without this, any sync more than 2 hours after OAuth
+  // completes silently returns empty rows from the Meta API.
+  if (platform === 'meta') {
+    try {
+      const llParams = new URLSearchParams({
+        grant_type: 'fb_exchange_token',
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        fb_exchange_token: tokens.access_token
+      });
+      const llRes = await fetch(
+        `https://graph.facebook.com/v23.0/oauth/access_token?${llParams.toString()}`
+      );
+      if (llRes.ok) {
+        const llData = (await llRes.json()) as TokenResponse;
+        if (llData.access_token) {
+          console.log('[connector/meta] Long-lived token exchange OK, expires_in:', llData.expires_in);
+          tokens = { ...tokens, ...llData };
+        }
+      } else {
+        const errText = await llRes.text();
+        console.warn('[connector/meta] Long-lived token exchange failed (using short-lived):', errText.slice(0, 200));
+      }
+    } catch (e) {
+      console.warn('[connector/meta] Long-lived token exchange error (non-fatal):', e);
+    }
+  }
+
   // Fetch ad accounts from the platform
   let accounts: AdAccount[] = [];
   let bingFetchError: string | null = null;
