@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 
 import { healthRoute } from './routes/health';
+import { feedHealthRoute } from './routes/feed-health';
 import { advancedSettingsRoute } from './routes/advanced-settings';
 import { audiencesRoute } from './routes/audiences';
 import { deliveryRulesRoute } from './routes/delivery-rules';
@@ -20,6 +21,7 @@ const fastify = Fastify({ logger: true });
 void fastify.register(cors, { origin: true });
 
 void fastify.register(healthRoute);
+void fastify.register(feedHealthRoute);
 void fastify.register(advancedSettingsRoute);
 void fastify.register(audiencesRoute);
 void fastify.register(deliveryRulesRoute);
