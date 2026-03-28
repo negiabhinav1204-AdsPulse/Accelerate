@@ -244,6 +244,7 @@ const TOOLS: Anthropic.Tool[] = [
         path: {
           type: 'string',
           enum: [
+            'create-campaign',
             'campaigns',
             'reporting',
             'connectors',

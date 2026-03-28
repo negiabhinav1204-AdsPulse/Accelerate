@@ -1,12 +1,15 @@
 import {
   BellIcon,
   BotIcon,
+  BrainCircuitIcon,
   CodeIcon,
   CreditCardIcon,
   LayoutDashboardIcon,
   LockKeyholeIcon,
+  MapIcon,
   MegaphoneIcon,
   PackageIcon,
+  PlusCircleIcon,
   PlugIcon,
   BarChart3Icon,
   ShoppingCartIcon,
@@ -65,9 +68,24 @@ export function createMainNavItems(slug: string): NavItem[] {
       icon: UsersIcon
     },
     {
+      title: 'Media Planner',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.MediaPlanner, slug),
+      icon: MapIcon
+    },
+    {
+      title: 'AI CMO',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Cmo, slug),
+      icon: BrainCircuitIcon
+    },
+    {
       title: 'Connectors',
       href: replaceOrgSlug(routes.dashboard.organizations.slug.Connectors, slug),
       icon: PlugIcon
+    },
+    {
+      title: 'Create Campaign',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.CreateCampaign, slug),
+      icon: PlusCircleIcon
     }
   ];
 }
