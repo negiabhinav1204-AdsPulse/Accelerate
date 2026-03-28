@@ -25,6 +25,7 @@ import {
   XCircleIcon,
   ZapIcon,
   GhostIcon,
+  LayersIcon,
   TrendingDownIcon,
   SaveIcon
 } from 'lucide-react';
@@ -56,6 +57,8 @@ import type { ChannelStatus, MockProduct } from '~/lib/platforms/shopify-mock';
 import { AdvancedSettingsTab } from '~/components/shopping-feeds/advanced-settings-tab';
 import { GoogleSetupWizard } from '~/components/shopping-feeds/google-setup-wizard';
 import { useRole } from '~/hooks/use-role';
+import { CdpProfilesClient } from '~/components/cdp/cdp-profiles-client';
+import { SegmentsClient } from '~/components/cdp/segments-client';
 
 // ── Platform icons ────────────────────────────────────────────────────────────
 
@@ -3100,7 +3103,7 @@ function ZombieSkuTab({ orgId, orgSlug, products, currency = 'USD' }: { orgId: s
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-type Tab = 'products' | 'settings' | 'rules' | 'promotions' | 'audiences' | 'zombie' | 'advanced';
+type Tab = 'products' | 'settings' | 'rules' | 'promotions' | 'audiences' | 'zombie' | 'advanced' | 'customers' | 'segments';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'products', label: 'Products', icon: <PackageIcon className="size-4" /> },
@@ -3109,7 +3112,9 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'promotions', label: 'Promotions', icon: <TagIcon className="size-4" /> },
   { id: 'audiences', label: 'Audience Sync', icon: <UsersIcon className="size-4" /> },
   { id: 'zombie', label: 'Zombie SKUs', icon: <GhostIcon className="size-4" /> },
-  { id: 'advanced', label: 'Advanced', icon: <ZapIcon className="size-4" /> }
+  { id: 'advanced', label: 'Advanced', icon: <ZapIcon className="size-4" /> },
+  { id: 'customers', label: 'Customers', icon: <UsersIcon className="size-4" /> },
+  { id: 'segments', label: 'Segments', icon: <LayersIcon className="size-4" /> },
 ];
 
 export function ShoppingFeedsClient({
@@ -3263,6 +3268,16 @@ export function ShoppingFeedsClient({
       {activeTab === 'audiences' && <AudienceSyncTab orgId={orgId} />}
       {activeTab === 'zombie' && <ZombieSkuTab orgId={orgId} orgSlug={orgSlug} products={products} currency={store?.currency ?? orgCurrency} />}
       {activeTab === 'advanced' && <AdvancedSettingsTab orgId={orgId} />}
+      {activeTab === 'customers' && (
+        <div className="pt-4">
+          <CdpProfilesClient orgId={orgId} orgCurrency={orgCurrency} />
+        </div>
+      )}
+      {activeTab === 'segments' && (
+        <div className="pt-4">
+          <SegmentsClient orgId={orgId} />
+        </div>
+      )}
 
       <GoogleSetupWizard
         open={wizardOpen}

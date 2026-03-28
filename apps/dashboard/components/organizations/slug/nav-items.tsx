@@ -6,7 +6,6 @@ import {
   CreditCardIcon,
   LayoutDashboardIcon,
   LockKeyholeIcon,
-  MapIcon,
   MegaphoneIcon,
   PlusCircleIcon,
   PlugIcon,
@@ -14,8 +13,7 @@ import {
   ShoppingCartIcon,
   StoreIcon,
   UserIcon,
-  UserPlus2Icon,
-  UsersIcon
+  UserPlus2Icon
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -55,16 +53,6 @@ export function createMainNavItems(slug: string): NavItem[] {
       title: 'Shopping Feeds',
       href: replaceOrgSlug(routes.dashboard.organizations.slug.ShoppingFeeds, slug),
       icon: ShoppingCartIcon
-    },
-    {
-      title: 'Customers',
-      href: replaceOrgSlug(routes.dashboard.organizations.slug.Cdp, slug),
-      icon: UsersIcon
-    },
-    {
-      title: 'Media Planner',
-      href: replaceOrgSlug(routes.dashboard.organizations.slug.MediaPlanner, slug),
-      icon: MapIcon
     },
     {
       title: 'AI CMO',

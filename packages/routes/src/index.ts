@@ -73,7 +73,6 @@ export const routes = {
         ShoppingFeeds: `${baseUrl.Dashboard}/organizations/[slug]/shopping-feeds`,
         Cdp: `${baseUrl.Dashboard}/organizations/[slug]/cdp`,
         CdpSegments: `${baseUrl.Dashboard}/organizations/[slug]/cdp/segments`,
-        MediaPlanner: `${baseUrl.Dashboard}/organizations/[slug]/media-planner`,
         Cmo: `${baseUrl.Dashboard}/organizations/[slug]/cmo`,
         settings: {
           account: {
