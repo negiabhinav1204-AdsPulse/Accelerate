@@ -1035,6 +1035,88 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
   }
 
+  // Forward to agentic service if enabled (AG-UI SSE → JSON-lines translation)
+  if (SERVICES.agentic.enabled) {
+    const lastUserMsg = [...body.messages].reverse().find((m) => m.role === 'user');
+    if (!lastUserMsg) return new Response('No user message', { status: 400 });
+
+    const membership = await prisma.membership.findFirst({
+      where: { userId: session.user.id, organizationId: body.organizationId ?? '' },
+      select: { organization: { select: { id: true } } },
+    });
+    const orgId = membership?.organization?.id ?? body.organizationId ?? '';
+    const internalKey = process.env.INTERNAL_API_KEY;
+    const convId = body.sessionId ?? '';
+    const upstream = await fetch(`${SERVICES.agentic.url}/api/v1/agents/accelera-ai/chat/${convId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(internalKey ? { 'x-internal-api-key': internalKey } : {}),
+        'x-user-id': session.user.id,
+        'x-org-id': orgId,
+      },
+      body: JSON.stringify({ message: lastUserMsg.content, metadata: { user_id: session.user.id, org_id: orgId } }),
+    });
+    if (!upstream.ok || !upstream.body) {
+      return new Response(`Agentic service error: ${upstream.status}`, { status: 502 });
+    }
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        const reader = upstream.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const events = buf.split('\n\n');
+            buf = events.pop() ?? '';
+            for (const raw of events) {
+              if (!raw.trim()) continue;
+              let eventType = '', dataStr = '';
+              for (const line of raw.split('\n')) {
+                if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+                else if (line.startsWith('data: ')) dataStr = line.slice(6).trim();
+              }
+              if (!eventType || !dataStr) continue;
+              try {
+                const payload = JSON.parse(dataStr) as Record<string, unknown>;
+                let jsonLine: string | null = null;
+                if (eventType === 'TEXT_MESSAGE_CONTENT') {
+                  const delta = (payload.delta as string) ?? '';
+                  if (delta) jsonLine = JSON.stringify({ type: 'text', text: delta });
+                } else if (eventType === 'CUSTOM') {
+                  const blockType = payload.block_type as string | undefined;
+                  const data = payload.data ?? payload;
+                  if (blockType === 'hitl_form') {
+                    jsonLine = JSON.stringify({ type: 'hitl', name: 'hitl_form', input: data, step_id: payload.step_id ?? '' });
+                  } else if (blockType) {
+                    jsonLine = JSON.stringify({ type: 'tool', name: blockType, input: data });
+                  }
+                } else if (eventType === 'ACTIVITY_SNAPSHOT') {
+                  jsonLine = JSON.stringify({ type: 'tool', name: 'workflow_progress', input: payload });
+                } else if (eventType === 'RUN_ERROR') {
+                  jsonLine = JSON.stringify({ type: 'error', message: (payload.message as string) ?? 'Unknown error' });
+                }
+                if (jsonLine) controller.enqueue(encoder.encode(jsonLine + '\n'));
+              } catch { /* skip malformed */ }
+            }
+          }
+        } catch { /* upstream closed */ } finally { controller.close(); }
+      },
+    });
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Transfer-Encoding': 'chunked',
+        ...(upstream.headers.get('X-Conv-Id') ? { 'X-Session-Id': upstream.headers.get('X-Conv-Id')! } : {}),
+      },
+    });
+  }
+
   // Build context: user + org + connected accounts
   let userName = session.user.name ?? 'there';
   let orgName = 'your organisation';

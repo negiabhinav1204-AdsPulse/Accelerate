@@ -7,6 +7,14 @@
  */
 
 export const SERVICES = {
+  agentic: {
+    enabled: !!(process.env.AGENTIC_SERVICE_URL && process.env.USE_AGENTIC_SERVICE === 'true'),
+    url: process.env.AGENTIC_SERVICE_URL ?? 'http://localhost:8080',
+  },
+  campaigns: {
+    enabled: !!(process.env.CAMPAIGNS_SERVICE_URL && process.env.USE_CAMPAIGNS_SERVICE === 'true'),
+    url: process.env.CAMPAIGNS_SERVICE_URL ?? 'http://localhost:8088',
+  },
   agent: {
     enabled: !!(process.env.AGENT_SERVICE_URL && process.env.USE_AGENT_SERVICE === 'true'),
     url: process.env.AGENT_SERVICE_URL ?? '',

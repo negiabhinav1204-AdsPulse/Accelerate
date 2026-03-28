@@ -20,6 +20,7 @@ import { CampaignEditPanel } from '../campaign/campaign-edit-panel';
 import { CampaignPreviewPanel } from '../campaign/campaign-preview-panel';
 import type { EditScope } from '../campaign/campaign-preview-panel';
 import type { AgentName, AgentState, MediaPlan, SSEEvent } from '../campaign/types';
+import { resolveBlockType } from './block-registry';
 import { ChatAudienceCard } from './chat-audience-card';
 import { ChatAutoSetupCard } from './chat-auto-setup-card';
 import { ChatCampaignTable } from './chat-campaign-table';
@@ -87,9 +88,24 @@ type ToolBlock =
   | { name: 'show_placements'; input: { period?: string; currency?: string; best_placement?: string; note?: string; data: { publisher: string; placement: string; spend: number; revenue: number; conversions: number; roas: number; cpa: number; currency: string }[] } }
   | { name: 'show_auto_setup'; input: { products_configured: number; total_daily_budget: string; total_monthly_estimate: string; message?: string; next_step?: string; results: { title: string; badge: string; suggested_strategy: string; suggested_platforms: string[]; daily_budget: string; monthly_estimate: string; status: string }[] } };
 
+type HITLFormPart = {
+  type: 'hitl';
+  step_id: string;
+  fields: { name: string; label: string; type: string; default?: unknown; options?: string[] }[];
+  actions: { action: string; label: string; style?: string }[];
+  title?: string;
+};
+
+type WorkflowProgressPart = {
+  type: 'workflow_progress';
+  data: unknown;
+};
+
 type MessagePart =
   | { type: 'text'; text: string }
-  | { type: 'tool'; tool: ToolBlock };
+  | { type: 'tool'; tool: ToolBlock }
+  | HITLFormPart
+  | WorkflowProgressPart;
 
 type ChatMessage = {
   id: string;
@@ -648,7 +664,9 @@ export function AcceleraAiHome({
               const chunk = JSON.parse(line) as
                 | { type: 'text'; text: string }
                 | { type: 'tool'; name: string; input: unknown }
-                | { type: 'error'; message: string };
+                | { type: 'hitl'; name: string; input: unknown; step_id: string }
+                | { type: 'error'; message: string }
+                | { type: string };
 
               if (chunk.type === 'text') {
                 setMessages((prev) =>
@@ -660,15 +678,51 @@ export function AcceleraAiHome({
                     if (lastPart?.type === 'text') {
                       parts[parts.length - 1] = {
                         type: 'text',
-                        text: lastPart.text + chunk.text
+                        text: lastPart.text + (chunk as { type: 'text'; text: string }).text
                       };
                     } else {
-                      parts.push({ type: 'text', text: chunk.text });
+                      parts.push({ type: 'text', text: (chunk as { type: 'text'; text: string }).text });
                     }
                     return { ...cm, parts };
                   })
                 );
               } else if (chunk.type === 'tool') {
+                const c = chunk as { type: 'tool'; name: string; input: unknown };
+                const resolvedName = resolveBlockType(c.name);
+                if (resolvedName === 'workflow_progress') {
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      // Replace any existing workflow_progress part instead of appending
+                      const filtered = cm.parts.filter((p) => p.type !== 'workflow_progress');
+                      return { ...cm, parts: [...filtered, { type: 'workflow_progress' as const, data: c.input } as WorkflowProgressPart] };
+                    })
+                  );
+                } else {
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      return {
+                        ...cm,
+                        parts: [
+                          ...cm.parts,
+                          {
+                            type: 'tool' as const,
+                            tool: {
+                              name: resolvedName,
+                              input: c.input
+                            } as ToolBlock
+                          }
+                        ]
+                      };
+                    })
+                  );
+                }
+              } else if (chunk.type === 'hitl') {
+                const c = chunk as { type: 'hitl'; name: string; input: Record<string, unknown>; step_id: string };
+                const hitlData = c.input as { fields?: HITLFormPart['fields']; actions?: HITLFormPart['actions']; title?: string };
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId || m.role === 'campaign') return m;
@@ -678,18 +732,18 @@ export function AcceleraAiHome({
                       parts: [
                         ...cm.parts,
                         {
-                          type: 'tool' as const,
-                          tool: {
-                            name: chunk.name,
-                            input: chunk.input
-                          } as ToolBlock
-                        }
+                          type: 'hitl' as const,
+                          step_id: c.step_id,
+                          fields: hitlData.fields ?? [],
+                          actions: hitlData.actions ?? [],
+                          title: hitlData.title,
+                        } as HITLFormPart
                       ]
                     };
                   })
                 );
               } else if (chunk.type === 'error') {
-                throw new Error(chunk.message);
+                throw new Error((chunk as { type: 'error'; message: string }).message);
               }
             } catch {
               // skip malformed lines
@@ -1122,6 +1176,28 @@ function MessageBubble({
             );
           }
 
+          if (part.type === 'hitl') {
+            return (
+              <HITLFormCard
+                key={i}
+                step_id={part.step_id}
+                fields={part.fields}
+                actions={part.actions}
+                title={part.title}
+                convId={sessionId ?? ''}
+              />
+            );
+          }
+
+          if (part.type === 'workflow_progress') {
+            return (
+              <WorkflowProgressCard
+                key={i}
+                data={part.data as Record<string, unknown>}
+              />
+            );
+          }
+
           return null;
         })}
       </div>
@@ -1350,6 +1426,139 @@ function ToolRenderer({
     default:
       return null;
   }
+}
+
+// ── HITL Form ────────────────────────────────────────────────────────────────
+
+function HITLFormCard({
+  step_id,
+  fields,
+  actions,
+  title,
+  convId
+}: {
+  step_id: string;
+  fields: HITLFormPart['fields'];
+  actions: HITLFormPart['actions'];
+  title?: string;
+  convId: string;
+}) {
+  const [values, setValues] = React.useState<Record<string, unknown>>(() => {
+    const init: Record<string, unknown> = {};
+    for (const f of fields) init[f.name] = f.default ?? '';
+    return init;
+  });
+  const [submitted, setSubmitted] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const submit = async (action: string) => {
+    setSubmitting(true);
+    try {
+      await fetch('/api/chat/hitl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          step_id,
+          action: action === 'reject' ? 'reject' : 'submit',
+          user_input: action !== 'reject' ? values : {},
+          conv_id: convId,
+        }),
+      });
+      setSubmitted(true);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+        Response submitted — campaign creation continuing...
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-card px-4 py-4 space-y-4 max-w-md">
+      {title && <p className="text-sm font-semibold text-foreground">{title}</p>}
+      <div className="space-y-3">
+        {fields.map((field) => (
+          <div key={field.name} className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">{field.label}</label>
+            {field.type === 'select' || field.type === 'multiselect' ? (
+              <select
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                value={String(values[field.name] ?? '')}
+                onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
+                disabled={submitting}
+              >
+                {(field.options ?? []).map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                value={String(values[field.name] ?? '')}
+                onChange={(e) => setValues((v) => ({ ...v, [field.name]: field.type === 'number' ? Number(e.target.value) : e.target.value }))}
+                disabled={submitting}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        {actions.map((act) => (
+          <button
+            key={act.action}
+            type="button"
+            onClick={() => void submit(act.action)}
+            disabled={submitting}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+              act.style === 'primary'
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                : 'border border-border bg-background text-foreground hover:bg-accent'
+            }`}
+          >
+            {act.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Workflow Progress ─────────────────────────────────────────────────────────
+
+function WorkflowProgressCard({ data }: { data: Record<string, unknown> }) {
+  const steps = (data.steps ?? data.activities ?? []) as { name: string; label?: string; status?: string }[];
+  if (!steps.length) return null;
+
+  const statusIcon = (s?: string) => {
+    if (s === 'completed') return '✓';
+    if (s === 'running') return '⋯';
+    if (s === 'error') return '✗';
+    return '○';
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-4 py-3 space-y-2">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Campaign creation</p>
+      <div className="space-y-1.5">
+        {steps.map((step, i) => (
+          <div key={i} className="flex items-center gap-2 text-sm">
+            <span className={`text-xs font-mono ${step.status === 'completed' ? 'text-green-500' : step.status === 'running' ? 'text-primary' : step.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {statusIcon(step.status)}
+            </span>
+            <span className={step.status === 'completed' ? 'text-muted-foreground line-through' : step.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground'}>
+              {step.label ?? step.name}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── Markdown ──────────────────────────────────────────────────────────────────
