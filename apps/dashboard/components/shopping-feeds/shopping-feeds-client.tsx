@@ -3,6 +3,8 @@
 import * as React from 'react';
 import {
   AlertCircleIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
   CheckCircle2Icon,
   CheckIcon,
   ChevronsUpDownIcon,
@@ -15,8 +17,10 @@ import {
   RefreshCwIcon,
   SearchIcon,
   ShoppingCartIcon,
+  StarIcon,
   StoreIcon,
   TagIcon,
+  TrendingUpIcon,
   UsersIcon,
   XCircleIcon,
   ZapIcon,
@@ -37,6 +41,13 @@ import {
 } from '@workspace/ui/components/command';
 import { Input } from '@workspace/ui/components/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@workspace/ui/components/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@workspace/ui/components/select';
 import { toast } from '@workspace/ui/components/sonner';
 import { cn } from '@workspace/ui/lib/utils';
 
@@ -191,10 +202,29 @@ function NoStoreState({ orgSlug }: { orgSlug: string }): React.JSX.Element {
 // ── Products Tab ──────────────────────────────────────────────────────────────
 
 type ProductViewTab = 'all' | 'warnings' | 'excluded';
+type StockFilter = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock';
+type SortOption = 'velocity_desc' | 'velocity_asc' | 'price_desc' | 'price_asc' | 'inventory_asc' | 'inventory_desc';
+
+function classifyBadge(p: MockProduct): 'best_seller' | 'trending' | 'high_value' | 'low_stock' | '' {
+  if (p.velocity_30d > 20) return 'best_seller';
+  if (p.velocity_30d > 8) return 'trending';
+  if (p.price > 150 && p.velocity_30d > 0) return 'high_value';
+  if (p.inventory > 0 && p.inventory < 10) return 'low_stock';
+  return '';
+}
+
+const BADGE_CONFIG = {
+  best_seller: { label: 'Best Seller', icon: StarIcon, className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  trending: { label: 'Trending', icon: TrendingUpIcon, className: 'bg-blue-50 text-blue-700 border-blue-200' },
+  high_value: { label: 'High Value', icon: ArrowUpIcon, className: 'bg-purple-50 text-purple-700 border-purple-200' },
+  low_stock: { label: 'Low Stock', icon: ArrowDownIcon, className: 'bg-red-50 text-red-600 border-red-200' },
+};
 
 function ProductsTab({ products, loading }: { products: MockProduct[]; loading: boolean }): React.JSX.Element {
   const [search, setSearch] = React.useState('');
   const [viewTab, setViewTab] = React.useState<ProductViewTab>('all');
+  const [stockFilter, setStockFilter] = React.useState<StockFilter>('all');
+  const [sortBy, setSortBy] = React.useState<SortOption>('velocity_desc');
 
   // Derive per-tab counts from full product list
   const counts = React.useMemo(() => {
@@ -222,7 +252,7 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
     return { approved, pending, disapproved, notSubmitted };
   }, [products]);
 
-  // Tab filter → then search filter
+  // Tab filter → stock filter → search filter → sort
   const tabFiltered = React.useMemo(() => {
     if (viewTab === 'warnings') {
       return products.filter((p) => {
@@ -239,10 +269,30 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
     return products;
   }, [products, viewTab]);
 
-  const filtered = tabFiltered.filter((p) =>
+  const stockFiltered = React.useMemo(() => {
+    if (stockFilter === 'out_of_stock') return tabFiltered.filter((p) => p.inventory === 0);
+    if (stockFilter === 'low_stock') return tabFiltered.filter((p) => p.inventory > 0 && p.inventory < 10);
+    if (stockFilter === 'in_stock') return tabFiltered.filter((p) => p.inventory >= 10);
+    return tabFiltered;
+  }, [tabFiltered, stockFilter]);
+
+  const searched = stockFiltered.filter((p) =>
     p.title.toLowerCase().includes(search.toLowerCase()) ||
     p.sku.toLowerCase().includes(search.toLowerCase())
   );
+
+  const filtered = React.useMemo(() => {
+    const arr = [...searched];
+    switch (sortBy) {
+      case 'velocity_desc': return arr.sort((a, b) => b.velocity_30d - a.velocity_30d);
+      case 'velocity_asc':  return arr.sort((a, b) => a.velocity_30d - b.velocity_30d);
+      case 'price_desc':    return arr.sort((a, b) => b.price - a.price);
+      case 'price_asc':     return arr.sort((a, b) => a.price - b.price);
+      case 'inventory_asc': return arr.sort((a, b) => a.inventory - b.inventory);
+      case 'inventory_desc':return arr.sort((a, b) => b.inventory - a.inventory);
+      default: return arr;
+    }
+  }, [searched, sortBy]);
 
   const PRODUCT_TABS: { id: ProductViewTab; label: string; count: number }[] = [
     { id: 'all', label: 'All Products', count: counts.all },
@@ -309,9 +359,9 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
         </div>
       )}
 
-      {/* Search + count row */}
-      <div className="flex items-center gap-2 mb-4">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search + filter + sort row */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
             placeholder="Search products or SKU..."
@@ -320,6 +370,30 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
             className="pl-9 h-9"
           />
         </div>
+        <Select value={stockFilter} onValueChange={(v) => setStockFilter(v as StockFilter)}>
+          <SelectTrigger className="h-9 w-[140px]">
+            <SelectValue placeholder="Stock status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Stock</SelectItem>
+            <SelectItem value="in_stock">In Stock</SelectItem>
+            <SelectItem value="low_stock">Low Stock</SelectItem>
+            <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+          <SelectTrigger className="h-9 w-[170px]">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="velocity_desc">Velocity: High → Low</SelectItem>
+            <SelectItem value="velocity_asc">Velocity: Low → High</SelectItem>
+            <SelectItem value="price_desc">Price: High → Low</SelectItem>
+            <SelectItem value="price_asc">Price: Low → High</SelectItem>
+            <SelectItem value="inventory_asc">Inventory: Low → High</SelectItem>
+            <SelectItem value="inventory_desc">Inventory: High → Low</SelectItem>
+          </SelectContent>
+        </Select>
         <span className="text-sm text-muted-foreground ml-auto">{filtered.length} products</span>
       </div>
 
@@ -332,6 +406,9 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
                 <th className="text-left font-medium text-muted-foreground px-4 py-3 w-[340px]">Product</th>
                 <th className="text-left font-medium text-muted-foreground px-3 py-3">Price</th>
                 <th className="text-center font-medium text-muted-foreground px-3 py-3">Stock</th>
+                <th className="text-center font-medium text-muted-foreground px-3 py-3">
+                  <div className="flex items-center justify-center gap-1"><ZapIcon className="size-3" />30d Sold</div>
+                </th>
                 <th className="text-center font-medium text-muted-foreground px-3 py-3">
                   <div className="flex items-center justify-center gap-1"><GoogleIconSm />Google</div>
                 </th>
@@ -347,14 +424,14 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="py-12 text-center text-muted-foreground">
                     <Loader2Icon className="size-5 animate-spin mx-auto mb-2" />
                     Loading products...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-muted-foreground">No products match your search.</td>
+                  <td colSpan={8} className="py-12 text-center text-muted-foreground">No products match your search.</td>
                 </tr>
               ) : (
                 filtered.map((product) => (
@@ -370,7 +447,20 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
                           }}
                         />
                         <div className="min-w-0">
-                          <p className="font-medium text-foreground leading-tight truncate max-w-[230px]">{product.title}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-foreground leading-tight truncate max-w-[200px]">{product.title}</p>
+                            {(() => {
+                              const badge = classifyBadge(product);
+                              if (!badge) return null;
+                              const cfg = BADGE_CONFIG[badge];
+                              const Icon = cfg.icon;
+                              return (
+                                <span className={cn('inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold shrink-0', cfg.className)}>
+                                  <Icon className="size-2.5" />{cfg.label}
+                                </span>
+                              );
+                            })()}
+                          </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             SKU: {product.sku}
                             {product.variants > 1 && ` · ${product.variants} variants`}
@@ -399,6 +489,11 @@ function ProductsTab({ products, loading }: { products: MockProduct[]; loading: 
                     <td className="px-3 py-3 text-center">
                       <span className={cn('text-sm font-medium', product.inventory === 0 ? 'text-red-500' : product.inventory < 10 ? 'text-amber-600' : 'text-foreground')}>
                         {product.inventory === 0 ? 'Out of stock' : product.inventory}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <span className={cn('text-sm font-medium', product.velocity_30d > 0 ? 'text-foreground' : 'text-muted-foreground')}>
+                        {product.velocity_30d > 0 ? product.velocity_30d : '—'}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-center">

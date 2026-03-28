@@ -8,7 +8,6 @@ import {
   LockKeyholeIcon,
   MapIcon,
   MegaphoneIcon,
-  PackageIcon,
   PlusCircleIcon,
   PlugIcon,
   BarChart3Icon,
@@ -56,11 +55,6 @@ export function createMainNavItems(slug: string): NavItem[] {
       title: 'Shopping Feeds',
       href: replaceOrgSlug(routes.dashboard.organizations.slug.ShoppingFeeds, slug),
       icon: ShoppingCartIcon
-    },
-    {
-      title: 'Commerce',
-      href: replaceOrgSlug(routes.dashboard.organizations.slug.Products, slug),
-      icon: PackageIcon
     },
     {
       title: 'Customers',

@@ -31,6 +31,9 @@ export type MockProduct = {
   clicks: number;
   lastImpressionDaysAgo: number; // days since last impression; 999 = never
   customLabel?: string;          // set when zombie-labeled
+  // Sales velocity metrics
+  velocity_30d: number;          // units sold in last 30 days
+  sold_30d: number;              // alias for velocity_30d (used by AI chat tools)
 };
 
 export const MOCK_SHOPIFY_STORE = {
@@ -61,7 +64,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'approved', meta: 'active', microsoft: 'pending' },
     lastSyncAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    impressions: 4820, clicks: 143, lastImpressionDaysAgo: 0
+    impressions: 4820, clicks: 143, lastImpressionDaysAgo: 0,
+    velocity_30d: 28, sold_30d: 28
   },
   {
     id: 'mock-002',
@@ -80,7 +84,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'approved', meta: 'approved', microsoft: 'approved' },
     lastSyncAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    impressions: 2910, clicks: 87, lastImpressionDaysAgo: 1
+    impressions: 2910, clicks: 87, lastImpressionDaysAgo: 1,
+    velocity_30d: 16, sold_30d: 16
   },
   {
     id: 'mock-003',
@@ -101,7 +106,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     channelStatus: { google: 'disapproved', meta: 'active', microsoft: 'not_submitted' },
     issues: ['Missing GTIN — add barcode to fix', 'Google category too broad'],
     lastSyncAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-    impressions: 6, clicks: 0, lastImpressionDaysAgo: 47
+    impressions: 6, clicks: 0, lastImpressionDaysAgo: 47,
+    velocity_30d: 0, sold_30d: 0
   },
   {
     id: 'mock-004',
@@ -119,7 +125,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'approved', meta: 'active', microsoft: 'approved' },
     lastSyncAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    impressions: 3540, clicks: 102, lastImpressionDaysAgo: 0
+    impressions: 3540, clicks: 102, lastImpressionDaysAgo: 0,
+    velocity_30d: 21, sold_30d: 21
   },
   {
     id: 'mock-005',
@@ -138,7 +145,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'approved', meta: 'active', microsoft: 'pending' },
     lastSyncAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-    impressions: 72, clicks: 3, lastImpressionDaysAgo: 35
+    impressions: 72, clicks: 3, lastImpressionDaysAgo: 35,
+    velocity_30d: 1, sold_30d: 1
   },
   {
     id: 'mock-006',
@@ -157,7 +165,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'out of stock',
     channelStatus: { google: 'pending', meta: 'not_submitted', microsoft: 'not_submitted' },
     lastSyncAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-    impressions: 0, clicks: 0, lastImpressionDaysAgo: 999
+    impressions: 0, clicks: 0, lastImpressionDaysAgo: 999,
+    velocity_30d: 0, sold_30d: 0
   },
   {
     id: 'mock-007',
@@ -176,7 +185,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'approved', meta: 'approved', microsoft: 'not_submitted' },
     lastSyncAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-    impressions: 1680, clicks: 44, lastImpressionDaysAgo: 2
+    impressions: 1680, clicks: 44, lastImpressionDaysAgo: 2,
+    velocity_30d: 9, sold_30d: 9
   },
   {
     id: 'mock-008',
@@ -194,7 +204,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'approved', meta: 'active', microsoft: 'approved' },
     lastSyncAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    impressions: 18, clicks: 1, lastImpressionDaysAgo: 61
+    impressions: 18, clicks: 1, lastImpressionDaysAgo: 61,
+    velocity_30d: 0, sold_30d: 0
   },
   {
     id: 'mock-009',
@@ -213,7 +224,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'approved', meta: 'active', microsoft: 'approved' },
     lastSyncAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    impressions: 2200, clicks: 61, lastImpressionDaysAgo: 0
+    impressions: 2200, clicks: 61, lastImpressionDaysAgo: 0,
+    velocity_30d: 12, sold_30d: 12
   },
   {
     id: 'mock-010',
@@ -233,7 +245,8 @@ export const MOCK_SHOPIFY_PRODUCTS: MockProduct[] = [
     availability: 'in stock',
     channelStatus: { google: 'pending', meta: 'active', microsoft: 'not_submitted' },
     lastSyncAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-    impressions: 44, clicks: 2, lastImpressionDaysAgo: 38
+    impressions: 44, clicks: 2, lastImpressionDaysAgo: 38,
+    velocity_30d: 1, sold_30d: 1
   }
 ];
 

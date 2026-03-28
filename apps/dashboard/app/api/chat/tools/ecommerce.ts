@@ -11,6 +11,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '@workspace/database/client';
 import { SERVICES, getService } from '~/lib/service-router';
+import { MOCK_SHOPIFY_PRODUCTS } from '~/lib/platforms/shopify-mock';
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -180,58 +181,53 @@ async function handleGetProducts(
     } catch { /* fall through */ }
   }
 
-  // Prisma fallback
-  const where = {
-    organizationId: ctx.orgId,
-    ...(status === 'active' ? { status: 'ACTIVE' as const } : {}),
-  };
+  // Shopping Feeds mock data fallback
+  let mockProducts = [...MOCK_SHOPIFY_PRODUCTS];
 
-  const orderBy =
-    sort === 'inventory_asc'
-      ? [{ inventoryQty: 'asc' as const }]
-      : sort === 'revenue_desc'
-      ? [{ revenueL30d: 'desc' as const }]
-      : sort === 'title_asc'
-      ? [{ title: 'asc' as const }]
-      : [{ salesVelocity: 'desc' as const }];
+  // Apply status filter
+  if (status === 'active') {
+    mockProducts = mockProducts.filter((p) => p.availability === 'in stock');
+  }
 
-  const products = await prisma.product.findMany({
-    where,
-    orderBy,
-    take: limit,
-    select: {
-      id: true,
-      title: true,
-      price: true,
-      salePrice: true,
-      imageUrl: true,
-      sku: true,
-      status: true,
-      inventoryQty: true,
-      salesVelocity: true,
-      revenueL30d: true,
-      currency: true,
-      tags: true,
-    },
-  });
+  // Apply sort
+  if (sort === 'inventory_asc') mockProducts.sort((a, b) => a.inventory - b.inventory);
+  else if (sort === 'revenue_desc') mockProducts.sort((a, b) => b.velocity_30d * b.price - a.velocity_30d * a.price);
+  else if (sort === 'title_asc') mockProducts.sort((a, b) => a.title.localeCompare(b.title));
+  else mockProducts.sort((a, b) => b.velocity_30d - a.velocity_30d);
+
+  mockProducts = mockProducts.slice(0, limit);
 
   return {
-    products: products.map((p) => ({
+    products: mockProducts.map((p) => ({
       id: p.id,
       title: p.title,
-      price: p.price.toString(),
-      sale_price: p.salePrice?.toString() ?? null,
+      price: `$${p.price.toFixed(2)}`,
+      sale_price: p.salePrice ? `$${p.salePrice.toFixed(2)}` : null,
       image_url: p.imageUrl,
       sku: p.sku,
-      status: p.status.toLowerCase(),
-      inventory: p.inventoryQty ?? 0,
-      velocity_30d: p.salesVelocity ?? 0,
-      revenue_30d: p.revenueL30d?.toString() ?? '0',
+      status: p.availability,
+      inventory: p.inventory,
+      velocity_30d: p.velocity_30d,
+      sold_30d: p.sold_30d,
+      revenue_30d: `$${(p.velocity_30d * (p.salePrice ?? p.price)).toFixed(2)}`,
       currency: p.currency,
-      badge: classify(p),
-      tags: p.tags,
+      badge: (() => {
+        if (p.velocity_30d > 20) return 'best_seller';
+        if (p.velocity_30d > 8) return 'trending';
+        if (p.price > 150 && p.velocity_30d > 0) return 'high_value';
+        if (p.inventory > 0 && p.inventory < 10) return 'low_stock';
+        return '';
+      })(),
+      insight: p.velocity_30d > 15
+        ? 'Top performer — consider increasing ad spend'
+        : p.inventory < 10 && p.inventory > 0
+        ? 'Low inventory — replenish soon'
+        : p.velocity_30d === 0
+        ? 'No recent sales — review listing quality'
+        : 'Steady performer',
     })),
-    total: products.length,
+    total: mockProducts.length,
+    source: 'shopping_feeds_mock',
   };
 }
 
@@ -402,56 +398,33 @@ async function handleGetInventoryHealth(
     } catch { /* fall through */ }
   }
 
-  const [outOfStock, lowStock, totalProducts] = await Promise.all([
-    prisma.product.findMany({
-      where: { organizationId: ctx.orgId, status: 'ACTIVE', inventoryQty: 0 },
-      select: { id: true, title: true, inventoryQty: true, salesVelocity: true, price: true },
-      take: 20,
-    }),
-    prisma.product.findMany({
-      where: {
-        organizationId: ctx.orgId,
-        status: 'ACTIVE',
-        inventoryQty: { gt: 0, lte: threshold },
-      },
-      orderBy: { inventoryQty: 'asc' },
-      select: { id: true, title: true, inventoryQty: true, salesVelocity: true, price: true },
-      take: 20,
-    }),
-    prisma.product.count({
-      where: { organizationId: ctx.orgId, status: 'ACTIVE' },
-    }),
-  ]);
+  // Shopping Feeds mock data fallback
+  const activeProducts = MOCK_SHOPIFY_PRODUCTS;
+  const outOfStock = activeProducts.filter((p) => p.inventory === 0);
+  const lowStock = activeProducts.filter((p) => p.inventory > 0 && p.inventory <= threshold);
 
-  const toItem = (
-    p: { title: string; inventoryQty: number | null; salesVelocity: number | null; price: unknown },
-    status: 'out_of_stock' | 'critical' | 'low'
-  ) => {
-    const velocity = p.salesVelocity ?? 0;
-    const weeklyVelocity = velocity / 4;
+  const toItem = (p: typeof activeProducts[0], status: 'out_of_stock' | 'critical' | 'low') => {
+    const weeklyVelocity = p.velocity_30d / 4;
     const daysUntilStockout =
       status !== 'out_of_stock' && weeklyVelocity > 0
-        ? Math.round(((p.inventoryQty ?? 0) / weeklyVelocity) * 7)
+        ? Math.round((p.inventory / weeklyVelocity) * 7)
         : null;
     return {
       title: p.title,
-      inventory: p.inventoryQty ?? 0,
+      inventory: p.inventory,
       weekly_velocity: parseFloat(weeklyVelocity.toFixed(1)),
       days_until_stockout: daysUntilStockout,
-      at_risk_revenue: weeklyVelocity > 0
-        ? (weeklyVelocity * parseFloat(String(p.price))).toFixed(2)
-        : '0',
+      at_risk_revenue: weeklyVelocity > 0 ? (weeklyVelocity * p.price).toFixed(2) : '0',
       status,
     };
   };
 
   const atRiskRevenue = [...outOfStock, ...lowStock].reduce((s, p) => {
-    const wv = (p.salesVelocity ?? 0) / 4;
-    return s + wv * parseFloat(String(p.price));
+    return s + (p.velocity_30d / 4) * p.price;
   }, 0);
 
   return {
-    total_products: totalProducts,
+    total_products: activeProducts.length,
     out_of_stock_count: outOfStock.length,
     low_stock_count: lowStock.length,
     threshold,
@@ -459,12 +432,13 @@ async function handleGetInventoryHealth(
     currency: ctx.currency,
     items: [
       ...outOfStock.map((p) => toItem(p, 'out_of_stock')),
-      ...lowStock.map((p) => toItem(p, (p.inventoryQty ?? 0) <= 3 ? 'critical' : 'low')),
+      ...lowStock.map((p) => toItem(p, p.inventory <= 3 ? 'critical' : 'low')),
     ],
     note:
       outOfStock.length === 0 && lowStock.length === 0
         ? `No products below the ${threshold}-unit threshold.`
         : null,
+    source: 'shopping_feeds_mock',
   };
 }
 
