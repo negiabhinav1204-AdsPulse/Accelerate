@@ -216,6 +216,8 @@ export function AcceleraAiHome({
   const campaignAbortRef = React.useRef<AbortController | null>(null);
   // Ref to always have latest sessionId in stale closures
   const sessionIdRef = React.useRef<string | null>(null);
+  // Tracks partial text from the last interrupted response so the next message can resume it
+  const interruptedContextRef = React.useRef<string | null>(null);
 
   const [activeCampaign, setActiveCampaign] = React.useState<{
     agents: AgentState[];
@@ -612,16 +614,34 @@ export function AcceleraAiHome({
       setLoading(true);
 
       // Build history for the API (text only — tools and campaign messages are not re-sent)
+      const wasInterrupted = interruptedContextRef.current !== null;
+      const capturedContext = interruptedContextRef.current;
+      interruptedContextRef.current = null; // clear after reading
+
       const history = [
         ...messages.filter((m): m is ChatMessage => m.role !== 'campaign'),
         { role: 'user' as const, parts: [{ type: 'text' as const, text: trimmed }] }
       ].map((m) => ({
         role: m.role,
+        // Strip the interruption marker from the history so the AI doesn't repeat it
         content: m.parts
           .filter((p) => p.type === 'text')
           .map((p) => (p as { type: 'text'; text: string }).text)
           .join('')
+          .replace(/\n\n\*The process is interrupted\. Reply to continue\.\*/g, '')
+          .replace(/\*The process is interrupted\. Reply to continue\.\*/g, '')
       }));
+
+      // If the user is resuming an interrupted response, append a continuation
+      // note to their message in the API payload (not shown in UI) so the AI
+      // knows to pick up exactly from where it left off.
+      if (wasInterrupted && history.length > 0) {
+        const lastEntry = history[history.length - 1]!;
+        const resumeNote = capturedContext
+          ? `[Continuing an interrupted response. My previous partial answer was: "${capturedContext.slice(0, 300)}..." — please complete it based on the user's reply below]\n\n`
+          : '[Continuing an interrupted response — please resume from where you left off based on the user\'s reply below]\n\n';
+        history[history.length - 1] = { ...lastEntry, content: resumeNote + lastEntry.content };
+      }
 
       try {
         const controller = new AbortController();
@@ -762,9 +782,18 @@ export function AcceleraAiHome({
             prev.map((m) => {
               if (m.id !== assistantId || m.role === 'campaign') return m;
               const cm = m as ChatMessage;
+              // Capture any partial text so the next message can resume from it
+              const partialText = cm.parts
+                .filter((p) => p.type === 'text')
+                .map((p) => (p as { type: 'text'; text: string }).text)
+                .join('');
+              interruptedContextRef.current = partialText || null;
               return {
                 ...cm,
-                parts: cm.parts.length > 0 ? cm.parts : [{ type: 'text', text: '_Stopped._' }],
+                parts: [
+                  ...cm.parts,
+                  { type: 'text', text: cm.parts.length > 0 ? '\n\n*The process is interrupted. Reply to continue.*' : '*The process is interrupted. Reply to continue.*' }
+                ],
                 streaming: false
               };
             })
