@@ -13,7 +13,6 @@ import {
 import { Button } from '@workspace/ui/components/button';
 
 type NavPath =
-  | 'create-campaign'
   | 'campaigns'
   | 'reporting'
   | 'connectors'
@@ -21,7 +20,6 @@ type NavPath =
   | 'accelera-ai';
 
 const PATH_ICONS: Record<NavPath, React.ReactNode> = {
-  'create-campaign': <ZapIcon className="size-4" />,
   campaigns: <ZapIcon className="size-4" />,
   reporting: <BarChart3Icon className="size-4" />,
   connectors: <LinkIcon className="size-4" />,

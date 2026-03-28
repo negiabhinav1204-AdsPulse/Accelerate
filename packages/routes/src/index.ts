@@ -65,7 +65,6 @@ export const routes = {
         ConnectorAccounts: `${baseUrl.Dashboard}/organizations/[slug]/connectors/[platform]/accounts`,
         Connectors: `${baseUrl.Dashboard}/organizations/[slug]/connectors`,
         Contacts: `${baseUrl.Dashboard}/organizations/[slug]/contacts`,
-        CreateCampaign: `${baseUrl.Dashboard}/organizations/[slug]/create-campaign`,
         Dashboard: `${baseUrl.Dashboard}/organizations/[slug]/dashboard`,
         Home: `${baseUrl.Dashboard}/organizations/[slug]/home`,
         Index: `${baseUrl.Dashboard}/organizations/[slug]`,
@@ -75,8 +74,6 @@ export const routes = {
         Products: `${baseUrl.Dashboard}/organizations/[slug]/products`,
         Cdp: `${baseUrl.Dashboard}/organizations/[slug]/cdp`,
         CdpSegments: `${baseUrl.Dashboard}/organizations/[slug]/cdp/segments`,
-        MediaPlanner: `${baseUrl.Dashboard}/organizations/[slug]/media-planner`,
-        Cmo: `${baseUrl.Dashboard}/organizations/[slug]/cmo`,
         settings: {
           account: {
             Index: `${baseUrl.Dashboard}/organizations/[slug]/settings/account`,
