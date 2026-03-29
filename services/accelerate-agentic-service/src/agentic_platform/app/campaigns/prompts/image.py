@@ -10,6 +10,13 @@ from typing import Dict
 from src.agentic_platform.app.campaigns.models import (
     WebsiteContent,
 )
+from src.agentic_platform.app.common.creative_context import (
+    detect_vertical,
+    build_audience_persona,
+    build_scene_directive,
+    parse_age_range,
+    _VERTICAL_PLAYBOOK,
+)
 
 
 _AD_SAFETY_PREAMBLE = (
@@ -139,12 +146,38 @@ def build_image_prompt(
     image_mood: str = "",
     brand_colors: list[str] | None = None,
     aspect_ratio: str = "",
+    # Audience context — enables contextual lifestyle scene generation
+    audience_age_min: int = 0,
+    audience_age_max: int = 0,
+    audience_gender: str = "",
+    audience_locations: list[str] | None = None,
+    product_category: str = "",    # pre-classified category hint from catalog
 ) -> str:
     """Build a creative director-grade image generation prompt."""
-    scene_dir = SLOT_SCENE_DIRECTIONS.get(
-        slot_name,
-        "Create a premium advertising image that demands attention and drives action.",
-    )
+    # ── Contextual scene generation ───────────────────────────────
+    # When audience data is available, build a specific lifestyle scene directive
+    # (person + setting + mood) rather than a generic product-on-background prompt.
+    has_audience = bool(audience_age_min or audience_age_max or audience_gender or audience_locations)
+    vertical = detect_vertical(description, product_category)
+    playbook = _VERTICAL_PLAYBOOK.get(vertical, _VERTICAL_PLAYBOOK["general"])
+
+    if has_audience and playbook["needs_person"]:
+        age_min = audience_age_min or 18
+        age_max = audience_age_max or 35
+        persona, location_code = build_audience_persona(
+            age_min, age_max, audience_gender, list(audience_locations or [])
+        )
+        scene_dir = build_scene_directive(description, vertical, persona, location_code)
+    elif has_audience and not playbook["needs_person"]:
+        # Home/interior vertical — use location-aware setting but no person
+        _, location_code = build_audience_persona(0, 0, "", list(audience_locations or []))
+        scene_dir = build_scene_directive(description, vertical, "", location_code)
+    else:
+        # No audience data — fall back to existing slot-based directions
+        scene_dir = SLOT_SCENE_DIRECTIONS.get(
+            slot_name,
+            "Create a premium advertising image that demands attention and drives action.",
+        )
     _, angle_desc = VARIATION_ANGLES[variation_index % len(VARIATION_ANGLES)]
 
     prompt = _AD_SAFETY_PREAMBLE + scene_dir

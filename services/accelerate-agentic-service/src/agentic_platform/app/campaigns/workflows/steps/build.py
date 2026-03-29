@@ -127,6 +127,11 @@ async def _gen_image(
     brand_context: str, website: "WebsiteContent", org_id: str,
     image_style: str = "", image_mood: str = "",
     brand_colors: list[str] | None = None,
+    audience_age_min: int = 0,
+    audience_age_max: int = 0,
+    audience_gender: str = "",
+    audience_locations: list[str] | None = None,
+    product_category: str = "",
 ) -> str | None:
     t0 = time.perf_counter()
     try:
@@ -138,6 +143,11 @@ async def _gen_image(
             image_mood=image_mood,
             brand_colors=brand_colors,
             aspect_ratio=aspect_ratio,
+            audience_age_min=audience_age_min,
+            audience_age_max=audience_age_max,
+            audience_gender=audience_gender,
+            audience_locations=audience_locations,
+            product_category=product_category,
         )
         result = await _get_gateway().generate(
             ImageGenParams(prompt=prompt, size=ratio_to_size(aspect_ratio)),
@@ -211,6 +221,21 @@ async def _build_one_campaign(
         tasks = []
         slot_keys = []  # parallel index → slot_name
 
+        # Extract audience targeting from ad_context for contextual image generation
+        audience = ac.audience if ac else None
+        img_age_min, img_age_max = 18, 35
+        img_gender = ""
+        img_locations: list[str] = []
+        img_product_category = ""
+        if audience:
+            from src.agentic_platform.app.common.creative_context import parse_age_range
+            img_age_min, img_age_max = parse_age_range(audience.age_range or "")
+            img_gender = audience.gender or ""
+            if audience.location:
+                img_locations = [audience.location]
+        if ac and ac.products:
+            img_product_category = ac.products[0].category or ""
+
         for slot_name, aspect_ratio, max_count in slots:
             effective_count = min(images_per_slot, max_count)
             for vi in range(effective_count):
@@ -222,6 +247,11 @@ async def _build_one_campaign(
                     image_style=creative.image_style if creative else "",
                     image_mood=creative.image_mood if creative else "",
                     brand_colors=creative.brand_colors if creative else None,
+                    audience_age_min=img_age_min,
+                    audience_age_max=img_age_max,
+                    audience_gender=img_gender,
+                    audience_locations=img_locations,
+                    product_category=img_product_category,
                 ))
                 slot_keys.append(slot_name)
 

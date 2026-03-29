@@ -29,6 +29,13 @@ from src.agentic_platform.app.accelera.brand.company_brief import (
     format_brief_for_copy_prompt,
 )
 from src.agentic_platform.app.accelera.blocks import metric_cards_block, MetricCardsData, MetricItem
+from src.agentic_platform.app.common.creative_context import (
+    detect_vertical,
+    build_audience_persona,
+    build_scene_directive,
+    parse_age_range,
+    _VERTICAL_PLAYBOOK,
+)
 
 
 # ── Copy schema ───────────────────────────────────────────────────────
@@ -82,6 +89,9 @@ async def _generate_ad_creative(
     platform: str = "meta",
     product_title: Optional[str] = None,
     product_description: Optional[str] = None,
+    target_age_range: str = "",
+    target_gender: str = "",
+    target_location: str = "",
 ) -> dict:
     """Generate AI-powered ad creative: an image plus headline, description, and CTA for a product.
 
@@ -91,7 +101,10 @@ async def _generate_ad_creative(
     product_id: ID from your product catalog. Provide product_title/description if no product_id.
     style: "lifestyle" (default) | "dramatic_dark" | "golden_hour" | "minimalist" | "vibrant"
     platform: "meta" (default) | "google" | "bing" — affects image ratio and copy length.
-    headline: Optional override for headline. If omitted, AI generates it."""
+    headline: Optional override for headline. If omitted, AI generates it.
+    target_age_range: Target audience age range e.g. "18-35". Enables lifestyle scene generation.
+    target_gender: "male", "female", or "mixed". Used with target_age_range.
+    target_location: Country code e.g. "US", "UK", "IN". Sets the location context."""
     org_id = get_org_id()
 
     # 1. Fetch product if product_id provided
@@ -117,14 +130,32 @@ async def _generate_ad_creative(
     style_prompt = _STYLE_PROMPTS.get(style, _STYLE_PROMPTS["lifestyle"])
     platform_spec = _PLATFORM_SPECS.get(platform, _PLATFORM_SPECS["meta"])
 
-    image_prompt = (
-        f"Professional advertisement for '{p_title}'. "
-        f"{style_prompt}. "
-        f"{'Price tag: $' + str(p_price) + '. ' if p_price else ''}"
-        f"{('Brand context: ' + brand_image_ctx + '. ') if brand_image_ctx else ''}"
-        f"Optimized for {platform} ads at {platform_spec['ratio']} ratio. "
-        f"High quality, photorealistic, no text overlays."
-    )
+    # Build contextual scene directive if audience targeting provided
+    _description_for_vertical = f"{p_title} {p_description[:100]}".strip()
+    _vertical = detect_vertical(_description_for_vertical)
+    _playbook = _VERTICAL_PLAYBOOK.get(_vertical, _VERTICAL_PLAYBOOK["general"])
+
+    if target_age_range and _playbook["needs_person"]:
+        _age_min, _age_max = parse_age_range(target_age_range)
+        _locations = [target_location] if target_location else []
+        _persona, _loc_code = build_audience_persona(_age_min, _age_max, target_gender, _locations)
+        _scene = build_scene_directive(_description_for_vertical, _vertical, _persona, _loc_code)
+        image_prompt = (
+            f"{_scene} "
+            f"{('Brand context: ' + brand_image_ctx + '. ') if brand_image_ctx else ''}"
+            f"Optimized for {platform} ads at {platform_spec['ratio']} ratio. "
+            f"STRICT RULE: ZERO text, ZERO words, ZERO logos anywhere in the image."
+        )
+    else:
+        # No audience data — use style-based approach (existing behaviour)
+        image_prompt = (
+            f"Professional advertisement for '{p_title}'. "
+            f"{style_prompt}. "
+            f"{'Price tag: $' + str(p_price) + '. ' if p_price else ''}"
+            f"{('Brand context: ' + brand_image_ctx + '. ') if brand_image_ctx else ''}"
+            f"Optimized for {platform} ads at {platform_spec['ratio']} ratio. "
+            f"High quality, photorealistic, no text overlays."
+        )
 
     # 4. Generate image via creative-service
     creative_url: Optional[str] = p_image_url  # fall back to product image
