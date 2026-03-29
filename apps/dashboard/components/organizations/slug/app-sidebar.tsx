@@ -13,7 +13,6 @@ import {
 
 import { NavMain } from '~/components/organizations/slug/nav-main';
 import { NavUser } from '~/components/organizations/slug/nav-user';
-import { NavUtilities } from '~/components/organizations/slug/nav-utilities';
 import { OrganizationSwitcher } from '~/components/organizations/slug/organization-switcher';
 import type { OrganizationDto } from '~/types/dtos/organization-dto';
 import type { ProfileDto } from '~/types/dtos/profile-dto';
@@ -38,7 +37,6 @@ export function AppSidebar({
           className="h-full [&>[data-radix-scroll-area-viewport]>div]:flex! [&>[data-radix-scroll-area-viewport]>div]:h-full [&>[data-radix-scroll-area-viewport]>div]:flex-col"
         >
           <NavMain />
-          <NavUtilities />
         </ScrollArea>
       </SidebarContent>
       <SidebarFooter className="h-14">
