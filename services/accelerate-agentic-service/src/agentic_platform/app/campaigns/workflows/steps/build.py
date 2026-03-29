@@ -394,10 +394,28 @@ async def build(ctx: WorkflowContext) -> NodeResponse:
     website = WebsiteContent(**scrape_result.data) if scrape_result and scrape_result.data else WebsiteContent(url="")
     url = ctx.args.get("url", "")
 
-    # Creative preferences from user
+    # Creative preferences: user overrides merged with brand analysis data
     args = CreateCampaignArgs.from_ctx_args(ctx.args)
-    creative = args.creative
+    creative = args.creative or CreativePreferences()
     products_prefs = args.products
+
+    # Enrich creative with analyze-step brand data (user prefs always win)
+    analyze_result = ctx.results.get("analyze")
+    if analyze_result and analyze_result.data:
+        # Brand colors: use scraped website colors when user didn't specify
+        if not creative.brand_colors:
+            scraped_colors = website.metadata.brand_colors or []
+            if analyze_result.data.get("brand_colors"):
+                scraped_colors = analyze_result.data["brand_colors"]
+            if scraped_colors:
+                creative = creative.model_copy(update={"brand_colors": scraped_colors})
+
+        # Image mood: derive from brand tone_of_voice when user didn't specify
+        if not creative.image_mood:
+            brand = analyze_result.data.get("brand", {}) or {}
+            tone = brand.get("tone_of_voice", "")
+            if tone:
+                creative = creative.model_copy(update={"image_mood": tone})
 
     # Recover CampaignContext from plan step data (survives HITL checkpoint)
     campaign_ctx = CampaignContext.from_step_data(plan_result.data)
