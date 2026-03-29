@@ -37,6 +37,7 @@ from src.agentic_platform.app.campaigns.models import (
     BuiltCampaignAssets, BuildStepData,
 )
 from src.agentic_platform.app.campaigns.prompts import build_image_prompt, ratio_to_size
+from src.agentic_platform.app.common.platform_compliance import validate_image_bytes, recompress_to_fix_size, SLOT_POLICIES
 from src.agentic_platform.app.campaigns.keyword_generator import generate_keywords
 from src.agentic_platform.app.campaigns.services import campaign_client
 
@@ -69,6 +70,7 @@ _CANONICAL_SIZES: dict[str, tuple[int, int]] = {
     "1:1":    (1200, 1200),   # Square marketing
     "4:5":    (960, 1200),    # Portrait — Google PMax
     "1:2":    (600, 1200),    # Vertical — Microsoft PMax (NOT the same as Google 4:5)
+    "9:16":   (1080, 1920),  # Vertical full-screen — Meta Stories/Reels, TikTok
 }
 
 
@@ -125,6 +127,7 @@ _TEXT_SYSTEM_PROMPT = (
 async def _gen_image(
     desc: str, slot_name: str, aspect_ratio: str, variation_idx: int,
     brand_context: str, website: "WebsiteContent", org_id: str,
+    template_type: str = "",
     image_style: str = "", image_mood: str = "",
     brand_colors: list[str] | None = None,
     audience_age_min: int = 0,
@@ -133,39 +136,66 @@ async def _gen_image(
     audience_locations: list[str] | None = None,
     product_category: str = "",
 ) -> str | None:
+    """Generate one image with up to 2 attempts.
+
+    Attempt 1: normal generation + PNG crop.
+    If compliance validation fails (file size):
+      Attempt 2: JPEG recompress the attempt-1 result.
+    If both attempts fail validation → return None (caller uses product image fallback).
+    If generation throws → retry once with fresh generation, then return None.
+    """
     t0 = time.perf_counter()
-    try:
-        prompt = build_image_prompt(
-            description=desc, slot_name=slot_name,
-            brand_context=brand_context, website=website,
-            variation_index=variation_idx,
-            image_style=image_style,
-            image_mood=image_mood,
-            brand_colors=brand_colors,
-            aspect_ratio=aspect_ratio,
-            audience_age_min=audience_age_min,
-            audience_age_max=audience_age_max,
-            audience_gender=audience_gender,
-            audience_locations=audience_locations,
-            product_category=product_category,
-        )
-        result = await _get_gateway().generate(
-            ImageGenParams(prompt=prompt, size=ratio_to_size(aspect_ratio)),
-        )
-        gen_time = time.perf_counter() - t0
+    policy = SLOT_POLICIES.get((template_type, slot_name)) if template_type else None
+    last_bytes: bytes | None = None
 
-        # Crop to exact target ratio (e.g. 1.91:1 from 3:2) before upload
-        final_bytes = _crop_to_ratio(result.image_bytes, aspect_ratio)
+    for attempt in range(2):
+        try:
+            if attempt == 0 or last_bytes is None:
+                # Fresh generation
+                prompt = build_image_prompt(
+                    description=desc, slot_name=slot_name,
+                    brand_context=brand_context, website=website,
+                    variation_index=variation_idx,
+                    image_style=image_style, image_mood=image_mood,
+                    brand_colors=brand_colors, aspect_ratio=aspect_ratio,
+                    audience_age_min=audience_age_min, audience_age_max=audience_age_max,
+                    audience_gender=audience_gender, audience_locations=audience_locations,
+                    product_category=product_category,
+                )
+                result = await _get_gateway().generate(
+                    ImageGenParams(prompt=prompt, size=ratio_to_size(aspect_ratio)),
+                )
+                candidate = _crop_to_ratio(result.image_bytes, aspect_ratio)
+            else:
+                # Recompress attempt — fix file-size violation without re-generating
+                max_bytes = policy.max_file_size_bytes if policy else 5_242_880
+                candidate = recompress_to_fix_size(last_bytes, target_max_bytes=max_bytes)
+                logger.info("[build] image: slot=%s attempt 2 recompress → %dKB", slot_name, len(candidate) // 1024)
 
-        t1 = time.perf_counter()
-        cdn_url = await _get_gcs().upload(final_bytes, org_id=org_id)
-        upload_time = time.perf_counter() - t1
+            # Platform compliance check
+            violations = validate_image_bytes(candidate, template_type, slot_name)
+            if violations:
+                if attempt == 0:
+                    logger.warning("[build] image compliance attempt 1: slot=%s violations=%s — recompressing", slot_name, violations)
+                    last_bytes = candidate
+                    continue  # retry via recompress
+                else:
+                    logger.warning("[build] image compliance attempt 2: slot=%s still violating=%s — returning None", slot_name, violations)
+                    return None  # caller will use product image fallback
 
-        logger.info("[build] image: slot=%s gen=%.1fs upload=%.1fs size=%dKB", slot_name, gen_time, upload_time, len(result.image_bytes) // 1024)
-        return cdn_url
-    except Exception as exc:
-        logger.warning("[build] image failed: slot=%s (%.1fs) %s", slot_name, time.perf_counter() - t0, exc)
-        return None
+            t1 = time.perf_counter()
+            cdn_url = await _get_gcs().upload(candidate, org_id=org_id)
+            logger.info(
+                "[build] image: slot=%s attempt=%d total=%.1fs upload=%.1fs size=%dKB",
+                slot_name, attempt + 1, time.perf_counter() - t0, time.perf_counter() - t1, len(candidate) // 1024,
+            )
+            return cdn_url
+
+        except Exception as exc:
+            logger.warning("[build] image failed attempt %d/2: slot=%s (%.1fs) %s", attempt + 1, slot_name, time.perf_counter() - t0, exc)
+            if attempt == 0:
+                continue  # retry with fresh generation
+    return None
 
 
 async def _build_one_campaign(
@@ -221,6 +251,15 @@ async def _build_one_campaign(
         tasks = []
         slot_keys = []  # parallel index → slot_name
 
+        # Product image fallback URLs (used if AI generation + recompress both fail)
+        product_fallbacks: list[str] = []
+        if website.product_data is not None:
+            pd = website.product_data
+            if hasattr(pd, "image_urls"):
+                product_fallbacks = pd.image_urls[:3]
+            elif hasattr(pd, "images") and isinstance(pd.images, list):
+                product_fallbacks = [str(img) for img in pd.images[:3] if img]
+
         # Extract audience targeting from ad_context for contextual image generation
         audience = ac.audience if ac else None
         img_age_min, img_age_max = 18, 35
@@ -244,6 +283,7 @@ async def _build_one_campaign(
                     desc = f"{ac.products[0].name} — {campaign.key_message}"
                 tasks.append(_gen_image(
                     desc, slot_name, aspect_ratio, vi, brand_ctx, website, org_id,
+                    template_type=campaign.template_type,
                     image_style=creative.image_style if creative else "",
                     image_mood=creative.image_mood if creative else "",
                     brand_colors=creative.brand_colors if creative else None,
@@ -260,10 +300,14 @@ async def _build_one_campaign(
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Group by slot
+        # Group by slot; fall back to product image when generation fails
         slot_urls: Dict[str, list] = {}
         for i, result in enumerate(results):
             if isinstance(result, Exception) or result is None:
+                if product_fallbacks:
+                    fallback = product_fallbacks[i % len(product_fallbacks)]
+                    slot_urls.setdefault(slot_keys[i], []).append(fallback)
+                    logger.info("[build] image slot=%s using product image fallback", slot_keys[i])
                 continue
             slot_urls.setdefault(slot_keys[i], []).append(result)
         return slot_urls

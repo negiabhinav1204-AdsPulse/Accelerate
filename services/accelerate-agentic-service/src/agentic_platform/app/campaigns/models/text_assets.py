@@ -161,6 +161,28 @@ TEMPLATE_IMAGE_SLOTS: Dict[str, list[tuple[str, str, int]]] = {
         ("squareMarketingImages", "1:1", 3),
         ("portraitMarketingImages", "1:2", 2),
     ],
+    # Meta Single Image: landscape feed + square feed + Stories/Reels (9:16)
+    TemplateType.META_SINGLE_IMAGE_AD: [
+        ("marketingImages", "1.91:1", 3),
+        ("squareMarketingImages", "1:1", 3),
+        ("storyImages", "9:16", 2),
+    ],
+    # Meta Carousel: square cards only (up to 5 unique images)
+    TemplateType.META_CAROUSEL_AD: [
+        ("carouselImages", "1:1", 5),
+    ],
+    # Meta Collection: landscape cover + square catalog images
+    TemplateType.META_COLLECTION_AD: [
+        ("coverImage", "1.91:1", 1),
+        ("catalogImages", "1:1", 4),
+    ],
+    # Meta Video Ad: no static image slots (video assets handled separately)
+    TemplateType.META_VIDEO_AD: [],
+    # TikTok In-Feed: vertical (9:16) + square — ready for when platform is connected
+    # TemplateType.TIKTOK_IN_FEED_AD: [
+    #     ("videoThumbnail", "9:16", 3),
+    #     ("squareImage", "1:1", 2),
+    # ],
     # Search templates have no image slots
     TemplateType.GOOGLE_RESPONSIVE_SEARCH_AD: [],
     TemplateType.BING_RESPONSIVE_SEARCH_AD: [],
