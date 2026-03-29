@@ -8,7 +8,7 @@ import { ShoppingFeedsClient } from '~/components/shopping-feeds/shopping-feeds-
 import { getOrganizationDetails } from '~/data/organization/get-organization-details';
 import { createTitle } from '~/lib/formatters';
 
-export const metadata: Metadata = { title: createTitle('Shopping Feeds') };
+export const metadata: Metadata = { title: createTitle('Commerce') };
 
 export default async function ShoppingFeedsPage(props: {
   params: Promise<{ slug: string }>;
@@ -21,7 +21,7 @@ export default async function ShoppingFeedsPage(props: {
     <Page>
       <PageHeader>
         <PagePrimaryBar>
-          <h1 className="text-lg font-semibold text-foreground">Shopping Feeds</h1>
+          <h1 className="text-lg font-semibold text-foreground">Commerce</h1>
         </PagePrimaryBar>
       </PageHeader>
       <PageBody>

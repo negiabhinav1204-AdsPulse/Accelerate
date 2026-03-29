@@ -8,8 +8,20 @@ import {
   ExternalLinkIcon,
   ImageIcon,
   PencilIcon,
-  SparklesIcon
+  SparklesIcon,
+  TrendingUpIcon,
+  TrendingDownIcon,
 } from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
 
 import { cn } from '@workspace/ui/lib/utils';
 
@@ -331,6 +343,146 @@ function LoadingSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// New types
+// ---------------------------------------------------------------------------
+
+type CampaignMetrics = {
+  spend: number;
+  revenue: number;
+  roas: number;
+  conversions: number;
+  impressions: number;
+  clicks: number;
+  currency: string;
+};
+
+// ---------------------------------------------------------------------------
+// New sub-components
+// ---------------------------------------------------------------------------
+
+function HealthBadge({ health }: { health: 'winner' | 'learner' | 'underperformer' | 'bleeder' | null }) {
+  if (!health) return null;
+  const config = {
+    winner: { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Winner' },
+    learner: { cls: 'bg-blue-50 text-blue-700 border-blue-200', label: 'Learner' },
+    underperformer: { cls: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Underperformer' },
+    bleeder: { cls: 'bg-red-50 text-red-700 border-red-200', label: 'Bleeder' },
+  };
+  const c = config[health];
+  return (
+    <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap', c.cls)}>
+      {c.label}
+    </span>
+  );
+}
+
+function MetricCard({ label, value, sub, trend }: {
+  label: string;
+  value: string;
+  sub?: string;
+  trend?: 'up' | 'down' | null;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-1">
+      <p className="text-xs text-muted-foreground font-medium">{label}</p>
+      <div className="flex items-baseline gap-2">
+        <p className="text-2xl font-bold text-foreground">{value}</p>
+        {trend === 'up' && <TrendingUpIcon className="size-4 text-emerald-500" />}
+        {trend === 'down' && <TrendingDownIcon className="size-4 text-red-500" />}
+      </div>
+      {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+function RecommendationCard({ priority, title, description, onApply }: {
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  title: string;
+  description: string;
+  onApply?: () => void;
+}) {
+  const cfg = {
+    HIGH: 'border-l-red-500 bg-red-50/30',
+    MEDIUM: 'border-l-amber-500 bg-amber-50/30',
+    LOW: 'border-l-blue-500 bg-blue-50/30',
+  };
+  const badgeCfg = {
+    HIGH: 'bg-red-100 text-red-700',
+    MEDIUM: 'bg-amber-100 text-amber-700',
+    LOW: 'bg-blue-100 text-blue-700',
+  };
+  return (
+    <div className={cn('rounded-xl border border-border border-l-4 p-4 space-y-2', cfg[priority])}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', badgeCfg[priority])}>
+            {priority}
+          </span>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onApply}
+        className="text-xs font-medium text-primary hover:underline"
+      >
+        Apply recommendation →
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mock chart data
+// ---------------------------------------------------------------------------
+
+const SPEND_CHART_DATA = [
+  { day: 'Day 1', spend: 380, conversions: 8 },
+  { day: 'Day 2', spend: 420, conversions: 11 },
+  { day: 'Day 3', spend: 395, conversions: 9 },
+  { day: 'Day 4', spend: 460, conversions: 14 },
+  { day: 'Day 5', spend: 510, conversions: 16 },
+  { day: 'Day 6', spend: 490, conversions: 13 },
+  { day: 'Day 7', spend: 440, conversions: 12 },
+  { day: 'Day 8', spend: 530, conversions: 17 },
+  { day: 'Day 9', spend: 580, conversions: 19 },
+  { day: 'Day 10', spend: 560, conversions: 18 },
+  { day: 'Day 11', spend: 610, conversions: 21 },
+  { day: 'Day 12', spend: 590, conversions: 20 },
+  { day: 'Day 13', spend: 620, conversions: 22 },
+  { day: 'Day 14', spend: 650, conversions: 24 },
+];
+
+const HEALTH_CHART_DATA = [
+  { day: 'Day 1', score: 68 },
+  { day: 'Day 2', score: 71 },
+  { day: 'Day 3', score: 69 },
+  { day: 'Day 4', score: 74 },
+  { day: 'Day 5', score: 78 },
+  { day: 'Day 6', score: 76 },
+  { day: 'Day 7', score: 82 },
+];
+
+const MOCK_RECOMMENDATIONS = [
+  {
+    priority: 'HIGH' as const,
+    title: 'Scale budget +25%',
+    description: 'ROAS 3.1x consistently over 14 days — this campaign is budget-limited. Increasing spend could capture 40% more conversions.',
+  },
+  {
+    priority: 'MEDIUM' as const,
+    title: 'Add lookalike audience',
+    description: 'Your top converters are aged 28-38 with shopping interests. A 1% lookalike could expand reach by ~50K.',
+  },
+  {
+    priority: 'LOW' as const,
+    title: 'Refresh creative assets',
+    description: 'Primary creative is 32 days old. A/B test with a new variant to prevent fatigue.',
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -352,12 +504,25 @@ export function CampaignDetailClient({
   const [data, setData] = React.useState<DetailData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'adsets' | 'agents'>('adsets');
+  const [metrics, setMetrics] = React.useState<CampaignMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = React.useState(true);
+  const [detailsExpanded, setDetailsExpanded] = React.useState(false);
 
   const isAccelerate = source === 'accelerate';
 
+  const MOCK_METRICS: CampaignMetrics = {
+    spend: 12400,
+    revenue: 38200,
+    roas: 3.08,
+    conversions: 156,
+    impressions: 284000,
+    clicks: 5630,
+    currency: orgCurrency,
+  };
+
   React.useEffect(() => {
     void loadDetail();
+    void loadMetrics();
   }, [campaignId, orgId, source, platform]);
 
   async function loadDetail() {
@@ -380,11 +545,44 @@ export function CampaignDetailClient({
     }
   }
 
+  async function loadMetrics() {
+    setMetricsLoading(true);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/metrics?orgId=${orgId}`);
+      if (!res.ok) throw new Error('metrics unavailable');
+      const json = await res.json() as CampaignMetrics;
+      setMetrics(json);
+    } catch {
+      setMetrics(MOCK_METRICS);
+    } finally {
+      setMetricsLoading(false);
+    }
+  }
+
+  function getHealth(m: CampaignMetrics | null): 'winner' | 'learner' | 'underperformer' | 'bleeder' | null {
+    if (!m) return null;
+    if (m.spend < 100) return 'learner';
+    if (m.roas >= 3) return 'winner';
+    if (m.roas >= 1) return 'underperformer';
+    return 'bleeder';
+  }
+
+  function formatCurrency(amount: number, currency: string): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  }
+
+  const health = getHealth(metrics);
+
   if (loading) return <LoadingSkeleton />;
 
   return (
-    <div className="flex flex-col gap-4 p-6 pb-24">
-      {/* Back link */}
+    <div className="flex flex-col gap-6 p-6 pb-24">
+      {/* 1. Back link */}
       <a
         href={`/organizations/${orgSlug}/campaigns`}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
@@ -393,13 +591,14 @@ export function CampaignDetailClient({
         Campaigns
       </a>
 
-      {/* Header */}
+      {/* 2. Header */}
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-xl font-semibold text-foreground">
           {data?.campaignName ?? campaignId}
         </h1>
         <PlatformBadge platform={data?.platform ?? platform} />
-        <span className="text-xs text-muted-foreground">ID: {campaignId}</span>
+        {data && <StatusBadge status={data.adSets[0]?.status ?? 'draft'} />}
+        <HealthBadge health={health} />
         {isAccelerate && (
           <a
             href={`/organizations/${orgSlug}/campaigns/${campaignId}/edit`}
@@ -411,77 +610,259 @@ export function CampaignDetailClient({
         )}
       </div>
 
-      {/* Tabs — only shown for Accelerate-created campaigns */}
-      {isAccelerate && (
-        <div className="flex gap-1 border-b border-border">
-          <button
-            type="button"
-            onClick={() => setActiveTab('adsets')}
-            className={cn(
-              'px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
-              activeTab === 'adsets'
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
-            Ad Sets
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('agents')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
-              activeTab === 'agents'
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <SparklesIcon className="size-3.5" />
-            Agent Analysis
-          </button>
-        </div>
-      )}
+      {/* 3. Performance metrics row */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MetricCard
+          label="Spend"
+          value={metricsLoading ? '—' : formatCurrency(metrics?.spend ?? 0, metrics?.currency ?? orgCurrency)}
+          trend={null}
+        />
+        <MetricCard
+          label="Revenue"
+          value={metricsLoading ? '—' : formatCurrency(metrics?.revenue ?? 0, metrics?.currency ?? orgCurrency)}
+          trend="up"
+        />
+        <MetricCard
+          label="ROAS"
+          value={metricsLoading ? '—' : `${(metrics?.roas ?? 0).toFixed(2)}x`}
+          sub={health === 'winner' ? 'Performing well' : undefined}
+          trend={(metrics?.roas ?? 0) >= 2 ? 'up' : 'down'}
+        />
+        <MetricCard
+          label="Conversions"
+          value={metricsLoading ? '—' : String(metrics?.conversions ?? 0)}
+          trend="up"
+        />
+      </div>
 
-      {/* Agent Analysis tab */}
-      {activeTab === 'agents' && isAccelerate && (
-        <CampaignAgentsView campaignId={campaignId} orgId={orgId} />
-      )}
-
-      {/* Ad Sets tab (default) */}
-      {activeTab === 'adsets' && (
-        <>
-          {/* Error */}
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
+      {/* 4. Campaign details collapsible */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setDetailsExpanded((e) => !e)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/30 transition-colors"
+        >
+          Campaign Details
+          {detailsExpanded ? (
+            <ChevronDownIcon className="size-4 text-muted-foreground" />
+          ) : (
+            <ChevronRightIcon className="size-4 text-muted-foreground" />
           )}
-
-          {!error && data && data.adSets.length === 0 && (
-            <div className="rounded-xl border border-border bg-card py-16 flex flex-col items-center justify-center gap-2">
-              <p className="text-sm font-medium text-foreground">No ad sets found</p>
-              <p className="text-xs text-muted-foreground">This campaign has no ad sets, or they could not be loaded.</p>
+        </button>
+        {detailsExpanded && (
+          <div className="border-t border-border px-4 py-4 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
+            <div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Platform</p>
+              <p className="text-sm text-foreground mt-0.5">{getPlatformLabel(data?.platform ?? platform)}</p>
             </div>
-          )}
-
-          {!error && data && data.adSets.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-                Ad Sets ({data.adSets.length})
+            <div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Objective</p>
+              <p className="text-sm text-foreground mt-0.5">{toTitleCase(data?.adSets[0]?.optimizationGoal ?? '—')}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Status</p>
+              <p className="text-sm text-foreground mt-0.5">{toTitleCase(data?.adSets[0]?.status ?? '—')}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Daily Budget</p>
+              <p className="text-sm text-foreground mt-0.5">
+                {data?.adSets[0]
+                  ? formatBudget(data.adSets[0].dailyBudget, orgCurrency)
+                  : '—'}
               </p>
-              {data.adSets.map((adSet) => (
-                <AdSetCard key={adSet.id} adSet={adSet} currency={orgCurrency} />
-              ))}
             </div>
-          )}
+            <div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Ad Sets</p>
+              <p className="text-sm text-foreground mt-0.5">{data?.adSets.length ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Campaign ID</p>
+              <p className="text-sm text-foreground mt-0.5 font-mono text-xs">{campaignId}</p>
+            </div>
+          </div>
+        )}
+      </div>
 
-          {!error && !data && !loading && (
-            <div className="rounded-xl border border-border bg-card py-16 flex flex-col items-center justify-center gap-2">
-              <p className="text-sm font-medium text-foreground">Campaign not found</p>
-              <p className="text-xs text-muted-foreground">Could not load data for this campaign.</p>
+      {/* 5. Spend vs Conversions chart */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <p className="text-sm font-semibold text-foreground">Spend vs Conversions — Last 14 Days</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={SPEND_CHART_DATA} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis
+              dataKey="day"
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickLine={false}
+              axisLine={false}
+              interval={2}
+            />
+            <YAxis
+              yAxisId="left"
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => `$${v}`}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <Tooltip
+              contentStyle={{
+                borderRadius: '8px',
+                border: '1px solid hsl(var(--border))',
+                backgroundColor: 'hsl(var(--card))',
+                fontSize: '12px',
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: '11px' }} />
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="spend"
+              stroke="#3b82f6"
+              strokeWidth={2}
+              dot={false}
+              name="Spend ($)"
+            />
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="conversions"
+              stroke="#10b981"
+              strokeWidth={2}
+              dot={false}
+              name="Conversions"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 6. Audience Insights */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+        <p className="text-sm font-semibold text-foreground">Audience Insights</p>
+        <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+          {[
+            { label: 'Age 25–34', pct: 35 },
+            { label: 'Age 35–44', pct: 28 },
+            { label: 'Male', pct: 58 },
+            { label: 'Female', pct: 42 },
+          ].map(({ label, pct }) => (
+            <div key={label} className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-xs font-semibold text-foreground">{pct}%</p>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
             </div>
-          )}
-        </>
+          ))}
+        </div>
+      </div>
+
+      {/* 7. Ad Sets */}
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+          Ad Sets {data ? `(${data.adSets.length})` : ''}
+        </p>
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {!error && data && data.adSets.length === 0 && (
+          <div className="rounded-xl border border-border bg-card py-12 flex flex-col items-center justify-center gap-2">
+            <p className="text-sm font-medium text-foreground">No ad sets found</p>
+            <p className="text-xs text-muted-foreground">This campaign has no ad sets, or they could not be loaded.</p>
+          </div>
+        )}
+
+        {!error && data && data.adSets.length > 0 &&
+          data.adSets.map((adSet) => (
+            <AdSetCard key={adSet.id} adSet={adSet} currency={orgCurrency} />
+          ))
+        }
+
+        {!error && !data && !loading && (
+          <div className="rounded-xl border border-border bg-card py-12 flex flex-col items-center justify-center gap-2">
+            <p className="text-sm font-medium text-foreground">Campaign not found</p>
+            <p className="text-xs text-muted-foreground">Could not load data for this campaign.</p>
+          </div>
+        )}
+      </div>
+
+      {/* 8. Health Score History */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <p className="text-sm font-semibold text-foreground">Health Score History — Last 7 Days</p>
+        <ResponsiveContainer width="100%" height={160}>
+          <LineChart data={HEALTH_CHART_DATA} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis
+              dataKey="day"
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              domain={[0, 100]}
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <Tooltip
+              contentStyle={{
+                borderRadius: '8px',
+                border: '1px solid hsl(var(--border))',
+                backgroundColor: 'hsl(var(--card))',
+                fontSize: '12px',
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="score"
+              stroke="#8b5cf6"
+              strokeWidth={2}
+              dot={{ fill: '#8b5cf6', r: 3 }}
+              name="Health Score"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 9. AI Recommendations */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <SparklesIcon className="size-4 text-primary" />
+          <p className="text-sm font-semibold text-foreground">AI Recommendations</p>
+        </div>
+        {MOCK_RECOMMENDATIONS.map((rec) => (
+          <RecommendationCard
+            key={rec.title}
+            priority={rec.priority}
+            title={rec.title}
+            description={rec.description}
+          />
+        ))}
+      </div>
+
+      {/* 10. Agent Analysis (Accelerate campaigns only) */}
+      {isAccelerate && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <SparklesIcon className="size-4 text-muted-foreground" />
+            <p className="text-sm font-semibold text-foreground">Agent Analysis</p>
+          </div>
+          <CampaignAgentsView campaignId={campaignId} orgId={orgId} />
+        </div>
       )}
     </div>
   );

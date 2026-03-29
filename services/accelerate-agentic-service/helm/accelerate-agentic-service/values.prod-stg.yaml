@@ -1,0 +1,46 @@
+replicaCount: 2
+
+mcpToolbox:
+  enabled: true
+  bigqueryProject: accelerate-prod-stg-824e
+
+env:
+  IDP_ENVIRONMENT: uat
+  UVICORN_WORKERS: "4"
+  VERTEXAI_PROJECT: accelerate-prod-stg-824e
+  DB_HOST: "10.50.4.13"
+  DB_PORT: "5432"
+  DB_USER: admin
+  DB_NAME: langgraph_checkpoints
+  DB_SSLMODE: require
+  SENTRY_DSN: https://a49f3fd8abb7b68d8c9519fef15d3eba@sentry-prod.accelerate.inmobi.com/11
+  SENTRY_ENVIRONMENT: uat
+  GCS_CDN_BASE_URL: https://cdn.uat.accelerate.inmobi.com/agenticflow
+  GCS_BUCKET_NAME: gcs-accelerate-prod-stg-cdn-agenticflow
+  GCS_PROJECT_ID: accelerate-prod-cdn-c581
+  GOOGLE_CLOUD_PROJECT: accelerate-prod-stg-824e
+
+deployment:
+  mode: "combined"
+
+scheduler:
+  mode: "embedded"
+  standalone:
+    enabled: false
+
+openDevopsHooks:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 4
+    memory: 10Gi
+  limits:
+    cpu: 8
+    memory: 16Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 50
+  targetCPUUtilizationPercentage: 60

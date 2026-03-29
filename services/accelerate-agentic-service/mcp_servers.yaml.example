@@ -1,0 +1,63 @@
+# MCP Server Configuration
+#
+# Each server entry defines an MCP server connection and metadata
+# for its tools. Copy this file to mcp_servers.yaml and customize.
+#
+# Tools from MCP servers become AgenticTool instances — they get
+# all platform features (streaming, HITL, thinking messages, timeouts)
+# automatically via the YAML manifest.
+
+servers:
+  # ── HTTP-based MCP server ───────────────────────────────────────
+  campaign_tools:
+    transport: streamable_http
+    url: http://campaign-service:8001/mcp
+    headers:
+      Authorization: "Bearer ${CAMPAIGN_MCP_TOKEN}"
+
+    # Defaults applied to ALL tools from this server
+    server_defaults:
+      tags: [campaign_mgmt]
+      thinking_messages:
+        - "Checking campaign data..."
+        - "Working on it..."
+      timeout: 30
+      hitl_policy: never
+
+    # Per-tool overrides (only set fields you want to override)
+    tool_manifest:
+      pause_campaign:
+        hitl_policy: always
+        thinking_messages:
+          - "Preparing to pause campaign..."
+        timeout: 60
+
+      get_campaign_metrics:
+        tags: [analytics]
+        thinking_messages:
+          - "Pulling campaign metrics..."
+
+  # ── SSE-based MCP server ────────────────────────────────────────
+  jira_tools:
+    transport: sse
+    url: http://jira-mcp:8002/sse
+
+    server_defaults:
+      tags: [diagnostics]
+      timeout: 45
+
+    tool_manifest:
+      create_jira_issue:
+        hitl_policy: always
+        thinking_messages:
+          - "Creating Jira issue..."
+        timeout: 30
+
+  # ── stdio-based MCP server (local process) ──────────────────────
+  # file_tools:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["-y", "@anthropic/mcp-server-filesystem", "/data"]
+  #   server_defaults:
+  #     tags: [diagnostics]
+  #     timeout: 15

@@ -1,19 +1,26 @@
 import {
+  BarChart2Icon,
   BellIcon,
   BotIcon,
   BrainCircuitIcon,
+  ClipboardListIcon,
   CodeIcon,
   CreditCardIcon,
+  FlaskConicalIcon,
   LayoutDashboardIcon,
   LockKeyholeIcon,
   MegaphoneIcon,
   PlusCircleIcon,
   PlugIcon,
   BarChart3Icon,
+  RssIcon,
+  SearchCheckIcon,
   ShoppingCartIcon,
+  SlidersHorizontalIcon,
   StoreIcon,
   UserIcon,
-  UserPlus2Icon
+  UserPlus2Icon,
+  ZapIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -50,9 +57,39 @@ export function createMainNavItems(slug: string): NavItem[] {
       icon: BarChart3Icon
     },
     {
-      title: 'Shopping Feeds',
+      title: 'Analytics',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Analytics, slug),
+      icon: BarChart2Icon
+    },
+    {
+      title: 'Commerce',
       href: replaceOrgSlug(routes.dashboard.organizations.slug.ShoppingFeeds, slug),
       icon: ShoppingCartIcon
+    },
+    {
+      title: 'Feeds',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Feeds, slug),
+      icon: RssIcon
+    },
+    {
+      title: 'Lead Forms',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Leads, slug),
+      icon: ClipboardListIcon
+    },
+    {
+      title: 'Personalization',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Personalization, slug),
+      icon: SlidersHorizontalIcon
+    },
+    {
+      title: 'Experiments',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Experiments, slug),
+      icon: FlaskConicalIcon
+    },
+    {
+      title: 'Optimization',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.Optimization, slug),
+      icon: ZapIcon
     },
     {
       title: 'AI CMO',
@@ -134,6 +171,16 @@ export function createOrganizationNavItems(slug: string): NavItem[] {
         slug
       ),
       icon: CodeIcon
+    }
+  ];
+}
+
+export function createUtilitiesNavItems(slug: string): NavItem[] {
+  return [
+    {
+      title: 'Keyword Planner',
+      href: replaceOrgSlug(routes.dashboard.organizations.slug.UtilitiesKeywordPlanner, slug),
+      icon: SearchCheckIcon
     }
   ];
 }

@@ -1,0 +1,10 @@
+mcpToolbox:
+  enabled: true
+  bigqueryProject: accelerate-nonprod-4e59
+
+
+image:
+  repository: us-east4-docker.pkg.dev/amp-prod-a786/docker-featurepilot/inmobi-marketing/accelerate-agentic-service
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: chat-v2-deprecate-25-mar-09d73fe-5

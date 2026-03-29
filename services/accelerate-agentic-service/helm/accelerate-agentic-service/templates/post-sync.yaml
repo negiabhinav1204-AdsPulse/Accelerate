@@ -1,0 +1,27 @@
+{{- if .Values.openDevopsHooks.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: opendevops
+  name: {{ .Values.openDevopsHooks.application_common.name }}-{{ .Values.openDevopsHooks.application_common.env }}-post-hook-sync
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  template:
+    spec:
+      containers:
+        - name: {{ .Values.openDevopsHooks.application_common.name }}-{{ .Values.openDevopsHooks.application_common.env }}-post-hook-sync
+          image: {{ .Values.openDevopsHooks.repository }}/docker-prod/inmobi-operations/argo-hooks:stable
+          command: ["/bin/bash", "-c", "python3 /tmp/argo-post-sync.py"]
+          imagePullPolicy: Always
+          env:
+            - name: MY_PROJECT_NAME
+              value: "{{ $.Values.openDevopsHooks.application_common.project }}"
+            - name: ENV
+              value: "{{ $.Values.openDevopsHooks.application_common.env }}"
+            - name: APP_NAME
+              value: "{{ $.Values.openDevopsHooks.application_common.name }}"
+      restartPolicy: Never
+  backoffLimit: 1
+  {{- end }}

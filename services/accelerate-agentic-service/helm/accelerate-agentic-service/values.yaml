@@ -1,0 +1,110 @@
+replicaCount: 1
+namespace: accelerate-agentic-service
+image:
+  repository: asia-southeast1-docker.pkg.dev/amp-prod-a786/docker-prod/inmobi-marketing/accelerate-agentic-service
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: master-a32cce2-0.1.5
+
+imagePullSecrets: []
+nameOverride: "accelerate-agentic-service"
+fullnameOverride: "accelerate-agentic-service"
+
+serviceAccountName: "accelerate-agentic-service"
+
+ingress:
+  enabled: false
+
+service:
+  type: LoadBalancer
+  port: 8080
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+    networking.gke.io/internal-load-balancer-allow-global-access: "true"
+
+tolerations :
+  - key: "service"
+    operator: "Equal"
+    value: "accelerate"
+    effect: "NoSchedule"
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+secrets:
+  secretsRef: accelerate-as-secret
+  env:
+    OPENAI_API_KEY: OPENAI_API_KEY
+    GOOGLE_API_KEY: GOOGLE_API_KEY
+    ANTHROPIC_API_KEY: ANTHROPIC_API_KEY
+    DB_PASSWORD: DB_PASSWORD
+    LANGFUSE_SECRET_KEY: LANGFUSE_SECRET_KEY
+    LANGFUSE_PUBLIC_KEY: LANGFUSE_PUBLIC_KEY
+
+env:
+  IDP_CLUSTER: corp
+  VERTEXAI_LOCATION: us-central1
+  LANGFUSE_BASE_URL: http://accelerate-agentic-framework-obs.accelerate-agentic-framework-obs:3000
+  DB_SERVICE_URL: http://accelerate-db-service.accelerate-db-service:8000
+  CAMPAIGN_SERVICE_URL: http://accelerate-campaign-service.accelerate-campaign-service:8080
+  # MCP Toolbox sidecar — same pod, same network namespace → localhost
+  ANALYTICS_MCP_URL: http://localhost:5001
+  # BigQuery dataset is the same across environments; project is overridden per env
+  BIGQUERY_DATASET: accelerate_ingestion_store
+
+# ── Analytics MCP Toolbox sidecar ─────────────────────────────────────────────
+# Google MCP Toolbox (--prebuilt=bigquery) runs as a sidecar container in the
+# same pod. The agentic-service reaches it at localhost:5001 — identical to the
+# K8s sidecar behaviour mirrored in docker-compose for local dev.
+# Uses Workload Identity (no credentials secret needed — pod SA has BQ access).
+mcpToolbox:
+  enabled: false  # enabled per environment below
+  container:
+    ref: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox
+    version: latest
+  bigqueryProject: accelerate-nonprod-4e59
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+openDevopsHooks:
+  enabled: true
+  repository: us-east4-docker.pkg.dev/amp-prod-a786
+  application_common:
+    name: ''
+    Environment: GA
+    env: prod
+    project: accelerate-prod
+  application: []
+Environment: GA
+
+serviceMonitor:
+  releaseName: ampmon-client
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  scheme: http
+
+shipLogs: "true"
+
+podMonitor:
+  enabled: true
+  releaseName: ampmon-client
+  interval: 30s
+  scrapeTimeout: 10s
+  scheme: http
+  port: http
+  path: /metrics
+  metricRelabelings:
+    - sourceLabels: [uri]
+      regex: '([^?]*)\?.*'
+      targetLabel: uri
+      replacement: '$1'
+      action: replace

@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "accelerate-agentic-service.fullname" . }}
+  labels:
+    {{- include "accelerate-agentic-service.labels" . | nindent 4 }}
+  namespace: {{ .Values.namespace }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "accelerate-agentic-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- if .Values.shipLogs }}
+        shipLogs: {{ .Values.shipLogs | quote }}
+        {{- end }}
+        {{- include "accelerate-agentic-service.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
+
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        {{- if .Values.mcpToolbox.enabled }}
+        - name: analytics-mcp-toolbox
+          image: "{{ .Values.mcpToolbox.container.ref }}:{{ .Values.mcpToolbox.container.version }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--prebuilt=bigquery"
+            - "--port=5001"
+            - "--address=0.0.0.0"
+          env:
+            - name: BIGQUERY_PROJECT
+              value: {{ .Values.mcpToolbox.bigqueryProject | quote }}
+          ports:
+            - containerPort: 5001
+              name: mcp-toolbox
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5001
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.mcpToolbox.resources | nindent 12 }}
+        {{- end }}
+
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          env:
+          {{- range $envVarName, $envVarValue := .Values.env }}
+          - name: {{ $envVarName }}
+            value: {{ $envVarValue | quote }}
+          {{- end }}
+          {{- if .Values.mcpToolbox.enabled }}
+          - name: BIGQUERY_PROJECT
+            value: {{ .Values.mcpToolbox.bigqueryProject | quote }}
+          {{- end }}
+          {{- if .Values.secrets }}
+          {{- if .Values.secrets.secretsRef }}
+          {{- range $envVarName, $secretKey := .Values.secrets.env }}
+          - name: {{ $envVarName }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ $.Values.secrets.secretsRef }}
+                key: {{ $secretKey }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+
+          ports:
+            - containerPort: {{ .Values.service.port }}
+              protocol: TCP
+              name: http
+
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: {{ .Values.service.port }}
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

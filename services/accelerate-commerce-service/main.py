@@ -12,7 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.database import close_pool, get_pool
 from routers.connectors import router as connectors_router
+from routers.feeds import router as feeds_router
 from routers.inventory import router as inventory_router
+from routers.merchant_center import router as merchant_center_router
 from routers.products import router as products_router
 from routers.revenue import router as revenue_router
 
@@ -36,6 +38,8 @@ app.include_router(connectors_router)
 app.include_router(products_router)
 app.include_router(revenue_router)
 app.include_router(inventory_router)
+app.include_router(feeds_router)
+app.include_router(merchant_center_router)
 
 
 @app.on_event("startup")

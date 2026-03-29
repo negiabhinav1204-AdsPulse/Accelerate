@@ -198,6 +198,37 @@ function AdTypeBadge({ adType }: { adType: string }) {
   );
 }
 
+function HealthBadge({ health }: { health: 'winner' | 'learner' | 'underperformer' | 'bleeder' | null }) {
+  if (!health) return null;
+  const config = {
+    winner: { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Winner', dot: 'bg-emerald-500' },
+    learner: { cls: 'bg-blue-50 text-blue-700 border-blue-200', label: 'Learner', dot: 'bg-blue-400' },
+    underperformer: { cls: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Underperformer', dot: 'bg-amber-500' },
+    bleeder: { cls: 'bg-red-50 text-red-700 border-red-200', label: 'Bleeder', dot: 'bg-red-500' },
+  };
+  const c = config[health];
+  return (
+    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap', c.cls)}>
+      <span className={cn('size-1.5 rounded-full', c.dot)} />
+      {c.label}
+    </span>
+  );
+}
+
+function getHealthClassification(
+  campaign: CampaignListItem
+): 'winner' | 'learner' | 'underperformer' | 'bleeder' | null {
+  const spend = (campaign as any).totalSpend ?? (campaign as any).spend ?? 0;
+  const revenue = (campaign as any).totalRevenue ?? (campaign as any).revenue ?? 0;
+  const roas = spend > 0 ? revenue / spend : 0;
+
+  if (spend < 100) return 'learner';
+  if (roas >= 3.0) return 'winner';
+  if (roas >= 1.0) return 'underperformer';
+  if (spend >= 100) return 'bleeder';
+  return null;
+}
+
 // Simple dropdown menu implementation without external dependency issues
 function DropdownMenu({
   trigger,
@@ -790,20 +821,23 @@ export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId:
 
           {/* Status */}
           <td className="px-2 py-3">
-            {c.source === 'external' && c.status ? (
-              <StatusBadge status={c.status} />
-            ) : (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {c.platformCampaigns.map((pc) => (
-                  <div key={pc.id} className="relative inline-flex">
-                    <PlatformIcon platform={pc.platform} size="xs" />
-                    <span className="absolute -bottom-0.5 -right-0.5">
-                      <StatusDot status={pc.status} />
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {c.source === 'external' && c.status ? (
+                <StatusBadge status={c.status} />
+              ) : (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {c.platformCampaigns.map((pc) => (
+                    <div key={pc.id} className="relative inline-flex">
+                      <PlatformIcon platform={pc.platform} size="xs" />
+                      <span className="absolute -bottom-0.5 -right-0.5">
+                        <StatusDot status={pc.status} />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <HealthBadge health={getHealthClassification(c)} />
+            </div>
           </td>
 
           {/* Budget */}

@@ -1,0 +1,37 @@
+mcpToolbox:
+  enabled: true
+  bigqueryProject: accelerate-nonprod-4e59
+
+image:
+  repository: us-east4-docker.pkg.dev/amp-nonprod-1e87/docker-dev/inmobi-marketing/accelerate-agentic-service
+  tag: ""
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 1
+    memory: 2Gi
+  limits:
+    cpu: 2
+    memory: 4Gi
+
+env:
+  IDP_ENVIRONMENT: non_prod
+  UVICORN_WORKERS: "2"
+  VERTEXAI_PROJECT: accelerate-nonprod-4e59
+  LANGFUSE_ENABLED: "true"
+  DB_HOST: "172.16.226.2"
+  DB_PORT: "5432"
+  DB_USER: admin
+  DB_NAME: langgraph_checkpoints
+  SENTRY_DSN: https://f7cab4af5736cd8ebf4e2c44b12e3ddd@sentry-np.accelerate.inmobi.com/11
+  SENTRY_ENVIRONMENT: dev
+  GCS_CDN_BASE_URL: https://cdn.np.accelerate.inmobi.com
+  GCS_BUCKET_NAME: gcs-accelerate-ui-assets-nonprod
+  GCS_PROJECT_ID: accelerate-nonprod-cdn-299a
+
+serviceMonitor:
+  enabled: false
+
+openDevopsHooks:
+  enabled: false

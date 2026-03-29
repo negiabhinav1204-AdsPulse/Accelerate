@@ -1,0 +1,5 @@
+[run]
+omit =
+    test/*
+    */*site-packages*/*
+    *__init__.py

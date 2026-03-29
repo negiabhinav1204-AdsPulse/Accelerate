@@ -1,0 +1,28 @@
+import * as React from 'react';
+import type { Metadata } from 'next';
+
+import { Page, PageBody, PageHeader, PagePrimaryBar } from '@workspace/ui/components/page';
+
+import { OptimizationClient } from '~/components/optimization/optimization-client';
+import { createTitle } from '~/lib/formatters';
+
+export const metadata: Metadata = { title: createTitle('Optimization') };
+
+export default async function OptimizationPage(props: {
+  params: Promise<{ slug: string }>;
+}): Promise<React.JSX.Element> {
+  const { slug } = await props.params;
+
+  return (
+    <Page>
+      <PageHeader>
+        <PagePrimaryBar>
+          <h1 className="text-lg font-semibold text-foreground">Optimization</h1>
+        </PagePrimaryBar>
+      </PageHeader>
+      <PageBody>
+        <OptimizationClient orgSlug={slug} />
+      </PageBody>
+    </Page>
+  );
+}

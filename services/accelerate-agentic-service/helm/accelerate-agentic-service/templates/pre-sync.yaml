@@ -1,0 +1,38 @@
+{{- if and .Values.openDevopsHooks.enabled (eq .Values.openDevopsHooks.application_common.env "prod") }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: opendevops
+  name: {{ .Values.openDevopsHooks.application_common.name }}-{{ .Values.openDevopsHooks.application_common.env }}-pre-hook-sync
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  template:
+    spec:
+      containers:
+        - name: {{ .Values.openDevopsHooks.application_common.name }}-{{ .Values.openDevopsHooks.application_common.env }}-pre-hook-sync
+          image: {{ .Values.openDevopsHooks.repository }}/docker-prod/inmobi-operations/argo-hooks:stable
+          command: ["/bin/bash", "-c", "python3 /tmp/argo-app-pre-sync.py"]
+          imagePullPolicy: Always
+          env:
+            {{- $len := len .Values.openDevopsHooks.application }}
+              {{- range $index, $app := .Values.openDevopsHooks.application }}
+              - name: SECRET_MANAGER_NAME_{{$index}}
+                value: "{{ $app.secret_manager_name }}"
+              - name: SECRET_NAME_{{$index}}
+                value: "{{ $app.secret_name }}"
+              - name: SECRET_NAMESPACE_{{$index}}
+                value: "{{ $app.secret_namespace }}"
+              {{- end }}
+              - name: MY_PROJECT_NAME
+                value: "{{ $.Values.openDevopsHooks.application_common.project }}"
+              - name: ENV
+                value: "{{ $.Values.openDevopsHooks.application_common.env }}"
+              - name: APP_NAME
+                value: "{{ $.Values.openDevopsHooks.application_common.name }}"
+              - name: SECRETS_COUNT
+                value: "{{ $len }}"
+      restartPolicy: Never
+  backoffLimit: 1
+  {{- end }}

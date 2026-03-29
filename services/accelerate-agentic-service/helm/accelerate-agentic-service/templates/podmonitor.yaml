@@ -1,0 +1,26 @@
+{{- if .Values.podMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "accelerate-agentic-service.fullname" . }}-pm
+  namespace: {{ .Values.namespace }}
+  labels:
+    release: {{ .Values.podMonitor.releaseName }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "accelerate-agentic-service.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.namespace }}
+  podMetricsEndpoints:
+    - port: {{ .Values.podMonitor.port }}
+      path: {{ .Values.podMonitor.path }}
+      interval: {{ .Values.podMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.podMonitor.scrapeTimeout | default "10s" }}
+      scheme: {{ .Values.podMonitor.scheme | default "http" }}
+      {{- if .Values.podMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml .Values.podMonitor.metricRelabelings | nindent 8 }}
+      {{- end }}
+{{- end }}

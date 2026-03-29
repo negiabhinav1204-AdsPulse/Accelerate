@@ -1,0 +1,6 @@
+image:
+  repository: asia-southeast1-docker.pkg.dev/amp-prod-a786/docker-prod/inmobi-marketing/accelerate-agentic-service
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: master-a32cce2-0.1.5 #master-81861ef-0.0.23
+

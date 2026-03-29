@@ -1,0 +1,11 @@
+{
+    "project_name": "accelerateAgenticService",
+    "project_type": "python",
+    "team_email": "accelerate@inmobi.com",
+    "jira_project": "IMA",
+    "docker_compose": false,
+    "branching_workflow": "git_flow",
+    "project_language":"python",
+    "python_version":"3.11",
+    "pip_version": "latest"
+}

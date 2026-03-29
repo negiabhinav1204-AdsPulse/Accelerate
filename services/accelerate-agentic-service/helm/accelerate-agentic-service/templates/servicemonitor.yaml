@@ -1,0 +1,20 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "accelerate-agentic-service.fullname" . }}-sm
+  namespace: {{ .Values.namespace }}
+  labels:
+    release: {{ .Values.serviceMonitor.releaseName }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "accelerate-agentic-service.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.namespace }}
+  endpoints:
+    - port: management
+      path: /metrics
+      interval: 30s
+{{- end }}
