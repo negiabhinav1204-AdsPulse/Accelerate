@@ -1807,7 +1807,8 @@ export async function runCampaignAgents(params: {
     runTrendAgent({ url, pageContent, enqueue })
   ]);
 
-  // Conflict check: does user intent conflict with trend signals?
+  // Seasonal conflict check — surface a soft warning but never block the pipeline.
+  // Users creating off-season campaigns (e.g. Christmas in March) know what they're doing.
   const conflictSignal = detectSeasonalConflict(userPreferences?.notes ?? '', trendOut);
   if (conflictSignal) {
     enqueue({
@@ -1817,8 +1818,7 @@ export async function runCampaignAgents(params: {
       question: conflictSignal.question,
       options: conflictSignal.options
     } as unknown as AgentEvent);
-    // Return a sentinel to signal the pipeline was paused
-    throw new Error('CONFLICT_DETECTED');
+    // Continue the pipeline — the warning is informational only
   }
 
   // Phase 2 (after Phase 1): Intent — uses brandOut + lpuOut + pageContent
