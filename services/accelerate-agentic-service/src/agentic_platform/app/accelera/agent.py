@@ -113,6 +113,9 @@ from src.agentic_platform.app.accelera.tools.experiments import (
 # Common tools — image generation (1)
 from src.agentic_platform.app.common.tools.image_gen import generate_image
 
+# Tools — navigation (1)
+from src.agentic_platform.app.accelera.tools.navigation import navigate_to
+
 # Workflows
 from src.agentic_platform.app.accelera.workflows.create_campaign import create_campaign_workflow
 from src.agentic_platform.app.accelera.workflows.optimization import optimization_workflow
@@ -193,6 +196,8 @@ config = AgentConfig(
         create_experiment,
         # ── Image generation (1) ───────────────────────────────
         generate_image,
+        # ── Navigation (1) ─────────────────────────────────────
+        navigate_to,
     ],
     workflows=[create_campaign_workflow, optimization_workflow],
     checkpointer_db_url=settings.checkpointer_db_url,

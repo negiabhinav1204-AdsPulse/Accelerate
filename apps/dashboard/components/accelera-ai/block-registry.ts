@@ -27,6 +27,8 @@ export const BLOCK_TYPE_ALIASES: Record<string, string> = {
   feed_health:          'show_feed_health',
   nav_suggestion:       'navigate_to',
   connect_prompt:       'connect_accounts_prompt',
+  // Dynamic catalog rendering — passes a full CatalogSpec JSON tree
+  json_render_spec:     'json_render_spec',
 };
 
 /**

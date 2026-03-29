@@ -40,6 +40,7 @@ import { ChatProductLeaderboard } from './chat-product-leaderboard';
 import { ChatRevenueBreakdownCard } from './chat-revenue-breakdown-card';
 import { ChatStrategyCard } from './chat-strategy-card';
 import { ChatWastedSpendCard } from './chat-wasted-spend-card';
+import { JsonRenderBlock } from './json-render-block';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -86,7 +87,8 @@ type ToolBlock =
   | { name: 'show_strategy'; input: { title?: string; total_campaigns: number; total_daily_budget: string; total_monthly_estimate: string; currency?: string; campaigns: { segment: string; label: string; strategy: string; product_count: number; revenue_60d?: number; suggested_budget_daily: string; priority: 'high' | 'medium' | 'low'; campaign_type?: string; top_products?: { title: string; revenue?: number }[] }[] } }
   | { name: 'show_demographics'; input: { period?: string; currency?: string; best_roas_segment?: string; highest_spend_segment?: string; note?: string; data: { age_range: string; spend: number; revenue: number; conversions: number; roas: number; cpa: number; currency: string }[] } }
   | { name: 'show_placements'; input: { period?: string; currency?: string; best_placement?: string; note?: string; data: { publisher: string; placement: string; spend: number; revenue: number; conversions: number; roas: number; cpa: number; currency: string }[] } }
-  | { name: 'show_auto_setup'; input: { products_configured: number; total_daily_budget: string; total_monthly_estimate: string; message?: string; next_step?: string; results: { title: string; badge: string; suggested_strategy: string; suggested_platforms: string[]; daily_budget: string; monthly_estimate: string; status: string }[] } };
+  | { name: 'show_auto_setup'; input: { products_configured: number; total_daily_budget: string; total_monthly_estimate: string; message?: string; next_step?: string; results: { title: string; badge: string; suggested_strategy: string; suggested_platforms: string[]; daily_budget: string; monthly_estimate: string; status: string }[] } }
+  | { name: 'json_render_spec'; input: Record<string, unknown> };
 
 type HITLFormPart = {
   type: 'hitl';
@@ -1452,6 +1454,8 @@ function ToolRenderer({
           results={tool.input.results}
         />
       );
+    case 'json_render_spec':
+      return <JsonRenderBlock spec={tool.input.spec ?? tool.input} />;
     default:
       return null;
   }
