@@ -204,33 +204,67 @@ function toNum(v: unknown): number {
   return 0;
 }
 
-/** Aggregate AdPlatformReport.data across multiple reports */
-function aggregateReports(reports: { platform: string; data: unknown }[]) {
+/** Get purchases from Meta actions array */
+function metaPurchases(row: Record<string, unknown>): number {
+  const actions = row.actions as { action_type: string; value: string }[] | undefined;
+  if (!Array.isArray(actions)) return 0;
+  return actions
+    .filter((a) => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase')
+    .reduce((s, a) => s + parseFloat(a.value || '0'), 0);
+}
+
+/** Get purchase revenue from Meta action_values array */
+function metaPurchaseValue(row: Record<string, unknown>): number {
+  const av = row.action_values as { action_type: string; value: string }[] | undefined;
+  if (!Array.isArray(av)) return 0;
+  return av
+    .filter((a) => a.action_type === 'offsite_conversion.fb_pixel_purchase' || a.action_type === 'purchase')
+    .reduce((s, a) => s + parseFloat(a.value || '0'), 0);
+}
+
+/**
+ * Aggregate Meta (campaign_insights_daily) and Google (campaign) reports.
+ * Only these two report types carry reliable spend/impressions/clicks/conversions data.
+ */
+function aggregateReports(
+  reports: { platform: string; reportType?: string; data: unknown }[]
+) {
   const byPlatform: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; conversionValue: number }> = {};
 
   for (const r of reports) {
-    const d = r.data as Record<string, unknown>;
     const p = r.platform.toLowerCase();
     if (!byPlatform[p]) {
       byPlatform[p] = { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 };
     }
     const agg = byPlatform[p]!;
+    const rows = Array.isArray(r.data) ? (r.data as Record<string, unknown>[]) : [r.data as Record<string, unknown>];
 
-    // Handle flat object (single campaign row)
-    if (Array.isArray(d)) {
-      for (const row of d as Record<string, unknown>[]) {
+    for (const row of rows) {
+      if (p === 'meta') {
+        // Meta campaign_insights_daily: spend/impressions/clicks are strings; conversions in actions array
         agg.spend += toNum(row.spend);
         agg.impressions += toNum(row.impressions);
         agg.clicks += toNum(row.clicks);
-        agg.conversions += toNum(row.conversions ?? row.actions_purchases ?? 0);
-        agg.conversionValue += toNum(row.conversion_value ?? row.purchase_value ?? 0);
+        agg.conversions += metaPurchases(row);
+        agg.conversionValue += metaPurchaseValue(row);
+      } else if (p === 'google') {
+        // Google campaign: handles both real API (nested) and mock (flat camelCase)
+        const nested = row.metrics as Record<string, unknown> | undefined;
+        const costMicros = toNum(nested?.costMicros ?? nested?.cost_micros ?? row.costMicros ?? 0);
+        agg.spend += costMicros / 1_000_000;
+        agg.impressions += toNum(nested?.impressions ?? row.impressions ?? 0);
+        agg.clicks += toNum(nested?.clicks ?? row.clicks ?? 0);
+        agg.conversions += toNum(nested?.conversions ?? row.conversions ?? 0);
+        const cv = toNum(nested?.conversionsValue ?? nested?.conversions_value ?? row.conversionsValue ?? 0);
+        agg.conversionValue += cv;
+      } else {
+        // Bing / other: best-effort flat parsing
+        agg.spend += toNum(row.spend ?? row.cost ?? 0);
+        agg.impressions += toNum(row.impressions ?? 0);
+        agg.clicks += toNum(row.clicks ?? 0);
+        agg.conversions += toNum(row.conversions ?? 0);
+        agg.conversionValue += toNum(row.conversion_value ?? row.revenue ?? 0);
       }
-    } else {
-      agg.spend += toNum(d.spend);
-      agg.impressions += toNum(d.impressions);
-      agg.clicks += toNum(d.clicks);
-      agg.conversions += toNum(d.conversions ?? d.actions_purchases ?? 0);
-      agg.conversionValue += toNum(d.conversion_value ?? d.purchase_value ?? 0);
     }
   }
   return byPlatform;
@@ -248,15 +282,25 @@ async function handleGetAnalyticsOverview(
   const since = periodStart(days);
   const prevSince = periodStart(days * 2);
 
-  const reports = await prisma.adPlatformReport.findMany({
-    where: { organizationId: ctx.orgId, fetchedAt: { gte: since } },
-    select: { platform: true, data: true },
-  });
-
-  const prevReports = await prisma.adPlatformReport.findMany({
-    where: { organizationId: ctx.orgId, fetchedAt: { gte: prevSince, lt: since } },
-    select: { platform: true, data: true },
-  });
+  const [reports, prevReports] = await Promise.all([
+    prisma.adPlatformReport.findMany({
+      where: {
+        organizationId: ctx.orgId,
+        reportType: { in: ['campaign_insights_daily', 'campaign'] },
+        archivedAt: null,
+      },
+      select: { platform: true, reportType: true, data: true },
+    }),
+    prisma.adPlatformReport.findMany({
+      where: {
+        organizationId: ctx.orgId,
+        reportType: { in: ['campaign_insights_daily', 'campaign'] },
+        archivedAt: null,
+        fetchedAt: { gte: prevSince, lt: since },
+      },
+      select: { platform: true, reportType: true, data: true },
+    }),
+  ]);
 
   const curr = aggregateReports(reports);
   const prev = aggregateReports(prevReports);
@@ -306,8 +350,12 @@ async function handleGetPlatformComparison(
   const since = periodStart(days);
 
   const reports = await prisma.adPlatformReport.findMany({
-    where: { organizationId: ctx.orgId, fetchedAt: { gte: since } },
-    select: { platform: true, data: true },
+    where: {
+      organizationId: ctx.orgId,
+      reportType: { in: ['campaign_insights_daily', 'campaign'] },
+      archivedAt: null,
+    },
+    select: { platform: true, reportType: true, data: true },
   });
 
   const byPlatform = aggregateReports(reports);
@@ -654,149 +702,206 @@ async function handleGetSalesRegions(
   };
 }
 
+const GOOGLE_AGE_LABEL: Record<string, string> = {
+  AGE_RANGE_18_24: '18-24', AGE_RANGE_25_34: '25-34', AGE_RANGE_35_44: '35-44',
+  AGE_RANGE_45_54: '45-54', AGE_RANGE_55_64: '55-64', AGE_RANGE_65_UP: '65+',
+  AGE_RANGE_UNDETERMINED: 'undetermined',
+};
+
 async function handleGetDemographicInsights(
   input: { days?: number },
   ctx: ToolContext
 ): Promise<unknown> {
   const days = input.days ?? 30;
-  const since = periodStart(days);
+  const dateFrom = periodStart(days).toISOString().slice(0, 10);
 
-  // Get real total spend/revenue from ad reports
-  const reports = await prisma.adPlatformReport.findMany({
-    where: { organizationId: ctx.orgId, fetchedAt: { gte: since } },
-    select: { data: true },
-  });
+  // Fetch real age/gender reports from Meta and Google
+  const [metaAgeGender, googleAgeRange, googleGender] = await Promise.all([
+    prisma.adPlatformReport.findMany({
+      where: { organizationId: ctx.orgId, reportType: 'insights_by_age_gender', archivedAt: null },
+      select: { data: true },
+    }),
+    prisma.adPlatformReport.findMany({
+      where: { organizationId: ctx.orgId, reportType: 'age_range_view', platform: 'GOOGLE', archivedAt: null },
+      select: { data: true },
+    }),
+    prisma.adPlatformReport.findMany({
+      where: { organizationId: ctx.orgId, reportType: 'gender_view', platform: 'GOOGLE', archivedAt: null },
+      select: { data: true },
+    }),
+  ]);
 
-  let totalSpend = 0;
-  let totalRevenue = 0;
-  for (const r of reports) {
-    const rows = Array.isArray(r.data) ? r.data : [r.data];
-    for (const row of rows) {
-      const d = row as Record<string, unknown>;
-      totalSpend += Number(d.spend ?? d.cost ?? 0);
-      totalRevenue += Number(d.conversions_value ?? d.revenue ?? 0);
+  // age → { male, female, others, clicks }
+  const ageMap = new Map<string, { male: number; female: number; others: number }>();
+
+  for (const report of metaAgeGender) {
+    for (const row of (report.data as Record<string, string>[]) ?? []) {
+      if (!row.date_start || row.date_start < dateFrom) continue;
+      const age = row.age ?? 'unknown';
+      const clicks = parseInt(row.clicks || '0', 10);
+      const gender = (row.gender ?? '').toLowerCase();
+      const cur = ageMap.get(age) ?? { male: 0, female: 0, others: 0 };
+      if (gender === 'male') ageMap.set(age, { ...cur, male: cur.male + clicks });
+      else if (gender === 'female') ageMap.set(age, { ...cur, female: cur.female + clicks });
+      else ageMap.set(age, { ...cur, others: cur.others + clicks });
     }
   }
 
-  // Generate plausible demographic splits from real totals
-  const demographics = [
-    { age_range: '18-24', gender: 'all', spend_share: 0.14, revenue_share: 0.11 },
-    { age_range: '25-34', gender: 'all', spend_share: 0.32, revenue_share: 0.36 },
-    { age_range: '35-44', gender: 'all', spend_share: 0.28, revenue_share: 0.31 },
-    { age_range: '45-54', gender: 'all', spend_share: 0.16, revenue_share: 0.14 },
-    { age_range: '55-64', gender: 'all', spend_share: 0.07, revenue_share: 0.06 },
-    { age_range: '65+',   gender: 'all', spend_share: 0.03, revenue_share: 0.02 },
-  ];
+  for (const report of googleAgeRange) {
+    for (const row of (report.data as Record<string, unknown>[]) ?? []) {
+      const date = (row.segments as Record<string, string> | undefined)?.date ?? (row.date as string) ?? '';
+      if (date && date < dateFrom) continue;
+      const rawAge = (row.adGroupCriterion as Record<string, Record<string, string>> | undefined)?.ageRange?.type ?? (row.ageRange as string) ?? '';
+      const age = GOOGLE_AGE_LABEL[rawAge] ?? rawAge;
+      const clicks = parseInt(String((row.metrics as Record<string, unknown> | undefined)?.clicks ?? row.clicks ?? 0), 10);
+      if (!age) continue;
+      const cur = ageMap.get(age) ?? { male: 0, female: 0, others: 0 };
+      ageMap.set(age, { ...cur, others: cur.others + clicks });
+    }
+  }
 
-  const data = demographics.map(d => {
-    const spend = totalSpend > 0 ? totalSpend * d.spend_share : d.spend_share * 800;
-    const revenue = totalRevenue > 0 ? totalRevenue * d.revenue_share : d.revenue_share * 2400;
-    const conversions = revenue > 0 ? Math.round(revenue / 85) : 0;
-    const roas = spend > 0 ? parseFloat((revenue / spend).toFixed(2)) : 0;
-    const cpa = conversions > 0 ? parseFloat((spend / conversions).toFixed(2)) : 0;
+  const genderTotals = { male: 0, female: 0, others: 0 };
+  for (const report of googleGender) {
+    for (const row of (report.data as Record<string, unknown>[]) ?? []) {
+      const date = (row.segments as Record<string, string> | undefined)?.date ?? (row.date as string) ?? '';
+      if (date && date < dateFrom) continue;
+      const g = ((row.adGroupCriterion as Record<string, Record<string, string>> | undefined)?.gender?.type ?? (row.gender as string) ?? '').toLowerCase();
+      const clicks = parseInt(String((row.metrics as Record<string, unknown> | undefined)?.clicks ?? row.clicks ?? 0), 10);
+      if (g === 'male') genderTotals.male += clicks;
+      else if (g === 'female') genderTotals.female += clicks;
+      else genderTotals.others += clicks;
+    }
+  }
+
+  const hasRealData = ageMap.size > 0 || genderTotals.male + genderTotals.female > 0;
+
+  if (!hasRealData) {
     return {
-      age_range: d.age_range,
-      spend: parseFloat(spend.toFixed(2)),
-      revenue: parseFloat(revenue.toFixed(2)),
-      conversions,
-      roas,
-      cpa,
+      period: `${days}d`,
       currency: ctx.currency,
+      data: [],
+      note: 'No demographic data found. Meta and Google age/gender reports will appear here once synced.',
+      source: 'no_data',
     };
-  });
+  }
 
-  const bestRoas = data.reduce((best, d) => d.roas > best.roas ? d : best, data[0]);
-  const highestSpend = data.reduce((best, d) => d.spend > best.spend ? d : best, data[0]);
+  const data = Array.from(ageMap.entries())
+    .filter(([age]) => age !== 'undetermined')
+    .map(([age, counts]) => {
+      const totalClicks = counts.male + counts.female + counts.others;
+      return {
+        age_range: age,
+        male_clicks: counts.male,
+        female_clicks: counts.female,
+        total_clicks: totalClicks,
+      };
+    })
+    .sort((a, b) => a.age_range.localeCompare(b.age_range));
+
+  const topAge = data.reduce((best, d) => d.total_clicks > best.total_clicks ? d : best, data[0] ?? { age_range: 'N/A', total_clicks: 0 });
 
   return {
     period: `${days}d`,
     currency: ctx.currency,
-    data,
-    best_roas_segment: bestRoas.age_range,
-    highest_spend_segment: highestSpend.age_range,
-    note: totalSpend === 0 ? 'No ad spend data found. Showing estimated benchmark splits.' : null,
-    source: totalSpend > 0 ? 'derived_from_platform_reports' : 'benchmark_estimates',
+    age_breakdown: data,
+    gender_totals: genderTotals,
+    top_age_group: topAge.age_range,
+    source: 'real_platform_data',
+    platforms_contributing: [
+      ...(metaAgeGender.length > 0 ? ['Meta'] : []),
+      ...((googleAgeRange.length > 0 || googleGender.length > 0) ? ['Google'] : []),
+    ],
   };
 }
+
+const GOOGLE_NETWORK_LABEL: Record<string, string> = {
+  SEARCH: 'Search', DISPLAY: 'Display', YOUTUBE_SEARCH: 'YouTube Search',
+  YOUTUBE_WATCH: 'YouTube Watch', MIXED: 'Mixed',
+};
 
 async function handleGetPlacementInsights(
   input: { days?: number },
   ctx: ToolContext
 ): Promise<unknown> {
   const days = input.days ?? 30;
-  const since = periodStart(days);
+  const dateFrom = periodStart(days).toISOString().slice(0, 10);
 
-  const reports = await prisma.adPlatformReport.findMany({
-    where: { organizationId: ctx.orgId, fetchedAt: { gte: since } },
-    select: { platform: true, data: true },
-  });
+  const [metaPlacements, googleCampaigns] = await Promise.all([
+    prisma.adPlatformReport.findMany({
+      where: { organizationId: ctx.orgId, reportType: 'insights_by_platform_placement', archivedAt: null },
+      select: { data: true },
+    }),
+    prisma.adPlatformReport.findMany({
+      where: { organizationId: ctx.orgId, reportType: 'campaign', platform: 'GOOGLE', archivedAt: null },
+      select: { data: true },
+    }),
+  ]);
 
-  // Aggregate real totals per platform
-  const byPlatform: Record<string, { spend: number; revenue: number }> = {};
-  for (const r of reports) {
-    if (!byPlatform[r.platform]) byPlatform[r.platform] = { spend: 0, revenue: 0 };
-    const rows = Array.isArray(r.data) ? r.data : [r.data];
-    for (const row of rows) {
-      const d = row as Record<string, unknown>;
-      byPlatform[r.platform].spend += Number(d.spend ?? d.cost ?? 0);
-      byPlatform[r.platform].revenue += Number(d.conversions_value ?? d.revenue ?? 0);
+  // placement key → { clicks, spend }
+  const placementMap = new Map<string, { platform: string; placement: string; clicks: number; spend: number }>();
+
+  // Meta: real publisher_platform + platform_position data
+  for (const report of metaPlacements) {
+    for (const row of (report.data as Record<string, string>[]) ?? []) {
+      if (!row.date_start || row.date_start < dateFrom) continue;
+      const publisher = (row.publisher_platform ?? '').charAt(0).toUpperCase() + (row.publisher_platform ?? '').slice(1).toLowerCase();
+      const position = (row.platform_position ?? '').replace(/_/g, ' ').replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+      const key = `${publisher} ${position}`.trim();
+      if (!key) continue;
+      const existing = placementMap.get(key) ?? { platform: 'Meta', placement: key, clicks: 0, spend: 0 };
+      placementMap.set(key, {
+        ...existing,
+        clicks: existing.clicks + parseInt(row.clicks || '0', 10),
+        spend: existing.spend + parseFloat(row.spend || '0'),
+      });
     }
   }
 
-  // Placement splits per platform
-  const PLACEMENT_SPLITS: { publisher: string; placement: string; spend_share: number; revenue_share: number; platform_key: string }[] = [
-    { publisher: 'facebook',  placement: 'Feed',             spend_share: 0.38, revenue_share: 0.42, platform_key: 'META' },
-    { publisher: 'instagram', placement: 'Feed',             spend_share: 0.22, revenue_share: 0.24, platform_key: 'META' },
-    { publisher: 'instagram', placement: 'Stories',          spend_share: 0.14, revenue_share: 0.12, platform_key: 'META' },
-    { publisher: 'instagram', placement: 'Reels',            spend_share: 0.10, revenue_share: 0.09, platform_key: 'META' },
-    { publisher: 'facebook',  placement: 'Marketplace',      spend_share: 0.06, revenue_share: 0.05, platform_key: 'META' },
-    { publisher: 'google',    placement: 'Search',           spend_share: 0.55, revenue_share: 0.60, platform_key: 'GOOGLE' },
-    { publisher: 'google',    placement: 'Shopping',         spend_share: 0.28, revenue_share: 0.30, platform_key: 'GOOGLE' },
-    { publisher: 'google',    placement: 'Display',          spend_share: 0.12, revenue_share: 0.07, platform_key: 'GOOGLE' },
-    { publisher: 'google',    placement: 'YouTube',          spend_share: 0.05, revenue_share: 0.03, platform_key: 'GOOGLE' },
-    { publisher: 'bing',      placement: 'Search',           spend_share: 0.70, revenue_share: 0.73, platform_key: 'BING' },
-    { publisher: 'bing',      placement: 'Audience Network', spend_share: 0.30, revenue_share: 0.27, platform_key: 'BING' },
-  ];
+  // Google: use ad network type from campaign rows
+  for (const report of googleCampaigns) {
+    for (const row of (report.data as Record<string, unknown>[]) ?? []) {
+      const date = (row.segments as Record<string, string> | undefined)?.date ?? (row.date as string) ?? '';
+      if (date && date < dateFrom) continue;
+      const networkType = (row.segments as Record<string, string> | undefined)?.adNetworkType ?? (row.adNetworkType as string) ?? 'SEARCH';
+      const label = GOOGLE_NETWORK_LABEL[networkType] ?? networkType;
+      const key = `Google ${label}`;
+      const nested = row.metrics as Record<string, unknown> | undefined;
+      const clicks = parseInt(String(nested?.clicks ?? row.clicks ?? 0), 10);
+      const costMicros = parseFloat(String(nested?.costMicros ?? nested?.cost_micros ?? row.costMicros ?? 0));
+      const existing = placementMap.get(key) ?? { platform: 'Google', placement: label, clicks: 0, spend: 0 };
+      placementMap.set(key, { ...existing, clicks: existing.clicks + clicks, spend: existing.spend + costMicros / 1_000_000 });
+    }
+  }
 
-  // Get fallback total spend if no data
-  const totalSpend = Object.values(byPlatform).reduce((s, p) => s + p.spend, 0);
-  const totalRevenue = Object.values(byPlatform).reduce((s, p) => s + p.revenue, 0);
-  const fallbackSpend = totalSpend || 1200;
-  const fallbackRevenue = totalRevenue || 3600;
+  const hasRealData = placementMap.size > 0;
 
-  const data = PLACEMENT_SPLITS.map(ps => {
-    const platformData = byPlatform[ps.platform_key] ?? { spend: 0, revenue: 0 };
-    const baseSpend = platformData.spend > 0 ? platformData.spend : fallbackSpend * 0.33;
-    const baseRevenue = platformData.revenue > 0 ? platformData.revenue : fallbackRevenue * 0.33;
-    const spend = parseFloat((baseSpend * ps.spend_share).toFixed(2));
-    const revenue = parseFloat((baseRevenue * ps.revenue_share).toFixed(2));
-    const conversions = revenue > 0 ? Math.round(revenue / 90) : 0;
-    const roas = spend > 0 ? parseFloat((revenue / spend).toFixed(2)) : 0;
-    const cpa = conversions > 0 ? parseFloat((spend / conversions).toFixed(2)) : 0;
-    return { publisher: ps.publisher, placement: ps.placement, spend, revenue, conversions, roas, cpa, currency: ctx.currency };
-  });
+  if (!hasRealData) {
+    return {
+      period: `${days}d`,
+      currency: ctx.currency,
+      data: [],
+      note: 'No placement data found. Meta platform_placement and Google campaign reports will appear here once synced.',
+      source: 'no_data',
+    };
+  }
 
-  const activePlatforms = Object.keys(byPlatform);
-  const filtered = activePlatforms.length > 0
-    ? data.filter(d =>
-        activePlatforms.some(p =>
-          d.publisher.toLowerCase().includes(p.toLowerCase()) ||
-          (d.publisher === 'google' && p === 'GOOGLE') ||
-          (d.publisher === 'facebook' && p === 'META') ||
-          (d.publisher === 'instagram' && p === 'META') ||
-          (d.publisher === 'bing' && p === 'BING')
-        )
-      )
-    : data;
+  const data = Array.from(placementMap.values())
+    .sort((a, b) => b.clicks - a.clicks)
+    .slice(0, 10)
+    .map((p) => ({ ...p, currency: ctx.currency }));
 
-  const bestPlacement = filtered.reduce((best, d) => d.roas > best.roas ? d : best, filtered[0] ?? data[0]);
+  const best = data[0];
 
   return {
     period: `${days}d`,
     currency: ctx.currency,
-    data: filtered.sort((a, b) => b.spend - a.spend),
-    best_placement: bestPlacement ? `${bestPlacement.publisher} ${bestPlacement.placement}` : null,
-    note: totalSpend === 0 ? 'No ad spend data found. Showing estimated benchmark splits.' : null,
+    data,
+    best_placement: best ? `${best.platform} ${best.placement}` : null,
+    source: 'real_platform_data',
+    platforms_contributing: [
+      ...(metaPlacements.length > 0 ? ['Meta'] : []),
+      ...(googleCampaigns.length > 0 ? ['Google'] : []),
+    ],
   };
 }
 

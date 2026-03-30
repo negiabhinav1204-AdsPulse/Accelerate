@@ -193,17 +193,102 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     })
   ]);
 
+  // Collect platform campaign IDs to look up real performance metrics
+  const platformCampaignIds = campaigns.flatMap((c) =>
+    c.platformCampaigns
+      .filter((pc) => pc.platformCampaignId)
+      .map((pc) => ({ id: pc.platformCampaignId, platform: pc.platform.toLowerCase() }))
+  );
+
+  // Fetch performance metrics from synced reports for these campaigns
+  const metricsMap = new Map<string, { spend: number; impressions: number; clicks: number; conversions: number; roas: number }>();
+
+  if (platformCampaignIds.length > 0) {
+    const [metaReports, googleReports] = await Promise.all([
+      prisma.adPlatformReport.findMany({
+        where: { organizationId: orgId, reportType: 'campaign_insights_daily', archivedAt: null },
+        select: { data: true }
+      }),
+      prisma.adPlatformReport.findMany({
+        where: { organizationId: orgId, reportType: 'campaign', platform: 'GOOGLE', archivedAt: null },
+        select: { data: true }
+      })
+    ]);
+
+    for (const report of metaReports) {
+      for (const row of (report.data as Record<string, unknown>[]) ?? []) {
+        const cid = String(row.campaign_id ?? '');
+        if (!cid) continue;
+        const spend = parseFloat(String(row.spend ?? 0));
+        const purchases = ((row.actions as { action_type: string; value: string }[] | undefined) ?? [])
+          .filter((a) => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase')
+          .reduce((s, a) => s + parseFloat(a.value || '0'), 0);
+        const purchaseValue = ((row.action_values as { action_type: string; value: string }[] | undefined) ?? [])
+          .filter((a) => a.action_type === 'offsite_conversion.fb_pixel_purchase' || a.action_type === 'purchase')
+          .reduce((s, a) => s + parseFloat(a.value || '0'), 0);
+        const cur = metricsMap.get(cid) ?? { spend: 0, impressions: 0, clicks: 0, conversions: 0, roas: 0 };
+        const newSpend = cur.spend + spend;
+        metricsMap.set(cid, {
+          spend: newSpend,
+          impressions: cur.impressions + parseInt(String(row.impressions ?? 0), 10),
+          clicks: cur.clicks + parseInt(String(row.clicks ?? 0), 10),
+          conversions: cur.conversions + purchases,
+          roas: newSpend > 0 ? (cur.roas * cur.spend + purchaseValue) / newSpend : 0,
+        });
+      }
+    }
+
+    for (const report of googleReports) {
+      for (const row of (report.data as Record<string, unknown>[]) ?? []) {
+        const nested = row.metrics as Record<string, unknown> | undefined;
+        const cid = (row.campaign as Record<string, string> | undefined)?.id ?? String(row.campaignId ?? '');
+        if (!cid) continue;
+        const costMicros = parseFloat(String(nested?.costMicros ?? nested?.cost_micros ?? row.costMicros ?? 0));
+        const spend = costMicros / 1_000_000;
+        const convValue = parseFloat(String(nested?.conversionsValue ?? row.conversionsValue ?? 0));
+        const cur = metricsMap.get(cid) ?? { spend: 0, impressions: 0, clicks: 0, conversions: 0, roas: 0 };
+        const newSpend = cur.spend + spend;
+        metricsMap.set(cid, {
+          spend: newSpend,
+          impressions: cur.impressions + parseInt(String(nested?.impressions ?? row.impressions ?? 0), 10),
+          clicks: cur.clicks + parseInt(String(nested?.clicks ?? row.clicks ?? 0), 10),
+          conversions: cur.conversions + parseFloat(String(nested?.conversions ?? row.conversions ?? 0)),
+          roas: newSpend > 0 ? (cur.roas * cur.spend + convValue) / newSpend : 0,
+        });
+      }
+    }
+  }
+
   // Serialize — convert Decimal to number, status: null for accelerate campaigns
-  const serialized = campaigns.map((c) => ({
-    ...c,
-    totalBudget: Number(c.totalBudget),
-    // For accelerate campaigns, status lives at platformCampaign level
-    status: c.source === 'accelerate' ? null : c.status?.toLowerCase() ?? null,
-    platformCampaigns: c.platformCampaigns.map((pc) => ({
-      ...pc,
-      budget: Number(pc.budget)
-    }))
-  }));
+  const serialized = campaigns.map((c) => {
+    // Aggregate metrics across all platform campaigns
+    const metrics = c.platformCampaigns.reduce(
+      (agg, pc) => {
+        const m = pc.platformCampaignId ? (metricsMap.get(pc.platformCampaignId) ?? null) : null;
+        if (!m) return agg;
+        const newSpend = agg.spend + m.spend;
+        return {
+          spend: newSpend,
+          impressions: agg.impressions + m.impressions,
+          clicks: agg.clicks + m.clicks,
+          conversions: agg.conversions + m.conversions,
+          roas: newSpend > 0 ? (agg.roas * agg.spend + m.roas * m.spend) / newSpend : 0,
+        };
+      },
+      { spend: 0, impressions: 0, clicks: 0, conversions: 0, roas: 0 }
+    );
+
+    return {
+      ...c,
+      totalBudget: Number(c.totalBudget),
+      status: c.source === 'accelerate' ? null : c.status?.toLowerCase() ?? null,
+      platformCampaigns: c.platformCampaigns.map((pc) => ({ ...pc, budget: Number(pc.budget) })),
+      // Performance fields used by health badge and metrics display
+      totalSpend: metrics.spend,
+      totalRevenue: metrics.spend * metrics.roas,
+      metrics,
+    };
+  });
 
   const payload = { campaigns: serialized, total, page, perPage };
 
