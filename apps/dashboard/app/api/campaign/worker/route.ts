@@ -40,18 +40,14 @@ type WorkerPayload = {
 
 async function generateCampaignImages(
   mediaPlan: MediaPlan,
-  /** Product-specific image prompts from the Creative Agent */
-  creativeImagePrompts: string[],
-  /** Campaign DB id — used to persist generated images so detail page shows them immediately */
   campaignId: string,
-  enqueue: (event: AgentEvent) => void
+  /** Awaitable append — ensures each image_update lands in Redis before job completes */
+  appendEvent: (event: AgentEvent) => Promise<void>
 ): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY;
-  // No key → leave imageUrls empty; client-side /api/campaign/generate-images handles it
   if (!apiKey) return;
 
   const brandName = mediaPlan.summary?.brandName ?? '';
-  let promptIndex = 0;
   let anyGenerated = false;
 
   for (const platform of mediaPlan.platforms) {
@@ -59,24 +55,24 @@ async function generateCampaignImages(
       const normalizedType = adType.adType.toLowerCase();
       if (['search', 'rsa'].includes(normalizedType)) continue;
 
+      const aspectRatio =
+        normalizedType.includes('stories') || normalizedType.includes('reels')
+          ? '9:16'
+          : platform.platform === 'meta'
+          ? '1:1'
+          : '16:9';
+
       const imageUrls: string[] = [];
 
       for (let i = 0; i < Math.min(adType.ads.length, 3); i++) {
         const ad = adType.ads[i]!;
 
-        const aspectRatio =
-          normalizedType.includes('stories') || normalizedType.includes('reels')
-            ? '9:16'
-            : platform.platform === 'meta'
-            ? '1:1'
-            : '16:9';
-
-        const creativePrompt = creativeImagePrompts[promptIndex % Math.max(creativeImagePrompts.length, 1)];
-        promptIndex++;
-
-        const prompt = creativePrompt
-          ? `${creativePrompt}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`
-          : `Professional lifestyle advertisement for ${brandName}. Product: ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. Show a person using or wearing the product in a realistic everyday setting, no text overlay.`;
+        // Use ad.imagePrompt set by the strategy agent (seasonal/contextual, 1-per-ad).
+        // Fall back to a generic lifestyle prompt only if the field is missing.
+        const adPrompt = (ad as { imagePrompt?: string }).imagePrompt;
+        const prompt = adPrompt
+          ? `${adPrompt}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`
+          : `Professional lifestyle advertisement for ${brandName}. ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. No text overlay.`;
 
         try {
           const res = await fetch(
@@ -95,24 +91,23 @@ async function generateCampaignImages(
           if (prediction?.bytesBase64Encoded) {
             const url = `data:${prediction.mimeType ?? 'image/png'};base64,${prediction.bytesBase64Encoded}`;
             imageUrls.push(url);
-            // Write into the mediaPlan in-place so the DB update below captures it
             ad.imageUrls = [url];
             anyGenerated = true;
           }
-        } catch { /* non-fatal — client-side generation handles missing slots */ }
+        } catch { /* non-fatal */ }
       }
 
       if (imageUrls.length > 0) {
-        enqueue({
+        // Await so the Redis write completes before the next iteration / job completion
+        await appendEvent({
           type: 'image_update',
           platformAdTypeKey: `${platform.platform}:${adType.adType}`,
           imageUrls
-        });
+        } as AgentEvent);
       }
     }
   }
 
-  // Persist generated images to DB so campaign detail shows them on every subsequent view
   if (anyGenerated) {
     try {
       await prisma.campaign.update({
@@ -345,9 +340,12 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
       };
       await appendJobEvent(jobId, { type: 'media_plan', plan: planForEvent } as { type: string; [key: string]: unknown });
 
-      // Generate images — each image_update event is appended AFTER media_plan
-      const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
-      await generateCampaignImages(mediaPlan, creativeImagePrompts, campaign.id, enqueue);
+      // Generate images — each image_update event is AWAITED so it lands in Redis
+      // before the next iteration and before updateJob(completed) below.
+      const appendEvent = async (event: AgentEvent): Promise<void> => {
+        await appendJobEvent(jobId, event as unknown as { type: string; [key: string]: unknown });
+      };
+      await generateCampaignImages(mediaPlan, campaign.id, appendEvent);
 
       // Mark job complete (no event — media_plan already appended above)
       await updateJob(jobId, { status: 'completed', campaignId: campaign.id });

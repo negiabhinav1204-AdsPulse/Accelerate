@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { verifyQStashSignature } from '../lib/qstash';
-import { updateJob } from '../lib/job-store';
+import { appendJobEvent, updateJob } from '../lib/job-store';
 import { redis, orgKey } from '../lib/redis';
 import { prisma } from '../lib/db';
 import { runCampaignAgents } from '../agents/pipeline';
@@ -28,7 +28,8 @@ const payloadSchema = z.object({
 async function generateCampaignImages(
   mediaPlan: MediaPlan,
   campaignId: string,
-  enqueue: (event: AgentEvent) => void
+  /** Awaitable append — ensures each image_update lands in Redis before job completes */
+  appendEvent: (event: AgentEvent) => Promise<void>
 ): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return;
@@ -51,9 +52,12 @@ async function generateCampaignImages(
       const imageUrls: string[] = [];
 
       for (const ad of adType.ads.slice(0, 3)) {
-        const headline = ad.headlines[0] ?? brandName;
-        const description = ad.descriptions[0] ?? '';
-        const prompt = `Professional lifestyle advertisement for ${brandName}. ${headline}. ${description}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`;
+        // Use ad.imagePrompt (set per-ad by the strategy agent with seasonal/contextual context).
+        // Fall back to generic lifestyle prompt if field is absent.
+        const adPrompt = (ad as { imagePrompt?: string }).imagePrompt;
+        const prompt = adPrompt
+          ? `${adPrompt}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`
+          : `Professional lifestyle advertisement for ${brandName}. ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. No text overlay.`;
 
         try {
           const res = await fetch(
@@ -81,11 +85,12 @@ async function generateCampaignImages(
       }
 
       if (imageUrls.length > 0) {
-        enqueue({
+        // Await so the Redis write is confirmed before next iteration / job completion
+        await appendEvent({
           type: 'image_update',
           platformAdTypeKey: `${platform.platform}:${adType.adType}`,
           imageUrls,
-        });
+        } as AgentEvent);
       }
     }
   }
@@ -290,9 +295,12 @@ export async function runRoute(fastify: FastifyInstance) {
             )
             .catch(() => {});
 
-          // Generate images synchronously — DB must have imageUrls BEFORE job is
-          // marked complete so the frontend never triggers client-side fallback generation.
-          await generateCampaignImages(mediaPlan, campaign.id, enqueue);
+          // Generate images — each image_update is AWAITED so it lands in Redis
+          // before the next iteration and before updateJob(completed) below.
+          const appendEvent = async (event: AgentEvent): Promise<void> => {
+            await appendJobEvent(jobId, event as unknown as { type: string; [key: string]: unknown });
+          };
+          await generateCampaignImages(mediaPlan, campaign.id, appendEvent);
 
           await updateJob(jobId, { status: 'completed', campaignId: campaign.id });
           void saveCampaignMemory({
