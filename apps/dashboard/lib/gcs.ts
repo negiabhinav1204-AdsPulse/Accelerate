@@ -1,74 +1,45 @@
 /**
- * GCS image storage utility.
+ * Image storage utility — Vercel Blob.
  *
- * Uploads base64-encoded images to Google Cloud Storage and returns a
- * permanent public CDN URL. When GCS env vars are absent the function returns
- * null and the caller falls back to storing the raw base64 data-URI.
+ * Uploads base64-encoded images and returns a permanent public CDN URL.
+ * Falls back gracefully (returns null) when BLOB_READ_WRITE_TOKEN is absent
+ * so local dev / CI still works without credentials.
  *
- * Required env vars:
- *   GCS_BUCKET_NAME          — e.g. "accelerate-campaign-images"
- *   GCS_SERVICE_ACCOUNT_KEY  — full service-account JSON (single line or multiline)
+ * Setup: Vercel dashboard → project → Storage → Create Blob store.
+ * Vercel auto-adds BLOB_READ_WRITE_TOKEN to your project env vars.
  */
 
-import { Storage } from '@google-cloud/storage';
+import { put } from '@vercel/blob';
 import { createHash } from 'crypto';
 
-let _storage: Storage | null = null;
-
-function getStorage(): Storage | null {
-  const keyRaw = process.env.GCS_SERVICE_ACCOUNT_KEY;
-  if (!keyRaw || !process.env.GCS_BUCKET_NAME) return null;
-  if (_storage) return _storage;
-  try {
-    _storage = new Storage({ credentials: JSON.parse(keyRaw) });
-    return _storage;
-  } catch {
-    console.error('[gcs] Failed to parse GCS_SERVICE_ACCOUNT_KEY');
-    return null;
-  }
-}
-
 /**
- * Upload a base64-encoded image to GCS.
- * Returns the public CDN URL on success, null if GCS is not configured.
+ * Upload a base64-encoded image to Vercel Blob.
+ * Returns the permanent CDN URL on success, null if Blob is not configured.
  *
- * Files are keyed by a SHA-256 content hash so identical images are
- * deduplicated automatically (same behaviour as the reference platform).
+ * Files are keyed by a SHA-256 content hash for deduplication — identical
+ * images from different campaigns share the same URL and are never re-uploaded.
  */
 export async function uploadImageToGCS(
   base64Data: string,
   mimeType: string
 ): Promise<string | null> {
-  const storage = getStorage();
-  if (!storage) return null;
-
-  const bucketName = process.env.GCS_BUCKET_NAME!;
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return null;
 
   try {
     const buffer = Buffer.from(base64Data, 'base64');
     const ext = mimeType.split('/')[1] ?? 'png';
     const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
-    const objectName = `campaign-images/${hash}.${ext}`;
+    const pathname = `campaign-images/${hash}.${ext}`;
 
-    const bucket = storage.bucket(bucketName);
-    const file = bucket.file(objectName);
+    const { url } = await put(pathname, buffer, {
+      access: 'public',
+      contentType: mimeType,
+      addRandomSuffix: false, // use our own hash — deterministic, deduplicated
+    });
 
-    // Skip upload if the file already exists (content-addressed dedup)
-    const [exists] = await file.exists();
-    if (!exists) {
-      await file.save(buffer, {
-        metadata: {
-          contentType: mimeType,
-          cacheControl: 'public, max-age=31536000, immutable'
-        },
-        public: true,
-        resumable: false // faster for small files
-      });
-    }
-
-    return `https://storage.googleapis.com/${bucketName}/${objectName}`;
+    return url;
   } catch (err) {
-    console.error('[gcs] Upload failed:', err);
+    console.error('[blob] Upload failed:', err);
     return null;
   }
 }
