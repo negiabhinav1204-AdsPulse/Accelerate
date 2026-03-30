@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 import { verifyQStashSignature } from '../lib/qstash';
 import { updateJob } from '../lib/job-store';
@@ -28,17 +27,14 @@ const payloadSchema = z.object({
 
 async function generateCampaignImages(
   mediaPlan: MediaPlan,
+  campaignId: string,
   enqueue: (event: AgentEvent) => void
 ): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return;
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash-preview-image-generation',
-  });
-
   const brandName = mediaPlan.summary?.brandName ?? '';
+  let anyGenerated = false;
 
   for (const platform of mediaPlan.platforms) {
     for (const adType of platform.adTypes) {
@@ -57,22 +53,27 @@ async function generateCampaignImages(
       for (const ad of adType.ads.slice(0, 3)) {
         const headline = ad.headlines[0] ?? brandName;
         const description = ad.descriptions[0] ?? '';
-        const prompt = `Professional advertising photograph for ${brandName}. ${headline}. ${description}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text, clean composition.`;
+        const prompt = `Professional lifestyle advertisement for ${brandName}. ${headline}. ${description}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`;
 
         try {
-          const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } as any,
-          });
-
-          const parts = result.response.candidates?.[0]?.content?.parts ?? [];
-          for (const part of parts) {
-            const pd = (part as { inlineData?: { mimeType?: string; data?: string } }).inlineData;
-            if (pd?.mimeType?.startsWith('image/') && pd.data) {
-              imageUrls.push(`data:${pd.mimeType};base64,${pd.data}`);
-              break;
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                instances: [{ prompt }],
+                parameters: { sampleCount: 1, aspectRatio },
+              }),
             }
+          );
+          const data = (await res.json()) as { predictions?: { bytesBase64Encoded: string; mimeType: string }[] };
+          const prediction = data.predictions?.[0];
+          if (prediction?.bytesBase64Encoded) {
+            const url = `data:${prediction.mimeType ?? 'image/png'};base64,${prediction.bytesBase64Encoded}`;
+            imageUrls.push(url);
+            ad.imageUrls = [url];
+            anyGenerated = true;
           }
         } catch {
           // Non-fatal per ad
@@ -87,6 +88,15 @@ async function generateCampaignImages(
         });
       }
     }
+  }
+
+  if (anyGenerated) {
+    try {
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { mediaPlan: mediaPlan as object },
+      });
+    } catch { /* non-fatal */ }
   }
 }
 
@@ -270,7 +280,7 @@ export async function runRoute(fastify: FastifyInstance) {
 
           await updateJob(jobId, { status: 'completed', campaignId: campaign.id });
 
-          void generateCampaignImages(mediaPlan, enqueue).catch(() => {});
+          void generateCampaignImages(mediaPlan, campaign.id, enqueue).catch(() => {});
           void saveCampaignMemory({
             orgId: organizationId,
             userId,

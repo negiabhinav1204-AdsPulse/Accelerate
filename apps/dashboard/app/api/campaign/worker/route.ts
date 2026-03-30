@@ -42,14 +42,17 @@ async function generateCampaignImages(
   mediaPlan: MediaPlan,
   /** Product-specific image prompts from the Creative Agent */
   creativeImagePrompts: string[],
-  /** Real product images scraped from the product page — used as fallback only when no API key */
-  realProductImages: string[],
+  /** Campaign DB id — used to persist generated images so detail page shows them immediately */
+  campaignId: string,
   enqueue: (event: AgentEvent) => void
 ): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY;
+  // No key → leave imageUrls empty; client-side /api/campaign/generate-images handles it
+  if (!apiKey) return;
 
   const brandName = mediaPlan.summary?.brandName ?? '';
   let promptIndex = 0;
+  let anyGenerated = false;
 
   for (const platform of mediaPlan.platforms) {
     for (const adType of platform.adTypes) {
@@ -58,52 +61,45 @@ async function generateCampaignImages(
 
       const imageUrls: string[] = [];
 
-      // No AI key — use product images directly for all slots
-      if (!apiKey) {
-        for (let i = 0; i < Math.min(adType.ads.length, 3); i++) {
-          if (realProductImages.length > 0) {
-            imageUrls.push(realProductImages[i % realProductImages.length]!);
-          }
-        }
-      } else {
-        for (let i = 0; i < Math.min(adType.ads.length, 3); i++) {
-          const ad = adType.ads[i]!;
+      for (let i = 0; i < Math.min(adType.ads.length, 3); i++) {
+        const ad = adType.ads[i]!;
 
-          const aspectRatio =
-            normalizedType.includes('stories') || normalizedType.includes('reels')
-              ? '9:16'
-              : platform.platform === 'meta'
-              ? '1:1'
-              : '16:9';
+        const aspectRatio =
+          normalizedType.includes('stories') || normalizedType.includes('reels')
+            ? '9:16'
+            : platform.platform === 'meta'
+            ? '1:1'
+            : '16:9';
 
-          const creativePrompt = creativeImagePrompts[promptIndex % Math.max(creativeImagePrompts.length, 1)];
-          promptIndex++;
+        const creativePrompt = creativeImagePrompts[promptIndex % Math.max(creativeImagePrompts.length, 1)];
+        promptIndex++;
 
-          // Use lifestyle creative prompts from the Creative Agent (audience, theme, location, product context).
-          // If Imagen fails, the slot stays empty — the preview panel handles it via /api/campaign/generate-images.
-          const prompt = creativePrompt
-            ? `${creativePrompt}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`
-            : `Professional lifestyle advertisement for ${brandName}. Product: ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. Show a person using or wearing the product in a realistic everyday setting, no text overlay.`;
+        const prompt = creativePrompt
+          ? `${creativePrompt}. Aspect ratio ${aspectRatio}. High quality commercial photography, no text overlay, clean composition suitable for digital advertising.`
+          : `Professional lifestyle advertisement for ${brandName}. Product: ${ad.headlines[0] ?? brandName}. ${ad.descriptions[0] ?? ''}. Aspect ratio ${aspectRatio}. Show a person using or wearing the product in a realistic everyday setting, no text overlay.`;
 
-          try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${apiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  instances: [{ prompt }],
-                  parameters: { sampleCount: 1, aspectRatio }
-                })
-              }
-            );
-            const data = (await res.json()) as { predictions?: { bytesBase64Encoded: string; mimeType: string }[] };
-            const prediction = data.predictions?.[0];
-            if (prediction?.bytesBase64Encoded) {
-              imageUrls.push(`data:${prediction.mimeType ?? 'image/png'};base64,${prediction.bytesBase64Encoded}`);
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                instances: [{ prompt }],
+                parameters: { sampleCount: 1, aspectRatio }
+              })
             }
-          } catch { /* non-fatal — preview panel will generate via /api/campaign/generate-images */ }
-        }
+          );
+          const data = (await res.json()) as { predictions?: { bytesBase64Encoded: string; mimeType: string }[] };
+          const prediction = data.predictions?.[0];
+          if (prediction?.bytesBase64Encoded) {
+            const url = `data:${prediction.mimeType ?? 'image/png'};base64,${prediction.bytesBase64Encoded}`;
+            imageUrls.push(url);
+            // Write into the mediaPlan in-place so the DB update below captures it
+            ad.imageUrls = [url];
+            anyGenerated = true;
+          }
+        } catch { /* non-fatal — client-side generation handles missing slots */ }
       }
 
       if (imageUrls.length > 0) {
@@ -114,6 +110,16 @@ async function generateCampaignImages(
         });
       }
     }
+  }
+
+  // Persist generated images to DB so campaign detail shows them on every subsequent view
+  if (anyGenerated) {
+    try {
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { mediaPlan: mediaPlan as object }
+      });
+    } catch { /* non-fatal */ }
   }
 }
 
@@ -332,7 +338,7 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
 
       // ── 6. Generate images (fire-and-forget after job marked complete) ───────
       const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
-      void generateCampaignImages(mediaPlan, creativeImagePrompts, realProductImages ?? [], enqueue).catch(() => {});
+      void generateCampaignImages(mediaPlan, creativeImagePrompts, campaign.id, enqueue).catch(() => {});
 
       // ── 7. Save memory nodes ─────────────────────────────────────────────────
       void saveCampaignMemory({

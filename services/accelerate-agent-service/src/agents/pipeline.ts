@@ -1817,24 +1817,6 @@ export async function runCampaignAgents(params: {
     enqueue
   });
 
-  // When the user specifies a seasonal/event theme, let the Creative agent's
-  // Always use real product images when available — they look better than AI-generated ones.
-  // The ad copy (headlines/descriptions) already carries any seasonal/theme context.
-  if (productImages.length > 0) {
-    for (const platform of mediaPlan.platforms) {
-      for (const adType of platform.adTypes) {
-        const t = adType.adType.toLowerCase();
-        if (t === 'search' || t === 'rsa') continue;
-        for (let i = 0; i < adType.ads.length; i++) {
-          const ad = adType.ads[i];
-          if (ad && ad.imageUrls.length === 0) {
-            ad.imageUrls = [productImages[i % productImages.length]!];
-          }
-        }
-      }
-    }
-  }
-
   return {
     mediaPlan,
     agentOutputs: {
