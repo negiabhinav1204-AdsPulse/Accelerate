@@ -278,9 +278,11 @@ export async function runRoute(fastify: FastifyInstance) {
             )
             .catch(() => {});
 
-          await updateJob(jobId, { status: 'completed', campaignId: campaign.id });
+          // Generate images synchronously — DB must have imageUrls BEFORE job is
+          // marked complete so the frontend never triggers client-side fallback generation.
+          await generateCampaignImages(mediaPlan, campaign.id, enqueue);
 
-          void generateCampaignImages(mediaPlan, campaign.id, enqueue).catch(() => {});
+          await updateJob(jobId, { status: 'completed', campaignId: campaign.id });
           void saveCampaignMemory({
             orgId: organizationId,
             userId,

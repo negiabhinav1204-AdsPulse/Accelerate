@@ -324,6 +324,12 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
         orgKey(organizationId, 'campaigns:accelerate:p1')
       ).catch(() => {});
 
+      // ── 6. Generate images synchronously — must complete BEFORE job is marked
+      // complete so DB has imageUrls populated when the frontend loads the detail
+      // page (prevents client-side fallback generation from firing different images).
+      const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
+      await generateCampaignImages(mediaPlan, creativeImagePrompts, campaign.id, enqueue);
+
       // Mark job complete — media_plan event is included here so it is
       // guaranteed written to the events list BEFORE status becomes 'completed'.
       // This prevents the frontend from stopping its poll before receiving the plan.
@@ -335,10 +341,6 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
           plan: { ...mediaPlan, _campaignId: campaign.id }
         }
       });
-
-      // ── 6. Generate images (fire-and-forget after job marked complete) ───────
-      const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
-      void generateCampaignImages(mediaPlan, creativeImagePrompts, campaign.id, enqueue).catch(() => {});
 
       // ── 7. Save memory nodes ─────────────────────────────────────────────────
       void saveCampaignMemory({
