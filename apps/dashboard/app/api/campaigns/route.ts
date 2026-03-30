@@ -142,6 +142,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // Never show unpublished (DRAFT) Accelerate-created campaigns — they're media plans in progress
+  const draftFilter =
+    source === 'external'
+      ? undefined
+      : source === 'accelerate'
+        ? { status: { not: 'draft' as const } }
+        : {
+            OR: [
+              { source: 'external' as const },
+              { source: 'accelerate' as const, status: { not: 'draft' as const } }
+            ]
+          };
+
   const where = {
     organizationId: orgId,
     archivedAt: null,
@@ -151,7 +164,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ...(searchFilter ?? {}),
     ...(platformFilter ?? {}),
     ...(statusFilter ?? {}),
-    ...(connectorFilter ?? {})
+    ...(connectorFilter ?? {}),
+    ...(draftFilter ?? {})
   };
 
   const [total, campaigns] = await Promise.all([
