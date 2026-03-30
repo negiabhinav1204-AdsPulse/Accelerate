@@ -464,23 +464,6 @@ const HEALTH_CHART_DATA = [
   { day: 'Day 7', score: 82 },
 ];
 
-const MOCK_RECOMMENDATIONS = [
-  {
-    priority: 'HIGH' as const,
-    title: 'Scale budget +25%',
-    description: 'ROAS 3.1x consistently over 14 days — this campaign is budget-limited. Increasing spend could capture 40% more conversions.',
-  },
-  {
-    priority: 'MEDIUM' as const,
-    title: 'Add lookalike audience',
-    description: 'Your top converters are aged 28-38 with shopping interests. A 1% lookalike could expand reach by ~50K.',
-  },
-  {
-    priority: 'LOW' as const,
-    title: 'Refresh creative assets',
-    description: 'Primary creative is 32 days old. A/B test with a new variant to prevent fatigue.',
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -509,16 +492,6 @@ export function CampaignDetailClient({
   const [detailsExpanded, setDetailsExpanded] = React.useState(false);
 
   const isAccelerate = source === 'accelerate';
-
-  const MOCK_METRICS: CampaignMetrics = {
-    spend: 12400,
-    revenue: 38200,
-    roas: 3.08,
-    conversions: 156,
-    impressions: 284000,
-    clicks: 5630,
-    currency: orgCurrency,
-  };
 
   React.useEffect(() => {
     void loadDetail();
@@ -549,11 +522,14 @@ export function CampaignDetailClient({
     setMetricsLoading(true);
     try {
       const res = await fetch(`/api/campaigns/${campaignId}/metrics?orgId=${orgId}`);
-      if (!res.ok) throw new Error('metrics unavailable');
+      if (!res.ok) {
+        // No synced data yet — leave metrics as null (handled in UI)
+        return;
+      }
       const json = await res.json() as CampaignMetrics;
       setMetrics(json);
     } catch {
-      setMetrics(MOCK_METRICS);
+      // Leave null — UI will show "no data synced yet"
     } finally {
       setMetricsLoading(false);
     }
@@ -844,14 +820,11 @@ export function CampaignDetailClient({
           <SparklesIcon className="size-4 text-primary" />
           <p className="text-sm font-semibold text-foreground">AI Recommendations</p>
         </div>
-        {MOCK_RECOMMENDATIONS.map((rec) => (
-          <RecommendationCard
-            key={rec.title}
-            priority={rec.priority}
-            title={rec.title}
-            description={rec.description}
-          />
-        ))}
+        <p className="text-xs text-muted-foreground">
+          Campaign-level recommendations are available on the{' '}
+          <a href="../optimization" className="underline underline-offset-2 hover:text-foreground">Optimization</a>{' '}
+          page once performance data has synced.
+        </p>
       </div>
 
       {/* 10. Agent Analysis (Accelerate campaigns only) */}

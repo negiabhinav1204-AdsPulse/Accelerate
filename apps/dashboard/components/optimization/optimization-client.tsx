@@ -31,17 +31,6 @@ type Recommendation = {
   dismissed: boolean;
 };
 
-// Mock recommendations data
-const MOCK_RECOMMENDATIONS: Recommendation[] = [
-  { id: 'r1', priority: 'HIGH', category: 'budget', campaign: 'Brand Awareness', platform: 'meta', title: "Pause 'Brand Awareness' — ROAS 0.4x", reason: '$5,000 spend with only $2,000 revenue. Negative ROAS for 14 consecutive days.', estimated_impact: 'Save $5,000/month', dismissed: false },
-  { id: 'r2', priority: 'HIGH', category: 'anomaly', campaign: 'Shopping - Best Sellers', platform: 'google', title: 'CPC spike +81% in last 48 hours', reason: 'CPC jumped from $1.20 to $2.18. Possible auction pressure or bid change.', estimated_impact: 'Prevent budget waste', dismissed: false },
-  { id: 'r3', priority: 'HIGH', category: 'pacing', campaign: 'Brand Awareness', platform: 'meta', title: 'Budget exhausts 10 days early', reason: '97% spent at 65% of month. Reduce daily budget 40% to extend campaign.', estimated_impact: 'Prevent $2,790 overspend', dismissed: false },
-  { id: 'r4', priority: 'MEDIUM', category: 'bid', campaign: 'Brand Awareness', platform: 'meta', title: 'Lower CPC bids 20% — low CTR signal', reason: 'CTR 0.8% with $3.50 CPC. Overbidding on low-intent queries.', estimated_impact: 'Save ~18% on CPC', dismissed: false },
-  { id: 'r5', priority: 'MEDIUM', category: 'budget', campaign: 'Shopping - Best Sellers', platform: 'google', title: "Scale 'Shopping - Best Sellers' +25%", reason: 'ROAS 4.0x consistently over 14 days. Budget-limited winner.', estimated_impact: '+40% conversions', dismissed: false },
-  { id: 'r6', priority: 'MEDIUM', category: 'audience', campaign: 'Shopping - Best Sellers', platform: 'google', title: 'Create lookalike from top 200 converters', reason: 'ROAS 4.0x makes this audience worth expanding. Potential +45K reach.', estimated_impact: '+45K potential reach', dismissed: false },
-  { id: 'r7', priority: 'LOW', category: 'creative', campaign: 'Brand Awareness', platform: 'meta', title: 'Refresh creative — 45 days old', reason: '180K impressions on same creative. Frequency likely causing banner blindness.', estimated_impact: 'Prevent CTR decay', dismissed: false },
-  { id: 'r8', priority: 'LOW', category: 'audience', campaign: 'Retargeting', platform: 'meta', title: 'Add converters exclusion to prospecting', reason: 'Converters not excluded from Brand Awareness — wasted impressions on existing customers.', estimated_impact: 'Save ~8% of budget', dismissed: false },
-];
 
 const CATEGORY_ICONS: Record<Category, React.ElementType> = {
   budget: TrendingUpIcon,
@@ -73,11 +62,33 @@ const PRIORITY_CONFIG: Record<Priority, { badge: string; border: string; bg: str
   LOW: { badge: 'bg-blue-100 text-blue-700 border-blue-200', border: 'border-l-blue-500', bg: '' },
 };
 
-export function OptimizationClient({ orgSlug }: { orgSlug: string }) {
-  const [recs, setRecs] = React.useState<Recommendation[]>(MOCK_RECOMMENDATIONS);
+export function OptimizationClient({ orgSlug, orgId }: { orgSlug: string; orgId: string }) {
+  const [recs, setRecs] = React.useState<Recommendation[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [synced, setSynced] = React.useState(false);
   const [activeFilter, setActiveFilter] = React.useState<'all' | Priority | Category>('all');
   const [isRunning, setIsRunning] = React.useState(false);
   const [lastRun, setLastRun] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    void fetchRecommendations();
+  }, [orgId]);
+
+  async function fetchRecommendations() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/optimization?orgId=${orgId}`);
+      if (res.ok) {
+        const json = await res.json() as { recommendations: Recommendation[]; synced: boolean };
+        setRecs(json.recommendations);
+        setSynced(json.synced);
+      }
+    } catch {
+      // leave empty
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const filtered = recs.filter((r) => {
     if (r.dismissed) return false;
@@ -100,12 +111,19 @@ export function OptimizationClient({ orgSlug }: { orgSlug: string }) {
 
   async function runAnalysis() {
     setIsRunning(true);
-    // Simulate running the 7-agent workflow
-    await new Promise((r) => setTimeout(r, 2000));
-    setIsRunning(false);
-    setLastRun(new Date().toLocaleTimeString());
-    // Reset dismissed state to show fresh recs
-    setRecs(MOCK_RECOMMENDATIONS);
+    try {
+      const res = await fetch(`/api/optimization?orgId=${orgId}`);
+      if (res.ok) {
+        const json = await res.json() as { recommendations: Recommendation[]; synced: boolean };
+        setRecs(json.recommendations.map((r) => ({ ...r, dismissed: false })));
+        setSynced(json.synced);
+        setLastRun(new Date().toLocaleTimeString());
+      }
+    } catch {
+      // leave current state
+    } finally {
+      setIsRunning(false);
+    }
   }
 
   const filterTabs: Array<{ key: typeof activeFilter; label: string }> = [
@@ -120,6 +138,39 @@ export function OptimizationClient({ orgSlug }: { orgSlug: string }) {
     { key: 'anomaly', label: 'Anomaly' },
     { key: 'pacing', label: 'Pacing' },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-3 max-w-4xl">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-4 animate-pulse">
+            <div className="flex items-start gap-3">
+              <div className="size-8 rounded-lg bg-muted shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 bg-muted rounded w-1/4" />
+                <div className="h-4 bg-muted rounded w-2/3" />
+                <div className="h-3 bg-muted rounded w-1/2" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (!synced) {
+    return (
+      <div className="rounded-xl border border-border bg-card py-16 flex flex-col items-center justify-center gap-3 text-center max-w-4xl">
+        <div className="size-10 rounded-full bg-muted flex items-center justify-center">
+          <ZapIcon className="size-5 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium text-foreground">No campaign data synced yet</p>
+        <p className="text-xs text-muted-foreground max-w-xs">
+          Connect Meta or Google from the Connectors page and wait for the first sync to generate recommendations.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 max-w-4xl">

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
 
+import { getAuthOrganizationContext } from '@workspace/auth/context';
 import { Page, PageBody, PageHeader, PagePrimaryBar } from '@workspace/ui/components/page';
 
 import { OptimizationClient } from '~/components/optimization/optimization-client';
@@ -11,6 +12,7 @@ export const metadata: Metadata = { title: createTitle('Optimization') };
 export default async function OptimizationPage(props: {
   params: Promise<{ slug: string }>;
 }): Promise<React.JSX.Element> {
+  const ctx = await getAuthOrganizationContext();
   const { slug } = await props.params;
 
   return (
@@ -21,7 +23,7 @@ export default async function OptimizationPage(props: {
         </PagePrimaryBar>
       </PageHeader>
       <PageBody>
-        <OptimizationClient orgSlug={slug} />
+        <OptimizationClient orgSlug={slug} orgId={ctx.organization.id} />
       </PageBody>
     </Page>
   );
