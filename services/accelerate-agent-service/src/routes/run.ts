@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { verifyQStashSignature } from '../lib/qstash';
 import { appendJobEvent, updateJob } from '../lib/job-store';
+import { uploadImageToGCS } from '../lib/gcs';
 import { redis, orgKey } from '../lib/redis';
 import { prisma } from '../lib/db';
 import { runCampaignAgents } from '../agents/pipeline';
@@ -74,7 +75,9 @@ async function generateCampaignImages(
           const data = (await res.json()) as { predictions?: { bytesBase64Encoded: string; mimeType: string }[] };
           const prediction = data.predictions?.[0];
           if (prediction?.bytesBase64Encoded) {
-            const url = `data:${prediction.mimeType ?? 'image/png'};base64,${prediction.bytesBase64Encoded}`;
+            const mime = prediction.mimeType ?? 'image/png';
+            const gcsUrl = await uploadImageToGCS(prediction.bytesBase64Encoded, mime);
+            const url = gcsUrl ?? `data:${mime};base64,${prediction.bytesBase64Encoded}`;
             imageUrls.push(url);
             ad.imageUrls = [url];
             anyGenerated = true;

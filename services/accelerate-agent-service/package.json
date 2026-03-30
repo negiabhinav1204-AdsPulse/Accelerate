@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "@fastify/cors": "^9.0.1",
+    "@google-cloud/storage": "^7.19.0",
     "@google/generative-ai": "^0.24.1",
     "@mendable/firecrawl-js": "^4.16.0",
     "@prisma/client": "6.9.0",
