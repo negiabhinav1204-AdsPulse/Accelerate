@@ -58,7 +58,8 @@
     "BING_TENANT_ID",
     "BING_PERMISSION_SCOPE",
     "META_APP_ID",
-    "META_APP_SECRET"
+    "META_APP_SECRET",
+    "BLOB_READ_WRITE_TOKEN"
   ],
   "tasks": {
     "dev": {
