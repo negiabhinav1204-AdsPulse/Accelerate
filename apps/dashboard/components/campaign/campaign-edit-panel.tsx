@@ -2,8 +2,11 @@
 
 import * as React from 'react';
 import {
+  ChevronDownIcon,
   ImageIcon,
   LayersIcon,
+  LockIcon,
+  Minimize2Icon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
@@ -562,7 +565,13 @@ function pathsEqual(a: NodePath, b: NodePath): boolean {
     && a.adIdx === b.adIdx;
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
+// ── Props & types ──────────────────────────────────────────────────────────────
+
+type TreeMenuState =
+  | { type: 'platform'; idx: number }
+  | { type: 'adType'; platformIdx: number; adTypeIdx: number }
+  | { type: 'ad'; platformIdx: number; adTypeIdx: number; adIdx: number }
+  | null;
 
 type CampaignEditPanelProps = {
   mediaPlan: MediaPlan;
@@ -580,42 +589,62 @@ export function CampaignEditPanel({
   initialScope
 }: CampaignEditPanelProps): React.JSX.Element {
   const [localPlan, setLocalPlan] = React.useState<MediaPlan>(mediaPlan);
-
-  // Which node is selected in the tree
-  const [selectedPath, setSelectedPath] = React.useState<NodePath>(() => ({
-    platformIdx: initialScope?.platformIdx ?? 0,
-    adTypeIdx: initialScope?.adTypeIdx,
-  }));
-
-  // Three-dot dropdown state
-  type TreeMenuState =
-    | { type: 'platform'; idx: number }
-    | { type: 'adType'; platformIdx: number; adTypeIdx: number }
-    | { type: 'adGroup'; platformIdx: number; adTypeIdx: number; adGroupIdx: number }
-    | { type: 'ad'; platformIdx: number; adTypeIdx: number; adIdx: number }
-    | null;
+  const [history, setHistory] = React.useState<MediaPlan[]>([]);
+  const [activeTab, setActiveTab] = React.useState<'targeting' | 'creatives'>('targeting');
+  const [budgetMode, setBudgetMode] = React.useState<'dollar' | 'percent'>('dollar');
+  const [budgetStrategy, setBudgetStrategy] = React.useState<'balanced' | 'performance' | 'equal'>('balanced');
   const [openTreeMenu, setOpenTreeMenu] = React.useState<TreeMenuState>(null);
 
+  const [selectedPath, setSelectedPath] = React.useState<NodePath>(() => ({
+    platformIdx: initialScope?.platformIdx ?? 0,
+    adTypeIdx: initialScope?.adTypeIdx ?? 0,
+  }));
+
+  // Reset to Targeting tab when the selected ad type changes
+  React.useEffect(() => {
+    setActiveTab('targeting');
+  }, [selectedPath.platformIdx, selectedPath.adTypeIdx]);
+
+  // History-aware plan updater
+  const updatePlan = React.useCallback((updater: (prev: MediaPlan) => MediaPlan) => {
+    setLocalPlan((prev) => {
+      setHistory((h) => [...h.slice(-19), prev]);
+      return updater(prev);
+    });
+  }, []);
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const prev = history[history.length - 1]!;
+    setHistory((h) => h.slice(0, -1));
+    setLocalPlan(prev);
+  };
+
+  const handleReset = () => {
+    setLocalPlan(mediaPlan);
+    setHistory([]);
+  };
+
   const handleDeletePlatform = (platformIdx: number) => {
-    setLocalPlan((prev) => ({
+    updatePlan((prev) => ({
       ...prev,
       platforms: prev.platforms.filter((_, i) => i !== platformIdx)
     }));
-    setSelectedPath({ platformIdx: 0 });
+    setSelectedPath({ platformIdx: 0, adTypeIdx: 0 });
   };
 
   const handleDeleteAdType = (platformIdx: number, adTypeIdx: number) => {
-    setLocalPlan((prev) => ({
+    updatePlan((prev) => ({
       ...prev,
       platforms: prev.platforms.map((p, pi) =>
         pi !== platformIdx ? p : { ...p, adTypes: p.adTypes.filter((_, ai) => ai !== adTypeIdx) }
       )
     }));
-    setSelectedPath({ platformIdx });
+    setSelectedPath({ platformIdx, adTypeIdx: 0 });
   };
 
   const handleDeleteAd = (platformIdx: number, adTypeIdx: number, adIdx: number) => {
-    setLocalPlan((prev) => ({
+    updatePlan((prev) => ({
       ...prev,
       platforms: prev.platforms.map((p, pi) =>
         pi !== platformIdx ? p : {
@@ -626,11 +655,11 @@ export function CampaignEditPanel({
         }
       )
     }));
-    setSelectedPath({ platformIdx, adTypeIdx, adGroupIdx: 0 });
+    setSelectedPath({ platformIdx, adTypeIdx });
   };
 
   const handleUpdateAd = (platformIdx: number, adTypeIdx: number, adIdx: number, updated: Partial<AdCreative>) => {
-    setLocalPlan((prev) => ({
+    updatePlan((prev) => ({
       ...prev,
       platforms: prev.platforms.map((p, pi) =>
         pi !== platformIdx ? p : {
@@ -655,7 +684,7 @@ export function CampaignEditPanel({
       ctaText: 'Learn More',
       destinationUrl: localPlan.platforms[platformIdx]?.adTypes[adTypeIdx]?.ads[0]?.destinationUrl ?? '',
     };
-    setLocalPlan((prev) => ({
+    updatePlan((prev) => ({
       ...prev,
       platforms: prev.platforms.map((p, pi) =>
         pi !== platformIdx ? p : {
@@ -677,247 +706,311 @@ export function CampaignEditPanel({
     : undefined;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
-      {/* Header */}
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold text-foreground">Campaign Editor</p>
-          {selectedPlatform && (
-            <span className="text-muted-foreground text-xs">
-              / {platformLabel(selectedPlatform.platform)}
-              {selectedAdType && ` / ${adTypeLabel(selectedAdType.adType)}`}
-              {selectedPath.adGroupIdx !== undefined && !selectedAd && ' / Ad Group 1'}
-              {selectedAd && ` / Ad ${(selectedPath.adIdx ?? 0) + 1}`}
-            </span>
-          )}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="relative flex flex-col bg-background rounded-2xl shadow-2xl border-2 border-dashed border-blue-400 w-full max-w-5xl overflow-hidden"
+        style={{ height: '90vh' }}
+      >
+        {/* Header */}
+        <div className="shrink-0 flex items-center justify-between px-5 py-3.5 border-b border-border">
+          <span className="text-sm font-semibold text-foreground">Campaign Preview - Editing</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Minimize"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <Minimize2Icon className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <XIcon className="size-4" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs"
-            onClick={() => { onSave(localPlan); onClose(); }}
-          >
-            Save Changes
-          </Button>
+
+        {/* Platform nav row */}
+        <div className="shrink-0 px-4 py-2 border-b border-border/50 overflow-x-auto">
+          <div className="flex items-center gap-1.5">
+            {localPlan.platforms.map((platform, platformIdx) => {
+              const isSelected = selectedPath.platformIdx === platformIdx;
+              return (
+                <div key={`${platform.platform}-${platformIdx}`} className="relative group/platform flex items-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPath({ platformIdx, adTypeIdx: 0 })}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border',
+                      isSelected
+                        ? 'bg-blue-50 text-blue-600 border-blue-300'
+                        : 'bg-background text-foreground border-border hover:border-blue-200 hover:bg-blue-50/40'
+                    )}
+                  >
+                    {platform.platform === 'google' && <GoogleIcon />}
+                    {platform.platform === 'meta' && <MetaIcon />}
+                    {platform.platform === 'bing' && <MicrosoftIcon />}
+                    {platformLabel(platform.platform)}
+                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx ? null : { type: 'platform', idx: platformIdx }); }}
+                      className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/platform:opacity-100 hover:text-foreground transition-all"
+                    >
+                      <MoreHorizontalIcon className="size-3" />
+                    </button>
+                    {openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx && (
+                      <TreeContextMenu
+                        onEdit={() => { setSelectedPath({ platformIdx, adTypeIdx: 0 }); setOpenTreeMenu(null); }}
+                        onDelete={() => { handleDeletePlatform(platformIdx); setOpenTreeMenu(null); }}
+                        onClose={() => setOpenTreeMenu(null)}
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* AdType nav row */}
+        {selectedPlatform && (
+          <div className="shrink-0 px-4 py-1.5 border-b border-border/50 overflow-x-auto">
+            <div className="flex items-center gap-1.5">
+              {selectedPlatform.adTypes.map((adType, adTypeIdx) => {
+                const isSelected = selectedPath.adTypeIdx === adTypeIdx;
+                return (
+                  <div key={`${adType.adType}-${adTypeIdx}`} className="relative group/adtype flex items-center shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx })}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
+                        isSelected
+                          ? 'bg-blue-50 text-blue-600 border-blue-300'
+                          : 'bg-background text-foreground border-border hover:border-blue-200 hover:bg-blue-50/40'
+                      )}
+                    >
+                      <AdTypeIconSmall type={adType.adType} />
+                      {adTypeLabel(adType.adType)}
+                    </button>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === adTypeIdx ? null : { type: 'adType', platformIdx: selectedPath.platformIdx, adTypeIdx }); }}
+                        className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/adtype:opacity-100 hover:text-foreground transition-all"
+                      >
+                        <MoreHorizontalIcon className="size-3" />
+                      </button>
+                      {openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === adTypeIdx && (
+                        <TreeContextMenu
+                          onEdit={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx }); setOpenTreeMenu(null); }}
+                          onDelete={() => { handleDeleteAdType(selectedPath.platformIdx, adTypeIdx); setOpenTreeMenu(null); }}
+                          onClose={() => setOpenTreeMenu(null)}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Ads nav row */}
+        {selectedAdType && selectedPath.adTypeIdx !== undefined && (
+          <div className="shrink-0 px-4 py-1.5 border-b border-border/50 overflow-x-auto">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx }); setActiveTab('targeting'); }}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border shrink-0',
+                  selectedPath.adIdx === undefined
+                    ? 'bg-blue-50 text-blue-600 border-blue-300'
+                    : 'bg-background text-foreground border-border hover:border-blue-200 hover:bg-blue-50/40'
+                )}
+              >
+                <LayersIcon className="size-3" />
+                Ad group 1
+              </button>
+              {selectedAdType.ads.map((ad, adIdx) => {
+                const isAdSelected = selectedPath.adIdx === adIdx;
+                return (
+                  <div key={ad.id ?? adIdx} className="relative group/ad flex items-center shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adGroupIdx: 0, adIdx }); setActiveTab('creatives'); }}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
+                        isAdSelected
+                          ? 'bg-blue-50 text-blue-600 border-blue-300'
+                          : 'bg-background text-foreground border-border hover:border-blue-200 hover:bg-blue-50/40'
+                      )}
+                    >
+                      {ad.imageUrls[0]
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={ad.imageUrls[0]} alt="" className="size-3.5 rounded object-cover shrink-0" />
+                        : <ImageIcon className="size-3 shrink-0" />}
+                      Ad {adIdx + 1}
+                    </button>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setOpenTreeMenu({ type: 'ad', platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adIdx }); }}
+                        className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/ad:opacity-100 hover:text-foreground transition-all"
+                      >
+                        <MoreHorizontalIcon className="size-3" />
+                      </button>
+                      {openTreeMenu?.type === 'ad' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === selectedPath.adTypeIdx && openTreeMenu.adIdx === adIdx && (
+                        <TreeContextMenu
+                          onEdit={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adGroupIdx: 0, adIdx }); setOpenTreeMenu(null); setActiveTab('creatives'); }}
+                          onDelete={() => { handleDeleteAd(selectedPath.platformIdx, selectedPath.adTypeIdx!, adIdx); setOpenTreeMenu(null); }}
+                          onClose={() => setOpenTreeMenu(null)}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => handleAddAd(selectedPath.platformIdx, selectedPath.adTypeIdx!)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors border border-dashed border-border shrink-0"
+              >
+                <PlusIcon className="size-3" />
+                Add Ad
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tab bar — Targeting | Creatives */}
+        {selectedAdType && (
+          <div className="shrink-0 flex items-center px-5 border-b border-border bg-muted/10">
+            {(['targeting', 'creatives'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  'py-2.5 mr-7 text-sm font-medium border-b-2 -mb-px transition-colors capitalize',
+                  activeTab === tab
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {tab === 'creatives' ? `Creatives (${selectedAdType.ads.length})` : 'Targeting'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Content area */}
+        <main className="flex-1 overflow-y-auto">
+          {!selectedAdType ? (
+            <PlatformContent
+              platform={selectedPlatform!}
+              currency={localPlan.currency}
+              onBudgetChange={(budget) => {
+                updatePlan((prev) => ({
+                  ...prev,
+                  platforms: prev.platforms.map((p, pi) =>
+                    pi !== selectedPath.platformIdx ? p : { ...p, budget }
+                  )
+                }));
+              }}
+            />
+          ) : activeTab === 'targeting' ? (
+            <TargetingTabContent
+              mediaPlan={localPlan}
+              selectedAdType={selectedAdType}
+              budgetMode={budgetMode}
+              budgetStrategy={budgetStrategy}
+              onBudgetModeChange={setBudgetMode}
+              onStrategyChange={setBudgetStrategy}
+              onPlatformBudgetChange={(platformIdx, budget) => {
+                updatePlan((prev) => ({
+                  ...prev,
+                  platforms: prev.platforms.map((p, pi) =>
+                    pi !== platformIdx ? p : { ...p, budget }
+                  )
+                }));
+              }}
+              onTargetingChange={(t) => {
+                updatePlan((prev) => ({
+                  ...prev,
+                  platforms: prev.platforms.map((p, pi) =>
+                    pi !== selectedPath.platformIdx ? p : {
+                      ...p,
+                      adTypes: p.adTypes.map((at, ai) =>
+                        ai !== selectedPath.adTypeIdx ? at : { ...at, targeting: { ...at.targeting, ...t } }
+                      )
+                    }
+                  )
+                }));
+              }}
+            />
+          ) : selectedAd && selectedPath.adIdx !== undefined ? (
+            <AdEditor
+              ad={selectedAd}
+              adType={selectedAdType.adType}
+              platform={selectedPlatform?.platform ?? 'google'}
+              adIdx={selectedPath.adIdx}
+              onUpdate={(updated) =>
+                handleUpdateAd(selectedPath.platformIdx, selectedPath.adTypeIdx!, selectedPath.adIdx!, updated)
+              }
+            />
+          ) : (
+            <CreativesGridContent
+              adType={selectedAdType}
+              platform={selectedPlatform?.platform ?? 'google'}
+              onSelectAd={(adIdx) => setSelectedPath({
+                platformIdx: selectedPath.platformIdx,
+                adTypeIdx: selectedPath.adTypeIdx!,
+                adGroupIdx: 0,
+                adIdx
+              })}
+            />
+          )}
+        </main>
+
+        {/* Bottom action bar */}
+        <div className="shrink-0 flex items-center justify-between px-5 py-3 border-t border-border bg-background">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={history.length === 0}
+              className="px-4 py-2 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-4 py-2 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-accent transition-colors"
+            >
+              Reset
+            </button>
+          </div>
           <button
             type="button"
-            onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            onClick={() => { onSave(localPlan); onClose(); }}
+            className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
           >
-            <XIcon className="size-4" />
+            Save changes
           </button>
         </div>
       </div>
-
-      {/* Top navigation: Campaign Structure */}
-      <div className="shrink-0 border-b border-border bg-muted/20">
-        {/* Platform row */}
-        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border/40 overflow-x-auto">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0 mr-1">Structure</span>
-          {localPlan.platforms.map((platform, platformIdx) => {
-            const isPlatformSelected = selectedPath.platformIdx === platformIdx && selectedPath.adTypeIdx === undefined;
-            return (
-              <div key={`${platform.platform}-${platformIdx}`} className="relative group/platform flex items-center shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setSelectedPath({ platformIdx })}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
-                    isPlatformSelected
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background text-foreground border-border hover:border-primary/50 hover:bg-accent'
-                  )}
-                >
-                  {platform.platform === 'google' && <GoogleIcon />}
-                  {platform.platform === 'meta' && <MetaIcon />}
-                  {platform.platform === 'bing' && <MicrosoftIcon />}
-                  {platformLabel(platform.platform)}
-                </button>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx ? null : { type: 'platform', idx: platformIdx }); }}
-                    className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/platform:opacity-100 hover:text-foreground transition-all"
-                  >
-                    <MoreHorizontalIcon className="size-3" />
-                  </button>
-                  {openTreeMenu?.type === 'platform' && openTreeMenu.idx === platformIdx && (
-                    <TreeContextMenu
-                      onEdit={() => { setSelectedPath({ platformIdx }); setOpenTreeMenu(null); }}
-                      onDelete={() => { handleDeletePlatform(platformIdx); setOpenTreeMenu(null); }}
-                      onClose={() => setOpenTreeMenu(null)}
-                    />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* AdType row */}
-        {selectedPlatform && (
-          <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 overflow-x-auto">
-            <span className="text-[10px] text-muted-foreground shrink-0 mr-1">Campaigns:</span>
-            {selectedPlatform.adTypes.map((adType, adTypeIdx) => {
-              const isAdTypeSelected = selectedPath.adTypeIdx === adTypeIdx && selectedPath.adGroupIdx === undefined;
-              return (
-                <div key={`${adType.adType}-${adTypeIdx}`} className="relative group/adtype flex items-center shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx })}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
-                      isAdTypeSelected
-                        ? 'bg-primary/15 text-primary border-primary/30'
-                        : 'bg-background text-foreground border-border hover:border-primary/30 hover:bg-accent'
-                    )}
-                  >
-                    <AdTypeIconSmall type={adType.adType} />
-                    {adTypeLabel(adType.adType)}
-                  </button>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setOpenTreeMenu(openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === adTypeIdx ? null : { type: 'adType', platformIdx: selectedPath.platformIdx, adTypeIdx }); }}
-                      className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/adtype:opacity-100 hover:text-foreground transition-all"
-                    >
-                      <MoreHorizontalIcon className="size-3" />
-                    </button>
-                    {openTreeMenu?.type === 'adType' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === adTypeIdx && (
-                      <TreeContextMenu
-                        onEdit={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx }); setOpenTreeMenu(null); }}
-                        onDelete={() => { handleDeleteAdType(selectedPath.platformIdx, adTypeIdx); setOpenTreeMenu(null); }}
-                        onClose={() => setOpenTreeMenu(null)}
-                      />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Ads row */}
-        {selectedAdType && selectedPath.adTypeIdx !== undefined && (
-          <div className="flex items-center gap-1.5 px-4 py-1.5 overflow-x-auto">
-            <span className="text-[10px] text-muted-foreground shrink-0 mr-1">Ads:</span>
-            <button
-              type="button"
-              onClick={() => setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx, adGroupIdx: 0 })}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border shrink-0',
-                selectedPath.adGroupIdx !== undefined && selectedPath.adIdx === undefined
-                  ? 'bg-primary/15 text-primary border-primary/30'
-                  : 'bg-background text-foreground border-border hover:border-primary/30 hover:bg-accent'
-              )}
-            >
-              <LayersIcon className="size-3" />
-              Ad Group 1
-            </button>
-            {selectedAdType.ads.map((ad, adIdx) => {
-              const isAdSelected = selectedPath.adIdx === adIdx && selectedPath.adGroupIdx !== undefined;
-              return (
-                <div key={ad.id || adIdx} className="relative group/ad flex items-center shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adGroupIdx: 0, adIdx })}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
-                      isAdSelected
-                        ? 'bg-primary/15 text-primary border-primary/30'
-                        : 'bg-background text-foreground border-border hover:border-primary/30 hover:bg-accent'
-                    )}
-                  >
-                    {ad.imageUrls[0]
-                      // eslint-disable-next-line @next/next/no-img-element
-                      ? <img src={ad.imageUrls[0]} alt="" className="size-3.5 rounded object-cover shrink-0" />
-                      : <ImageIcon className="size-3 shrink-0" />}
-                    {ad.headlines[0]?.slice(0, 15) ?? `Ad ${adIdx + 1}`}
-                  </button>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setOpenTreeMenu({ type: 'ad', platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adIdx }); }}
-                      className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover/ad:opacity-100 hover:text-foreground transition-all"
-                    >
-                      <MoreHorizontalIcon className="size-3" />
-                    </button>
-                    {openTreeMenu?.type === 'ad' && openTreeMenu.platformIdx === selectedPath.platformIdx && openTreeMenu.adTypeIdx === selectedPath.adTypeIdx && openTreeMenu.adIdx === adIdx && (
-                      <TreeContextMenu
-                        onEdit={() => { setSelectedPath({ platformIdx: selectedPath.platformIdx, adTypeIdx: selectedPath.adTypeIdx!, adGroupIdx: 0, adIdx }); setOpenTreeMenu(null); }}
-                        onDelete={() => { handleDeleteAd(selectedPath.platformIdx, selectedPath.adTypeIdx!, adIdx); setOpenTreeMenu(null); }}
-                        onClose={() => setOpenTreeMenu(null)}
-                      />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => handleAddAd(selectedPath.platformIdx, selectedPath.adTypeIdx!)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors border border-dashed border-border shrink-0"
-            >
-              <PlusIcon className="size-3" />
-              Add Ad
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Content area */}
-      <main className="flex-1 overflow-y-auto">
-        {selectedAd && selectedPath.adTypeIdx !== undefined && selectedPath.adIdx !== undefined ? (
-          <AdEditor
-            ad={selectedAd}
-            adType={selectedAdType?.adType ?? ''}
-            platform={selectedPlatform?.platform ?? 'google'}
-            adIdx={selectedPath.adIdx}
-            onUpdate={(updated) =>
-              handleUpdateAd(selectedPath.platformIdx, selectedPath.adTypeIdx!, selectedPath.adIdx!, updated)
-            }
-          />
-        ) : selectedPath.adGroupIdx !== undefined && selectedPath.adIdx === undefined ? (
-          <AdGroupTargetingContent />
-        ) : selectedAdType && selectedPath.adTypeIdx !== undefined && selectedPath.adGroupIdx === undefined ? (
-          <CampaignTypeContent
-            adType={selectedAdType.adType}
-            platform={selectedPlatform?.platform ?? 'google'}
-            adTypePlan={selectedAdType}
-            onUpdate={(updatedAt) => {
-              setLocalPlan((prev) => ({
-                ...prev,
-                platforms: prev.platforms.map((p, pi) =>
-                  pi !== selectedPath.platformIdx ? p : {
-                    ...p,
-                    adTypes: p.adTypes.map((at, ai) =>
-                      ai !== selectedPath.adTypeIdx ? at : { ...at, ...updatedAt }
-                    )
-                  }
-                )
-              }));
-            }}
-          />
-        ) : selectedPlatform ? (
-          <PlatformContent
-            platform={selectedPlatform}
-            currency={localPlan.currency}
-            onBudgetChange={(budget) => {
-              setLocalPlan((prev) => ({
-                ...prev,
-                platforms: prev.platforms.map((p, pi) =>
-                  pi !== selectedPath.platformIdx ? p : { ...p, budget }
-                )
-              }));
-            }}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            Select a node from the structure above to start editing
-          </div>
-        )}
-      </main>
     </div>
   );
 }
@@ -964,6 +1057,247 @@ function TreeContextMenu({
         <Trash2Icon className="size-3" />
         Delete
       </button>
+    </div>
+  );
+}
+
+// ── Targeting tab content ──────────────────────────────────────────────────────
+
+function TargetingTabContent({
+  mediaPlan,
+  selectedAdType,
+  budgetMode,
+  budgetStrategy,
+  onBudgetModeChange,
+  onStrategyChange,
+  onPlatformBudgetChange,
+  onTargetingChange
+}: {
+  mediaPlan: MediaPlan;
+  selectedAdType: AdTypePlan;
+  budgetMode: 'dollar' | 'percent';
+  budgetStrategy: 'balanced' | 'performance' | 'equal';
+  onBudgetModeChange: (m: 'dollar' | 'percent') => void;
+  onStrategyChange: (s: 'balanced' | 'performance' | 'equal') => void;
+  onPlatformBudgetChange: (platformIdx: number, budget: number) => void;
+  onTargetingChange: (t: Partial<AdTypePlan['targeting']>) => void;
+}): React.JSX.Element {
+  const targeting = selectedAdType.targeting;
+  const totalBudget = mediaPlan.platforms.reduce((sum, p) => sum + (p.budget ?? 0), 0);
+  const [locationSearch, setLocationSearch] = React.useState('');
+
+  const locationStrings: string[] = (targeting.locations as unknown[]).map((loc) => {
+    if (typeof loc === 'string') return loc;
+    const l = loc as { raw?: string; city?: string; country?: string };
+    return l.raw ?? l.city ?? l.country ?? '';
+  }).filter(Boolean);
+
+  const currencySymbol = mediaPlan.currency === 'INR' ? '₹'
+    : mediaPlan.currency === 'GBP' ? '£'
+    : mediaPlan.currency === 'EUR' ? '€' : '$';
+
+  return (
+    <div className="max-w-2xl mx-auto px-5 py-5 space-y-6">
+      <p className="text-sm font-medium text-foreground">Basic targeting details</p>
+
+      {/* Budget Allocation */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Budget Allocation</span>
+          <div className="flex items-center rounded-md border border-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => onBudgetModeChange('dollar')}
+              className={cn(
+                'px-2.5 py-1 text-xs font-medium transition-colors',
+                budgetMode === 'dollar' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-accent'
+              )}
+            >$</button>
+            <button
+              type="button"
+              onClick={() => onBudgetModeChange('percent')}
+              className={cn(
+                'px-2.5 py-1 text-xs font-medium transition-colors',
+                budgetMode === 'percent' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-accent'
+              )}
+            >%</button>
+          </div>
+        </div>
+
+        {/* Strategy presets */}
+        <div className="flex items-center gap-2">
+          {(['balanced', 'performance', 'equal'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onStrategyChange(s)}
+              className={cn(
+                'flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                budgetStrategy === s
+                  ? 'bg-blue-50 border-blue-300 text-blue-600'
+                  : 'bg-background border-border text-foreground hover:border-blue-200 hover:bg-blue-50/40'
+              )}
+            >
+              {s === 'performance' && <span>↗</span>}
+              {s === 'balanced' ? 'Balanced' : s === 'performance' ? 'Performance' : 'Equal Split'}
+            </button>
+          ))}
+        </div>
+
+        {/* Per-platform budget rows */}
+        <div className="space-y-2">
+          {mediaPlan.platforms.map((platform, platformIdx) => {
+            const pct = platform.budgetPercent ?? (totalBudget > 0 ? Math.round((platform.budget / totalBudget) * 100) : 0);
+            return (
+              <div key={platform.platform} className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {platform.platform === 'google' && <GoogleIcon />}
+                    {platform.platform === 'meta' && <MetaIcon />}
+                    {platform.platform === 'bing' && <MicrosoftIcon />}
+                    <span className="text-sm font-medium text-foreground">{platformLabel(platform.platform)} Ads</span>
+                    <LockIcon className="size-3 text-muted-foreground" />
+                  </div>
+                  <span className="text-sm text-muted-foreground">{pct}%</span>
+                </div>
+                <div className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2">
+                  <span className="text-sm text-muted-foreground">{currencySymbol}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={platform.budget ?? 0}
+                    onChange={(e) => onPlatformBudgetChange(platformIdx, Number(e.target.value))}
+                    className="flex-1 text-sm bg-transparent outline-none text-foreground"
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Total Allocation */}
+        <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-border bg-background">
+          <span className="text-sm font-medium text-foreground">Total Allocation</span>
+          <span className="text-sm font-semibold text-green-600">100%</span>
+        </div>
+      </div>
+
+      {/* Location */}
+      <div className="space-y-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Location</span>
+        <div className="relative flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
+          <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            type="text"
+            value={locationSearch}
+            onChange={(e) => setLocationSearch(e.target.value)}
+            placeholder="Search city, region, or country"
+            className="flex-1 text-sm bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
+          />
+          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        </div>
+        {locationStrings.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {locationStrings.map((loc) => (
+              <span key={loc} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium">
+                {loc}
+                <button
+                  type="button"
+                  onClick={() => onTargetingChange({ locations: locationStrings.filter((l) => l !== loc) })}
+                  className="hover:text-blue-900 ml-0.5"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Demographics */}
+      {(targeting.ageRange ?? targeting.gender) && (
+        <div className="space-y-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Demographics</span>
+          <div className="grid grid-cols-2 gap-3">
+            {targeting.ageRange && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground">Age Range</label>
+                <input
+                  type="text"
+                  defaultValue={targeting.ageRange}
+                  className="field-input"
+                  onChange={(e) => onTargetingChange({ ageRange: e.target.value })}
+                />
+              </div>
+            )}
+            {targeting.gender && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground">Gender</label>
+                <select
+                  defaultValue={targeting.gender}
+                  className="field-input"
+                  onChange={(e) => onTargetingChange({ gender: e.target.value })}
+                >
+                  {['All genders', 'Women', 'Men'].map((g) => <option key={g}>{g}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Creatives grid (Creatives tab, no ad selected) ─────────────────────────────
+
+function CreativesGridContent({
+  adType,
+  platform,
+  onSelectAd
+}: {
+  adType: AdTypePlan;
+  platform: string;
+  onSelectAd: (adIdx: number) => void;
+}): React.JSX.Element {
+  const isSearch = adType.adType.toLowerCase().includes('search');
+  const isStories = adType.adType.toLowerCase().includes('stories') || adType.adType.toLowerCase().includes('reels');
+  const imageAspect = isStories ? '9/16' : platform === 'meta' ? '1/1' : '16/9';
+
+  return (
+    <div className="max-w-3xl mx-auto px-5 py-5">
+      <div className={cn('grid gap-4', isSearch ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3')}>
+        {adType.ads.map((ad, adIdx) => (
+          <button
+            key={ad.id ?? adIdx}
+            type="button"
+            onClick={() => onSelectAd(adIdx)}
+            className="text-left rounded-xl border border-border bg-card overflow-hidden hover:border-blue-300 hover:shadow-md transition-all"
+          >
+            {!isSearch && (
+              <div className="relative bg-muted overflow-hidden" style={{ aspectRatio: imageAspect }}>
+                {ad.imageUrls[0] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={ad.imageUrls[0]} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <ImageIcon className="size-8 text-muted-foreground/30" />
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="p-3 space-y-1">
+              <p className="text-xs font-semibold text-foreground line-clamp-1">{ad.headlines[0] ?? `Ad ${adIdx + 1}`}</p>
+              <p className="text-[11px] text-muted-foreground line-clamp-2">{ad.descriptions[0] ?? ''}</p>
+              <div className="pt-1">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 text-[10px] font-medium border border-blue-100">
+                  {ad.ctaText ?? 'Learn More'}
+                </span>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
