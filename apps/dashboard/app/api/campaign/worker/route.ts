@@ -324,16 +324,14 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
         orgKey(organizationId, 'campaigns:accelerate:p1')
       ).catch(() => {});
 
-      // ── 6. Generate images synchronously — must complete BEFORE job is marked
-      // complete so DB has imageUrls populated when the frontend loads the detail
-      // page (prevents client-side fallback generation from firing different images).
-      const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
-      await generateCampaignImages(mediaPlan, creativeImagePrompts, campaign.id, enqueue);
-
-      // Mark job complete — strip imageUrls from the event payload so the Redis
-      // value stays small (base64 images are 1–20MB total, which can exceed limits).
-      // Images are already delivered via individual image_update events; the frontend
-      // merges them back in when it receives this media_plan event.
+      // ── 6. Fire media_plan event FIRST so the frontend sets mediaPlan to non-null,
+      // THEN generate images which fires image_update events.
+      //
+      // ORDER MATTERS: image_update handlers guard `if (!prev) return prev` — they
+      // are silently dropped while mediaPlan is null. media_plan must land in Redis
+      // BEFORE image_update events so the frontend processes them in correct order:
+      //   media_plan → mediaPlan non-null
+      //   image_update × N → images applied to non-null mediaPlan
       const planForEvent = {
         ...mediaPlan,
         _campaignId: campaign.id,
@@ -345,11 +343,14 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
           }))
         }))
       };
-      await updateJob(jobId, {
-        status: 'completed',
-        campaignId: campaign.id,
-        event: { type: 'media_plan', plan: planForEvent }
-      });
+      await appendJobEvent(jobId, { type: 'media_plan', plan: planForEvent } as { type: string; [key: string]: unknown });
+
+      // Generate images — each image_update event is appended AFTER media_plan
+      const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
+      await generateCampaignImages(mediaPlan, creativeImagePrompts, campaign.id, enqueue);
+
+      // Mark job complete (no event — media_plan already appended above)
+      await updateJob(jobId, { status: 'completed', campaignId: campaign.id });
 
       // ── 7. Save memory nodes ─────────────────────────────────────────────────
       void saveCampaignMemory({
