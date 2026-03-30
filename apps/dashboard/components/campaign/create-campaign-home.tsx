@@ -20,6 +20,38 @@ import type { EditScope } from './campaign-preview-panel';
 import { MediaPlanCard } from './media-plan-card';
 import type { AgentName, AgentState, MediaPlan, SSEEvent } from './types';
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Merge incoming mediaPlan onto existing, preserving any imageUrls that
+ * image_update events already placed in state (the media_plan event strips
+ * images to keep Redis payload small, so we restore them from prior state).
+ */
+function mergeMediaPlan(existing: MediaPlan | null, incoming: MediaPlan): MediaPlan {
+  if (!existing) return incoming;
+  return {
+    ...incoming,
+    platforms: incoming.platforms.map((p) => {
+      const prev = existing.platforms.find((ep) => ep.platform === p.platform);
+      if (!prev) return p;
+      return {
+        ...p,
+        adTypes: p.adTypes.map((at) => {
+          const prevAt = prev.adTypes.find((a) => a.adType === at.adType);
+          if (!prevAt) return at;
+          return {
+            ...at,
+            ads: at.ads.map((ad, i) => ({
+              ...ad,
+              imageUrls: ad.imageUrls.length > 0 ? ad.imageUrls : (prevAt.ads[i]?.imageUrls ?? [])
+            }))
+          };
+        })
+      };
+    })
+  };
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const INITIAL_AGENTS: AgentState[] = [
@@ -336,7 +368,7 @@ export function CreateCampaignHome({
           break;
 
         case 'media_plan': {
-          setMediaPlan(event.plan);
+          setMediaPlan((prev) => mergeMediaPlan(prev, event.plan));
           setPhase('plan_ready');
           setPreviewFullscreen(false);
           setMessages((prev) => [

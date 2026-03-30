@@ -330,16 +330,25 @@ async function runWorker(payload: WorkerPayload): Promise<NextResponse> {
       const creativeImagePrompts = (agentOutputs?.creative as { imagePrompts?: string[] } | undefined)?.imagePrompts ?? [];
       await generateCampaignImages(mediaPlan, creativeImagePrompts, campaign.id, enqueue);
 
-      // Mark job complete — media_plan event is included here so it is
-      // guaranteed written to the events list BEFORE status becomes 'completed'.
-      // This prevents the frontend from stopping its poll before receiving the plan.
+      // Mark job complete — strip imageUrls from the event payload so the Redis
+      // value stays small (base64 images are 1–20MB total, which can exceed limits).
+      // Images are already delivered via individual image_update events; the frontend
+      // merges them back in when it receives this media_plan event.
+      const planForEvent = {
+        ...mediaPlan,
+        _campaignId: campaign.id,
+        platforms: mediaPlan.platforms.map((p) => ({
+          ...p,
+          adTypes: p.adTypes.map((at) => ({
+            ...at,
+            ads: at.ads.map((ad) => ({ ...ad, imageUrls: [] }))
+          }))
+        }))
+      };
       await updateJob(jobId, {
         status: 'completed',
         campaignId: campaign.id,
-        event: {
-          type: 'media_plan',
-          plan: { ...mediaPlan, _campaignId: campaign.id }
-        }
+        event: { type: 'media_plan', plan: planForEvent }
       });
 
       // ── 7. Save memory nodes ─────────────────────────────────────────────────

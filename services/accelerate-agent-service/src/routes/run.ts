@@ -266,9 +266,21 @@ export async function runRoute(fastify: FastifyInstance) {
             select: { id: true },
           });
 
+          // Strip imageUrls from event — images sent via separate image_update events.
+          // This keeps the Redis payload small (base64 images can be 10–20MB total).
           enqueue({
             type: 'media_plan',
-            plan: { ...mediaPlan, _campaignId: campaign.id } as MediaPlan & { _campaignId: string },
+            plan: {
+              ...mediaPlan,
+              _campaignId: campaign.id,
+              platforms: mediaPlan.platforms.map((p) => ({
+                ...p,
+                adTypes: p.adTypes.map((at) => ({
+                  ...at,
+                  ads: at.ads.map((ad) => ({ ...ad, imageUrls: [] })),
+                })),
+              })),
+            } as MediaPlan & { _campaignId: string },
           });
 
           void redis

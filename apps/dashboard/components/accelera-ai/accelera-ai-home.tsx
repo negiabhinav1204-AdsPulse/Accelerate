@@ -156,6 +156,36 @@ const QUICK_ACTIONS: QuickAction[] = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Merge incoming mediaPlan onto existing, preserving imageUrls that
+ * image_update events already placed in state (media_plan event strips
+ * images to keep Redis payload small).
+ */
+function mergeMediaPlan(existing: MediaPlan | undefined, incoming: MediaPlan): MediaPlan {
+  if (!existing) return incoming;
+  return {
+    ...incoming,
+    platforms: incoming.platforms.map((p) => {
+      const prev = existing.platforms.find((ep) => ep.platform === p.platform);
+      if (!prev) return p;
+      return {
+        ...p,
+        adTypes: p.adTypes.map((at) => {
+          const prevAt = prev.adTypes.find((a) => a.adType === at.adType);
+          if (!prevAt) return at;
+          return {
+            ...at,
+            ads: at.ads.map((ad, i) => ({
+              ...ad,
+              imageUrls: ad.imageUrls.length > 0 ? ad.imageUrls : (prevAt.ads[i]?.imageUrls ?? [])
+            }))
+          };
+        })
+      };
+    })
+  };
+}
+
 /** Reconstruct MessagePart[] from a persisted DB row */
 function buildPartsFromPersistedMessage(content: string, toolData: unknown): MessagePart[] {
   const parts: MessagePart[] = [];
@@ -388,14 +418,14 @@ export function AcceleraAiHome({
               delete cleanPlan._campaignId;
               updateCampaignMsg((prev) => ({
                 ...prev,
-                mediaPlan: cleanPlan,
+                mediaPlan: mergeMediaPlan(prev.mediaPlan, cleanPlan),
                 done: true
               }));
               setActiveCampaign((prev) =>
                 prev
                   ? {
                       ...prev,
-                      mediaPlan: cleanPlan,
+                      mediaPlan: mergeMediaPlan(prev.mediaPlan, cleanPlan),
                       phase: 'preview',
                       ...(extractedCampaignId
                         ? { campaignId: extractedCampaignId }
