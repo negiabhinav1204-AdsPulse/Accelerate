@@ -138,7 +138,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     prisma.connectedAdAccount.findFirst({
       where: {
         organizationId: orgId,
-        platform: 'META',
+        platform: 'meta',
         archivedAt: null
       },
       orderBy: { lastSyncAt: 'desc' },

@@ -48,12 +48,22 @@ export async function createJob(params: {
 }
 
 export async function getJob(jobId: string): Promise<JobRecord | null> {
-  const [meta, events] = await Promise.all([
-    redis.get<JobMeta>(jobKey(jobId)),
-    redis.lrange<JobEvent>(jobEventsKey(jobId), 0, -1)
-  ]);
+  // Fetch meta and events independently so a bloated events list (e.g. from
+  // base64 images stored before the CDN-only guard was in place) doesn't
+  // prevent reading the job meta or marking the job as failed.
+  const meta = await redis.get<JobMeta>(jobKey(jobId));
   if (!meta) return null;
-  return { ...meta, events: events ?? [] };
+
+  let events: JobEvent[] = [];
+  try {
+    events = (await redis.lrange<JobEvent>(jobEventsKey(jobId), 0, -1)) ?? [];
+  } catch {
+    // Events list too large to read (> Upstash 10MB limit) — return meta only.
+    // This happens when base64 images were stored before the CDN-only guard.
+    // The campaign data is still in the DB; only the live event stream is lost.
+  }
+
+  return { ...meta, events };
 }
 
 /**

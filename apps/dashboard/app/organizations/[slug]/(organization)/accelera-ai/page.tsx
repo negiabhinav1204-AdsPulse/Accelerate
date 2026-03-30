@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { type Metadata } from 'next';
+import { unstable_cache } from 'next/cache';
 
 import { getAuthOrganizationContext } from '@workspace/auth/context';
 import { prisma } from '@workspace/database/client';
@@ -22,14 +23,22 @@ export default async function AcceleraAiPage(): Promise<React.JSX.Element> {
   const ctx = await getAuthOrganizationContext();
 
   const [userDetails, connectedAccounts, orgDetails] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: ctx.session.user.id },
-      select: { firstName: true, name: true }
-    }),
-    prisma.connectedAdAccount.findMany({
-      where: { organizationId: ctx.organization.id, status: 'connected' },
-      select: { id: true, platform: true, accountName: true }
-    }),
+    unstable_cache(
+      () => prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { firstName: true, name: true }
+      }),
+      ['accelera-ai-user', ctx.session.user.id],
+      { revalidate: 3600, tags: [`user-info:${ctx.session.user.id}`] }
+    )(),
+    unstable_cache(
+      () => prisma.connectedAdAccount.findMany({
+        where: { organizationId: ctx.organization.id, status: 'connected' },
+        select: { id: true, platform: true, accountName: true }
+      }),
+      ['accelera-ai-accounts', ctx.organization.id],
+      { revalidate: 300, tags: [`org-connected-accounts:${ctx.organization.id}`] }
+    )(),
     getOrganizationDetails()
   ]);
 

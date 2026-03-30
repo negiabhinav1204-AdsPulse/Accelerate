@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@workspace/auth';
+import { symmetricDecrypt } from '@workspace/auth/encryption';
 import { prisma } from '@workspace/database/client';
 
 import { runPlatformSync } from '~/lib/data-pipeline/sync';
@@ -138,7 +139,7 @@ export async function PATCH(
     })
   ]);
 
-  // Fire background sync for the new default
+  // Fire background sync for the new default — decrypt token before passing to sync
   void (async () => {
     try {
       const connected = await prisma.connectedAdAccount.findUnique({
@@ -146,7 +147,8 @@ export async function PATCH(
         select: { id: true, organizationId: true, platform: true, accountId: true, accessToken: true }
       });
       if (connected?.accessToken) {
-        await runPlatformSync(connected);
+        const decryptedToken = symmetricDecrypt(connected.accessToken, process.env.AUTH_SECRET!);
+        await runPlatformSync({ ...connected, accessToken: decryptedToken });
       }
     } catch (e) {
       console.error('[set-default] Background sync failed:', e);

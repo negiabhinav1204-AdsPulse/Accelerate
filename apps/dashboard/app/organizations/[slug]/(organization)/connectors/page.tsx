@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
+import { unstable_cache } from 'next/cache';
 
 import { getAuthOrganizationContext } from '@workspace/auth/context';
 import { prisma } from '@workspace/database/client';
@@ -44,22 +45,26 @@ export default async function ConnectorsPage({
       membership.role === 'DEVELOPER');
 
   // Fetch all active (non-archived) connected accounts for the org
-  const accounts = await prisma.connectedAdAccount.findMany({
-    where: {
-      organizationId: ctx.organization.id,
-      archivedAt: null
-    },
-    select: {
-      id: true,
-      platform: true,
-      accountId: true,
-      accountName: true,
-      isDefault: true,
-      status: true,
-      lastSyncAt: true
-    },
-    orderBy: { connectedAt: 'asc' }
-  });
+  const accounts = await unstable_cache(
+    () => prisma.connectedAdAccount.findMany({
+      where: {
+        organizationId: ctx.organization.id,
+        archivedAt: null
+      },
+      select: {
+        id: true,
+        platform: true,
+        accountId: true,
+        accountName: true,
+        isDefault: true,
+        status: true,
+        lastSyncAt: true
+      },
+      orderBy: { connectedAt: 'asc' }
+    }),
+    ['connectors-accounts', ctx.organization.id],
+    { revalidate: 300, tags: [`org-connected-accounts:${ctx.organization.id}`] }
+  )();
 
   // Group by platform
   const platformMap = new Map<string, typeof accounts>();

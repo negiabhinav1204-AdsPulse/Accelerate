@@ -711,7 +711,7 @@ export function CampaignEditPanel({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="relative flex flex-col bg-background rounded-2xl shadow-2xl border-2 border-dashed border-blue-400 w-full max-w-5xl overflow-hidden"
+        className="relative flex flex-col bg-background rounded-2xl shadow-2xl border border-border w-full max-w-5xl overflow-hidden"
         style={{ height: '90vh' }}
       >
         {/* Header */}

@@ -63,7 +63,9 @@ async function generateCampaignImages(
           ? '1:1'
           : '16:9';
 
-      const imageUrls: string[] = [];
+      // cdnUrls: only permanent CDN URLs — never base64 (Upstash has a 10MB request limit).
+      // ad.imageUrls may hold base64 as a local fallback, but Redis events must stay small.
+      const cdnUrls: string[] = [];
 
       for (let i = 0; i < Math.min(adType.ads.length, 3); i++) {
         const ad = adType.ads[i]!;
@@ -91,23 +93,29 @@ async function generateCampaignImages(
           const prediction = data.predictions?.[0];
           if (prediction?.bytesBase64Encoded) {
             const mime = prediction.mimeType ?? 'image/png';
-            // Prefer a permanent GCS CDN URL; fall back to base64 data-URI if
-            // GCS is not configured (e.g. local dev without credentials).
-            const gcsUrl = await uploadImageToGCS(prediction.bytesBase64Encoded, mime);
-            const url = gcsUrl ?? `data:${mime};base64,${prediction.bytesBase64Encoded}`;
-            imageUrls.push(url);
-            ad.imageUrls = [url];
+            const cdnUrl = await uploadImageToGCS(prediction.bytesBase64Encoded, mime);
+            if (cdnUrl) {
+              // CDN URL available — use everywhere (Redis-safe)
+              ad.imageUrls = [cdnUrl];
+              cdnUrls.push(cdnUrl);
+            } else {
+              // No Blob configured — store base64 only in DB (ad.imageUrls), NOT in Redis
+              const b64Url = `data:${mime};base64,${prediction.bytesBase64Encoded}`;
+              ad.imageUrls = [b64Url];
+              // cdnUrls intentionally not pushed — keeps Redis event small
+            }
             anyGenerated = true;
           }
         } catch { /* non-fatal */ }
       }
 
-      if (imageUrls.length > 0) {
-        // Await so the Redis write completes before the next iteration / job completion
+      // Only emit image_update to Redis when we have CDN URLs — base64 would exceed
+      // Upstash's 10MB per-request limit and break all subsequent status polls.
+      if (cdnUrls.length > 0) {
         await appendEvent({
           type: 'image_update',
           platformAdTypeKey: `${platform.platform}:${adType.adType}`,
-          imageUrls
+          imageUrls: cdnUrls
         } as AgentEvent);
       }
     }
