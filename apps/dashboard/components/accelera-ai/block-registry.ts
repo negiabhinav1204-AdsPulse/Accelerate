@@ -29,6 +29,14 @@ export const BLOCK_TYPE_ALIASES: Record<string, string> = {
   connect_prompt:       'connect_accounts_prompt',
   // Dynamic catalog rendering — passes a full CatalogSpec JSON tree
   json_render_spec:     'json_render_spec',
+  // Phase 2 — agentic workflow blocks (handled by dedicated components in ToolRenderer)
+  // These pass through unchanged so ToolRenderer can route them to WorkflowProgressBlock,
+  // HITLCard, etc.
+  workflow_progress:    'workflow_progress',
+  hitl_request:         'hitl_request',
+  generated_image:      'generated_image',
+  campaign_overview:    'campaign_overview',
+  media_plan:           'media_plan',
 };
 
 /**

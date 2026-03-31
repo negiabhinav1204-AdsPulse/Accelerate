@@ -992,10 +992,18 @@ type ChatMessage = {
   content: string;
 };
 
+type HitlResponseBody = {
+  hitl_id: string;
+  action: string;
+  modifications?: Record<string, unknown>;
+  user_input?: Record<string, unknown>;
+};
+
 type RequestBody = {
   messages: ChatMessage[];
   sessionId?: string;
   organizationId?: string;
+  hitlResponse?: HitlResponseBody;
 };
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -1007,7 +1015,11 @@ export async function POST(request: NextRequest): Promise<Response> {
   let body: RequestBody;
   try {
     body = (await request.json()) as RequestBody;
-    if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    // hitlResponse requests may have an empty messages array (workflow resume)
+    if (!Array.isArray(body.messages)) {
+      return new Response('Invalid request', { status: 400 });
+    }
+    if (body.messages.length === 0 && !body.hitlResponse) {
       return new Response('Invalid request', { status: 400 });
     }
   } catch {
@@ -1037,17 +1049,41 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   // Forward to agentic service if enabled (AG-UI SSE → JSON-lines translation)
   if (SERVICES.agentic.enabled) {
-    const lastUserMsg = [...body.messages].reverse().find((m) => m.role === 'user');
-    if (!lastUserMsg) return new Response('No user message', { status: 400 });
-
     const membership = await prisma.membership.findFirst({
       where: { userId: session.user.id, organizationId: body.organizationId ?? '' },
       select: { organization: { select: { id: true } } },
     });
     const orgId = membership?.organization?.id ?? body.organizationId ?? '';
     const internalKey = process.env.INTERNAL_API_KEY;
+    const agentId = process.env.AGENTIC_SERVICE_AGENT_ID ?? 'accelera-ai';
     const convId = body.sessionId ?? '';
-    const upstream = await fetch(`${SERVICES.agentic.url}/api/v1/agents/accelera-ai/chat/${convId}`, {
+
+    // Build the AG-UI RunAgentInput payload.
+    // If this is a HITL response, inject it into `state` and use an empty messages array.
+    let agUiPayload: Record<string, unknown>;
+    if (body.hitlResponse) {
+      agUiPayload = {
+        thread_id: convId,
+        messages: [],
+        state: {
+          hitl_response: {
+            hitl_id: body.hitlResponse.hitl_id,
+            action: body.hitlResponse.action,
+            ...(body.hitlResponse.modifications ? { modifications: body.hitlResponse.modifications } : {}),
+            ...(body.hitlResponse.user_input ? { user_input: body.hitlResponse.user_input } : {}),
+          },
+        },
+      };
+    } else {
+      const lastUserMsg = [...body.messages].reverse().find((m) => m.role === 'user');
+      if (!lastUserMsg) return new Response('No user message', { status: 400 });
+      agUiPayload = {
+        thread_id: convId,
+        messages: [{ role: 'user', content: lastUserMsg.content }],
+      };
+    }
+
+    const upstream = await fetch(`${SERVICES.agentic.url}/api/v1/agents/${agentId}/chat/${convId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1055,7 +1091,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         'x-user-id': session.user.id,
         'x-org-id': orgId,
       },
-      body: JSON.stringify({ message: lastUserMsg.content, metadata: { user_id: session.user.id, org_id: orgId } }),
+      body: JSON.stringify(agUiPayload),
     });
     if (!upstream.ok || !upstream.body) {
       return new Response(`Agentic service error: ${upstream.status}`, { status: 502 });
@@ -1088,15 +1124,46 @@ export async function POST(request: NextRequest): Promise<Response> {
                   const delta = (payload.delta as string) ?? '';
                   if (delta) jsonLine = JSON.stringify({ type: 'text', text: delta });
                 } else if (eventType === 'CUSTOM') {
-                  const blockType = payload.block_type as string | undefined;
-                  const data = payload.data ?? payload;
-                  if (blockType === 'hitl_form') {
-                    jsonLine = JSON.stringify({ type: 'hitl', name: 'hitl_form', input: data, step_id: payload.step_id ?? '' });
-                  } else if (blockType) {
-                    jsonLine = JSON.stringify({ type: 'tool', name: blockType, input: data });
+                  // The agentic service emits CUSTOM events with a `name` field (AG-UI spec)
+                  // and the full value as the payload body.
+                  const name = payload.name as string | undefined;
+                  // Handle hitl_request: emitted from __interrupt__ projection in orchestration.py
+                  if (name === 'hitl_request') {
+                    const value = (payload.value ?? payload) as Record<string, unknown>;
+                    jsonLine = JSON.stringify({
+                      type: 'tool',
+                      name: 'hitl_request',
+                      input: value,
+                    });
+                  } else if (name === 'hitl_form') {
+                    // Backwards compat for any legacy hitl_form events
+                    const value = (payload.value ?? payload) as Record<string, unknown>;
+                    jsonLine = JSON.stringify({
+                      type: 'tool',
+                      name: 'hitl_request',
+                      input: value,
+                    });
+                  } else if (name) {
+                    // All other custom blocks: block_type comes from the name field
+                    const value = (payload.value ?? payload) as Record<string, unknown>;
+                    jsonLine = JSON.stringify({ type: 'tool', name, input: value });
+                  } else {
+                    // Fallback: older format with explicit block_type field
+                    const blockType = payload.block_type as string | undefined;
+                    const data = payload.data ?? payload;
+                    if (blockType === 'hitl_form' || blockType === 'hitl_request') {
+                      jsonLine = JSON.stringify({ type: 'tool', name: 'hitl_request', input: data });
+                    } else if (blockType) {
+                      jsonLine = JSON.stringify({ type: 'tool', name: blockType, input: data });
+                    }
                   }
                 } else if (eventType === 'ACTIVITY_SNAPSHOT') {
-                  jsonLine = JSON.stringify({ type: 'tool', name: 'workflow_progress', input: payload });
+                  // Map to workflow_progress block; the payload contains the activity snapshot.
+                  // WorkflowProgressBlock / mapActivityToWorkflow expects { steps, title, status, ... }
+                  // The ACTIVITY_SNAPSHOT event from ag-ui has: message_id, activity_type, content
+                  // We forward the `content` if present, otherwise the full payload.
+                  const snapshotData = (payload.content ?? payload) as Record<string, unknown>;
+                  jsonLine = JSON.stringify({ type: 'tool', name: 'workflow_progress', input: snapshotData });
                 } else if (eventType === 'RUN_ERROR') {
                   jsonLine = JSON.stringify({ type: 'error', message: (payload.message as string) ?? 'Unknown error' });
                 }

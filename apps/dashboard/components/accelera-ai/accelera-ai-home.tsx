@@ -21,6 +21,12 @@ import { CampaignPreviewPanel } from '../campaign/campaign-preview-panel';
 import type { EditScope } from '../campaign/campaign-preview-panel';
 import type { AgentName, AgentState, MediaPlan, SSEEvent } from '../campaign/types';
 import { resolveBlockType } from './block-registry';
+import { HITLCard } from './HITLCard';
+import type { HITLDecision } from './HITLCard';
+import { ModalPanel } from './ModalPanel';
+import { PanelProvider, usePanel } from './PanelContext';
+import { SidebarPanel } from './SidebarPanel';
+import { WorkflowProgressBlock } from './WorkflowProgressBlock';
 import { ChatAudienceCard } from './chat-audience-card';
 import { ChatAutoSetupCard } from './chat-auto-setup-card';
 import { ChatCampaignTable } from './chat-campaign-table';
@@ -88,7 +94,13 @@ type ToolBlock =
   | { name: 'show_demographics'; input: { period?: string; currency?: string; best_roas_segment?: string; highest_spend_segment?: string; note?: string; data: { age_range: string; spend: number; revenue: number; conversions: number; roas: number; cpa: number; currency: string }[] } }
   | { name: 'show_placements'; input: { period?: string; currency?: string; best_placement?: string; note?: string; data: { publisher: string; placement: string; spend: number; revenue: number; conversions: number; roas: number; cpa: number; currency: string }[] } }
   | { name: 'show_auto_setup'; input: { products_configured: number; total_daily_budget: string; total_monthly_estimate: string; message?: string; next_step?: string; results: { title: string; badge: string; suggested_strategy: string; suggested_platforms: string[]; daily_budget: string; monthly_estimate: string; status: string }[] } }
-  | { name: 'json_render_spec'; input: Record<string, unknown> };
+  | { name: 'json_render_spec'; input: Record<string, unknown> }
+  // Phase 2 — agentic workflow blocks
+  | { name: 'workflow_progress'; input: Record<string, unknown> }
+  | { name: 'hitl_request'; input: Record<string, unknown> }
+  | { name: 'generated_image'; input: { url: string; alt?: string } }
+  | { name: 'campaign_overview'; input: Record<string, unknown> }
+  | { name: 'media_plan'; input: Record<string, unknown> };
 
 type HITLFormPart = {
   type: 'hitl';
@@ -103,11 +115,24 @@ type WorkflowProgressPart = {
   data: unknown;
 };
 
+type HITLRequestPart = {
+  type: 'hitl_request';
+  data: Record<string, unknown>;
+};
+
+type GeneratedImagePart = {
+  type: 'generated_image';
+  url: string;
+  alt?: string;
+};
+
 type MessagePart =
   | { type: 'text'; text: string }
   | { type: 'tool'; tool: ToolBlock }
   | HITLFormPart
-  | WorkflowProgressPart;
+  | WorkflowProgressPart
+  | HITLRequestPart
+  | GeneratedImagePart;
 
 type ChatMessage = {
   id: string;
@@ -228,13 +253,24 @@ type AcceleraAiHomeProps = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AcceleraAiHome({
+export function AcceleraAiHome(props: AcceleraAiHomeProps): React.JSX.Element {
+  return (
+    <PanelProvider>
+      <SidebarPanel />
+      <ModalPanel />
+      <AcceleraAiHomeInner {...props} />
+    </PanelProvider>
+  );
+}
+
+function AcceleraAiHomeInner({
   firstName,
   organizationId,
   orgSlug,
   connectedAccounts,
   orgCurrency
 }: AcceleraAiHomeProps): React.JSX.Element {
+  const { openSidebar } = usePanel();
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [loading, setLoading] = React.useState(false);
@@ -263,10 +299,224 @@ export function AcceleraAiHome({
   // Keep sessionIdRef in sync so stale closures always see the latest value
   React.useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
-  // Load all sessions on mount — merge into one timeline sorted by createdAt
+  /**
+   * Handle HITL decisions from HITLCard.
+   * Submits the decision to the agentic service via the main /api/chat endpoint
+   * and starts streaming the resumed workflow response.
+   */
+  const handleHITLAction = React.useCallback((decision: HITLDecision) => {
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId) {
+      console.warn('[HITL] No session ID — cannot submit decision');
+      return;
+    }
+
+    const assistantId = crypto.randomUUID();
+    const assistantMsg: ChatMessage = {
+      id: assistantId,
+      role: 'assistant',
+      parts: [],
+      streaming: true
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    setLoading(true);
+
+    void (async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [],
+            organizationId,
+            sessionId: currentSessionId,
+            hitlResponse: decision,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error('Failed to resume workflow after HITL decision');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const chunk = JSON.parse(line) as
+                | { type: 'text'; text: string }
+                | { type: 'tool'; name: string; input: unknown }
+                | { type: 'error'; message: string }
+                | { type: string };
+
+              if (chunk.type === 'text') {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId || m.role === 'campaign') return m;
+                    const cm = m as ChatMessage;
+                    const parts = [...cm.parts];
+                    const lastPart = parts[parts.length - 1];
+                    if (lastPart?.type === 'text') {
+                      parts[parts.length - 1] = { type: 'text', text: lastPart.text + (chunk as { type: 'text'; text: string }).text };
+                    } else {
+                      parts.push({ type: 'text', text: (chunk as { type: 'text'; text: string }).text });
+                    }
+                    return { ...cm, parts };
+                  })
+                );
+              } else if (chunk.type === 'tool') {
+                const c = chunk as { type: 'tool'; name: string; input: unknown };
+                const resolvedName = resolveBlockType(c.name);
+                if (resolvedName === 'workflow_progress') {
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      const filtered = cm.parts.filter((p) => p.type !== 'workflow_progress');
+                      return { ...cm, parts: [...filtered, { type: 'workflow_progress' as const, data: c.input } as WorkflowProgressPart] };
+                    })
+                  );
+                } else if (resolvedName === 'hitl_request') {
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      return { ...cm, parts: [...cm.parts, { type: 'hitl_request' as const, data: c.input as Record<string, unknown> } as HITLRequestPart] };
+                    })
+                  );
+                } else if (resolvedName === 'media_plan') {
+                  const planData = c.input as Record<string, unknown>;
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      return { ...cm, parts: [...cm.parts, { type: 'tool' as const, tool: { name: 'media_plan', input: planData } as ToolBlock }] };
+                    })
+                  );
+                } else {
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      return { ...cm, parts: [...cm.parts, { type: 'tool' as const, tool: { name: resolvedName, input: c.input } as ToolBlock }] };
+                    })
+                  );
+                }
+              } else if (chunk.type === 'error') {
+                throw new Error((chunk as { type: 'error'; message: string }).message);
+              }
+            } catch {
+              // skip malformed lines
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantId || m.role === 'campaign') return m;
+              return { ...(m as ChatMessage), parts: [...(m as ChatMessage).parts, { type: 'text', text: '\n\n_Something went wrong. Please try again._' }], streaming: false };
+            })
+          );
+        }
+      } finally {
+        setMessages((prev) =>
+          prev.map((m) => m.id === assistantId && m.role !== 'campaign' ? { ...(m as ChatMessage), streaming: false } : m)
+        );
+        setLoading(false);
+        abortRef.current = null;
+        inputRef.current?.focus();
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizationId]);
+
+  // Load conversation history on mount.
+  // If the agentic service is enabled, try to resume the latest agentic conversation.
+  // Otherwise fall back to the legacy DB session system.
   React.useEffect(() => {
     void (async () => {
       try {
+        // ── Agentic service path ───────────────────────────────────────────────
+        // Try to load from agentic service first. We probe by calling the
+        // conversation proxy; if it returns null or fails, fall through to legacy.
+        let agenticConvId: string | null = null;
+        try {
+          const latestRes = await fetch(
+            `/api/chat/conversation?latest=true&organizationId=${organizationId}`
+          );
+          if (latestRes.ok) {
+            const latestData = (await latestRes.json()) as { conversation_id: string | null };
+            agenticConvId = latestData.conversation_id ?? null;
+          }
+        } catch {
+          // agentic service unreachable — fall through to legacy
+        }
+
+        if (agenticConvId) {
+          // We have a conversation — set it as the session and load messages
+          setSessionId(agenticConvId);
+
+          // Fetch persisted message history
+          try {
+            const msgsRes = await fetch(
+              `/api/chat/messages?conv_id=${agenticConvId}&organizationId=${organizationId}`
+            );
+            if (msgsRes.ok) {
+              const msgsData = (await msgsRes.json()) as {
+                messages: Array<{
+                  id: string;
+                  role: 'user' | 'assistant';
+                  parts: MessagePart[];
+                }>;
+              };
+              if (msgsData.messages.length > 0) {
+                setMessages(
+                  msgsData.messages.map((m) => ({
+                    id: m.id,
+                    role: m.role,
+                    parts: m.parts,
+                  }) as ChatMessage)
+                );
+              }
+            }
+          } catch {
+            // non-fatal — history unavailable, start fresh with this conv id
+          }
+          return;
+        }
+
+        // No agentic conversation yet — create one so it's ready for first message.
+        // We do this silently; if it fails the chat POST will still work (auto-creates).
+        try {
+          const createRes = await fetch('/api/chat/conversation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ organizationId }),
+          });
+          if (createRes.ok) {
+            const createData = (await createRes.json()) as { conversation_id: string | null };
+            if (createData.conversation_id) {
+              setSessionId(createData.conversation_id);
+              return;
+            }
+          }
+        } catch {
+          // non-fatal
+        }
+
+        // ── Legacy DB session fallback ─────────────────────────────────────────
         const res = await fetch(`/api/chat/sessions?organizationId=${organizationId}`);
         if (!res.ok) return;
         const sessions = (await res.json()) as Array<{
@@ -276,10 +526,8 @@ export function AcceleraAiHome({
 
         if (sessions.length === 0) return;
 
-        // Use the most recent session for new messages
         setSessionId(sessions[0]!.id);
 
-        // Flatten all messages across all sessions, sorted chronologically
         const allMessages = sessions
           .flatMap((s) => s.messages)
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -288,7 +536,6 @@ export function AcceleraAiHome({
 
         setMessages(
           allMessages.map((m): Message => {
-            // Reconstruct campaign messages saved from inline campaign creation
             if (m.role === 'assistant' && isCampaignResultMessage(m.toolData)) {
               return {
                 id: m.id,
@@ -320,9 +567,15 @@ export function AcceleraAiHome({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Inline campaign creation — triggered when user pastes a URL
+  // Legacy inline campaign creation — kept behind NEXT_PUBLIC_USE_LEGACY_CAMPAIGN flag.
+  // In Phase 3+ the agentic service detects URLs and runs create_media_plan automatically.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _URL_REGEX_LEGACY = URL_REGEX; // suppress unused-var warning while keeping URL_REGEX for reference
+
+  // Inline campaign creation — triggered when user pastes a URL (legacy path only)
   const startInlineCampaign = React.useCallback(
     async (url: string, userText: string) => {
+      if (process.env.NEXT_PUBLIC_USE_LEGACY_CAMPAIGN !== 'true') return;
       if (loading) return;
       setLoading(true);
       setActiveCampaign({ agents: INITIAL_AGENTS.map((a) => ({ ...a })), mediaPlan: null, phase: 'analyzing', editScope: null });
@@ -621,13 +874,6 @@ export function AcceleraAiHome({
       const trimmed = text.trim();
       if (!trimmed || loading) return;
 
-      // If message contains a URL, run inline campaign creation instead
-      const urlMatch = trimmed.match(URL_REGEX);
-      if (urlMatch) {
-        void startInlineCampaign(urlMatch[0], trimmed);
-        return;
-      }
-
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -751,6 +997,72 @@ export function AcceleraAiHome({
                       return { ...cm, parts: [...filtered, { type: 'workflow_progress' as const, data: c.input } as WorkflowProgressPart] };
                     })
                   );
+                } else if (resolvedName === 'hitl_request') {
+                  // Store as a typed hitl_request part so MessageBubble can pass onHITLAction
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      return {
+                        ...cm,
+                        parts: [
+                          ...cm.parts,
+                          {
+                            type: 'hitl_request' as const,
+                            data: c.input as Record<string, unknown>,
+                          } as HITLRequestPart,
+                        ],
+                      };
+                    })
+                  );
+                } else if (resolvedName === 'media_plan') {
+                  // media_plan block: add as a tool part AND open a plan summary in the sidebar
+                  const planData = c.input as Record<string, unknown>;
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      return {
+                        ...cm,
+                        parts: [
+                          ...cm.parts,
+                          { type: 'tool' as const, tool: { name: 'media_plan', input: planData } as ToolBlock }
+                        ]
+                      };
+                    })
+                  );
+                  // Open a plan summary panel in the sidebar
+                  const planId = planData['plan_id'] as string | undefined;
+                  const planName = planData['plan_name'] as string | undefined;
+                  if (planId) {
+                    openSidebar(
+                      <MediaPlanSidebarPanel
+                        planId={planId}
+                        planName={planName}
+                        planData={planData}
+                        orgSlug={orgSlug}
+                      />
+                    );
+                  }
+                } else if (resolvedName === 'generated_image') {
+                  const imgData = c.input as { url: string; alt?: string };
+                  setMessages((prev) =>
+                    prev.map((m) => {
+                      if (m.id !== assistantId || m.role === 'campaign') return m;
+                      const cm = m as ChatMessage;
+                      return {
+                        ...cm,
+                        parts: [
+                          ...cm.parts,
+                          {
+                            type: 'generated_image' as const,
+                            url: imgData.url,
+                            alt: imgData.alt,
+                          } as GeneratedImagePart,
+                        ],
+                      };
+                    })
+                  );
                 } else {
                   setMessages((prev) =>
                     prev.map((m) => {
@@ -852,7 +1164,7 @@ export function AcceleraAiHome({
         inputRef.current?.focus();
       }
     },
-    [messages, loading, organizationId, sessionId, startInlineCampaign]
+    [messages, loading, organizationId, sessionId, openSidebar, orgSlug]
   );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -955,6 +1267,8 @@ export function AcceleraAiHome({
                     key={message.id}
                     message={message as ChatMessage}
                     orgSlug={orgSlug}
+                    onHITLAction={handleHITLAction}
+                    sessionId={sessionId}
                   />
                 )
               )}
@@ -1176,10 +1490,14 @@ function CampaignInlineBubble({ message, onOpenPreview }: { message: CampaignMes
 
 function MessageBubble({
   message,
-  orgSlug
+  orgSlug,
+  onHITLAction,
+  sessionId,
 }: {
   message: ChatMessage;
   orgSlug: string;
+  onHITLAction?: (decision: HITLDecision) => void;
+  sessionId?: string | null;
 }) {
   if (message.role === 'user') {
     const text = message.parts
@@ -1252,10 +1570,35 @@ function MessageBubble({
 
           if (part.type === 'workflow_progress') {
             return (
-              <WorkflowProgressCard
+              <WorkflowProgressBlock
                 key={i}
-                data={part.data as Record<string, unknown>}
+                data={part.data}
               />
+            );
+          }
+
+          if (part.type === 'hitl_request') {
+            return (
+              <HITLCard
+                key={i}
+                // HITLRequest shape is validated at runtime by the agentic service;
+                // cast through unknown since the registry payload is Record<string, unknown>
+                data={part.data as unknown as import('./HITLCard').HITLRequest}
+                onAction={onHITLAction}
+              />
+            );
+          }
+
+          if (part.type === 'generated_image') {
+            return (
+              <div key={i} className="rounded-xl overflow-hidden border border-border max-w-sm">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={part.url}
+                  alt={part.alt ?? 'Generated image'}
+                  className="w-full h-auto object-cover"
+                />
+              </div>
             );
           }
 
@@ -1486,6 +1829,64 @@ function ToolRenderer({
       );
     case 'json_render_spec':
       return <JsonRenderBlock spec={tool.input.spec ?? tool.input} />;
+
+    // ── Phase 2: agentic workflow blocks ──────────────────────────────
+    case 'workflow_progress':
+      return <WorkflowProgressBlock data={tool.input} />;
+
+    case 'hitl_request':
+      // Rendered inline — onHITLAction is not available here (ToolRenderer doesn't
+      // receive it). HITL blocks from the streaming path are emitted as 'hitl_request'
+      // MessageParts and rendered by MessageBubble directly (which does have it).
+      // This fallback handles the case where a hitl_request appears as a plain tool block.
+      return (
+        <HITLCard
+          data={tool.input as unknown as import('./HITLCard').HITLRequest}
+        />
+      );
+
+    case 'generated_image': {
+      const imgInput = tool.input as { url: string; alt?: string };
+      return (
+        <div className="rounded-xl overflow-hidden border border-border max-w-sm">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imgInput.url}
+            alt={imgInput.alt ?? 'Generated image'}
+            className="w-full h-auto object-cover"
+          />
+        </div>
+      );
+    }
+
+    case 'campaign_overview':
+      // Render a simple data table for now; can be upgraded to a richer component later
+      return (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 max-w-lg">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Campaign Overview
+          </p>
+          <pre className="text-xs text-foreground overflow-x-auto whitespace-pre-wrap break-all">
+            {JSON.stringify(tool.input, null, 2)}
+          </pre>
+        </div>
+      );
+
+    case 'media_plan':
+      // Media plan trigger — the full preview uses the CampaignPreviewPanel.
+      // Render a clickable summary card here that can be extended in Phase 3.
+      return (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3 max-w-sm cursor-pointer hover:bg-primary/10 transition-colors">
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">
+            Media Plan Ready
+          </p>
+          <p className="text-sm text-foreground">
+            {String((tool.input as Record<string, unknown>)['campaignName'] ?? 'View campaign plan')}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">Click to open preview</p>
+        </div>
+      );
+
     default:
       return null;
   }
@@ -1592,38 +1993,6 @@ function HITLFormCard({
   );
 }
 
-// ── Workflow Progress ─────────────────────────────────────────────────────────
-
-function WorkflowProgressCard({ data }: { data: Record<string, unknown> }) {
-  const steps = (data.steps ?? data.activities ?? []) as { name: string; label?: string; status?: string }[];
-  if (!steps.length) return null;
-
-  const statusIcon = (s?: string) => {
-    if (s === 'completed') return '✓';
-    if (s === 'running') return '⋯';
-    if (s === 'error') return '✗';
-    return '○';
-  };
-
-  return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3 space-y-2">
-      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Campaign creation</p>
-      <div className="space-y-1.5">
-        {steps.map((step, i) => (
-          <div key={i} className="flex items-center gap-2 text-sm">
-            <span className={`text-xs font-mono ${step.status === 'completed' ? 'text-green-500' : step.status === 'running' ? 'text-primary' : step.status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
-              {statusIcon(step.status)}
-            </span>
-            <span className={step.status === 'completed' ? 'text-muted-foreground line-through' : step.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground'}>
-              {step.label ?? step.name}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Markdown ──────────────────────────────────────────────────────────────────
 
 function MarkdownContent({
@@ -1710,4 +2079,65 @@ function formatInline(text: string): string {
       /`(.+?)`/g,
       '<code class="bg-muted px-1 rounded text-xs font-mono">$1</code>'
     );
+}
+
+// ── MediaPlanSidebarPanel ─────────────────────────────────────────────────────
+// Shown in the SidebarPanel when the agentic service emits a media_plan block.
+// Displays a summary and a link to the full campaign in the campaigns page.
+
+function MediaPlanSidebarPanel({
+  planId,
+  planName,
+  planData,
+  orgSlug,
+}: {
+  planId: string;
+  planName?: string;
+  planData: Record<string, unknown>;
+  orgSlug: string;
+}) {
+  const { closePanel } = usePanel();
+  const campaignCount = planData['campaign_count'] as number | undefined;
+  const platforms = planData['platforms'] as string[] | undefined;
+  const displayName = planName ?? String(planData['plan_name'] ?? 'Media Plan');
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <p className="text-sm font-semibold text-foreground">Media Plan Ready</p>
+        <button
+          type="button"
+          onClick={closePanel}
+          className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          <span className="sr-only">Close</span>
+          <svg xmlns="http://www.w3.org/2000/svg" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary">Campaign Plan</p>
+          <p className="text-base font-medium text-foreground">{displayName}</p>
+          {campaignCount !== undefined && (
+            <p className="text-sm text-muted-foreground">{campaignCount} campaign{campaignCount !== 1 ? 's' : ''}</p>
+          )}
+          {platforms && platforms.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {platforms.map((p) => (
+                <span key={p} className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground capitalize">{p}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <a
+          href={`/organizations/${orgSlug}/campaigns`}
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          View in Campaign Manager
+        </a>
+      </div>
+    </div>
+  );
 }
