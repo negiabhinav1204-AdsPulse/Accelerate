@@ -44,6 +44,7 @@ interface AuditFinding {
 
 interface AuditData {
   phase: 'instant' | 'deep';
+  status?: 'running' | 'completed' | 'failed';
   generated_at: string;
   accounts_audited: Array<{ platform: string; accountId: string; accountName: string }>;
   summary: { critical: number; warning: number; opportunity: number; healthy: number };
@@ -280,8 +281,9 @@ export function CmoClient({ orgCurrency, orgSlug }: { orgCurrency: string; orgSl
     setInstantRan(true);
     try {
       const res = await fetch('/api/cmo/audit');
+      if (!res.ok) return;
       const data = await res.json() as AuditData;
-      setInstantAudit(data);
+      if (data && Array.isArray(data.findings)) setInstantAudit(data);
     } catch { /* ignore */ }
     setLoadingInstant(false);
   }
@@ -633,12 +635,12 @@ export function CmoClient({ orgCurrency, orgSlug }: { orgCurrency: string; orgSl
             {!deepRunning && deepReport && (
               <div className="space-y-4">
                 {/* Unified health score */}
-                {deepReport.overallScore != null && (
+                {deepReport.overall_score != null && (
                   <div className="flex flex-col md:flex-row items-center gap-6 p-4 rounded-xl bg-muted/30">
-                    <ScoreRing score={deepReport.overallScore} max={100} />
+                    <ScoreRing score={deepReport.overall_score} max={100} />
                     <div className="flex-1 space-y-2">
                       <p className="text-sm font-semibold text-foreground">Marketing Health Score</p>
-                      {deepReport.scoreBreakdown && Object.entries(deepReport.scoreBreakdown).map(([key, val]) => {
+                      {deepReport.score_breakdown && Object.entries(deepReport.score_breakdown).map(([key, val]) => {
                         const dim = SCORE_DIMENSIONS[key];
                         if (!dim) return null;
                         const pct = (val / dim.max) * 100;
@@ -668,19 +670,19 @@ export function CmoClient({ orgCurrency, orgSlug }: { orgCurrency: string; orgSl
                 )}
 
                 {/* Savings estimate */}
-                {deepReport.savingsEstimate && deepReport.savingsEstimate.monthly_wasted_spend > 0 && (
+                {deepReport.savings_estimate && deepReport.savings_estimate.monthly_wasted_spend > 0 && (
                   <div className="flex gap-4 p-3 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20">
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground">Est. Monthly Wasted Spend</p>
-                      <p className="text-base font-bold text-amber-700 dark:text-amber-400">{curr}{deepReport.savingsEstimate.monthly_wasted_spend.toLocaleString()}</p>
+                      <p className="text-base font-bold text-amber-700 dark:text-amber-400">{curr}{deepReport.savings_estimate.monthly_wasted_spend.toLocaleString()}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground">CPA Improvement</p>
-                      <p className="text-base font-bold text-green-600">{deepReport.savingsEstimate.potential_cpa_improvement_pct}%</p>
+                      <p className="text-base font-bold text-green-600">{deepReport.savings_estimate.potential_cpa_improvement_pct}%</p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground">ROAS Improvement</p>
-                      <p className="text-base font-bold text-green-600">{deepReport.savingsEstimate.potential_roas_improvement_pct}%</p>
+                      <p className="text-base font-bold text-green-600">{deepReport.savings_estimate.potential_roas_improvement_pct}%</p>
                     </div>
                   </div>
                 )}
