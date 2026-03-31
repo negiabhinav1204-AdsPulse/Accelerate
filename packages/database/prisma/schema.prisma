@@ -397,18 +397,47 @@ model Membership {
 }
 
 model Notification {
-  id        String    @id(map: "PK_Notification") @default(uuid()) @db.Uuid
-  userId    String    @db.Uuid
-  subject   String?   @db.VarChar(128)
-  content   String    @db.VarChar(8000)
-  link      String?   @db.VarChar(2000)
-  seenAt    DateTime?
-  dismissed Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id             String    @id(map: "PK_Notification") @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  organizationId String?   @db.Uuid
+  // campaign_failed | campaign_published | audit_ready | budget_alert | sync_failed | optimization | info
+  type           String    @default("info") @db.VarChar(64)
+  subject        String?   @db.VarChar(128)
+  content        String    @db.VarChar(8000)
+  link           String?   @db.VarChar(2000)
+  seenAt         DateTime?
+  dismissed      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([userId], map: "IX_Notification_userId")
+  @@index([userId, seenAt], map: "IX_Notification_userId_seenAt")
+}
+
+model AuditReport {
+  id              String       @id @default(uuid()) @db.Uuid
+  organizationId  String       @db.Uuid
+  // instant | deep
+  phase           String       @db.VarChar(16)
+  // running | completed | failed | cancelled
+  status          String       @db.VarChar(20)
+  // onboarding | weekly | manual | new_account
+  triggeredBy     String       @db.VarChar(20)
+  overallScore    Int?
+  scoreBreakdown  Json?
+  findings        Json         @default("[]")
+  recommendations Json?
+  savingsEstimate Json?
+  accountsAudited Json         @default("[]")
+  dataWindowStart DateTime?
+  dataWindowEnd   DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt(sort: Desc)], map: "IX_AuditReport_org_created")
 }
 
 model Order {
@@ -507,6 +536,8 @@ model Organization {
   // Journeys + Keywords
   journeys               Journey[]
   keywordResearches      KeywordResearch[]
+  // Audit
+  auditReports           AuditReport[]
 
   @@index([billingCustomerId], map: "IX_Organization_billingCustomerId")
 }

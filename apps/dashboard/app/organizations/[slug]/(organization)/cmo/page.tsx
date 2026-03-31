@@ -17,6 +17,9 @@ export default async function CmoPage(props: {
   await props.params;
   const orgDetails = await getOrganizationDetails();
 
+  const { params } = props;
+  const { slug } = await params;
+
   return (
     <Page>
       <PageHeader>
@@ -26,7 +29,7 @@ export default async function CmoPage(props: {
       </PageHeader>
       <PageBody>
         <div className="p-6">
-          <CmoClient orgCurrency={orgDetails.currency ?? 'USD'} />
+          <CmoClient orgCurrency={orgDetails.currency ?? 'USD'} orgSlug={slug} />
         </div>
       </PageBody>
     </Page>

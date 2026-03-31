@@ -14,6 +14,7 @@ import {
 import { NavMain } from '~/components/organizations/slug/nav-main';
 import { NavUser } from '~/components/organizations/slug/nav-user';
 import { OrganizationSwitcher } from '~/components/organizations/slug/organization-switcher';
+import { NotificationBellWrapper } from '~/components/notifications/notification-bell-wrapper';
 import type { OrganizationDto } from '~/types/dtos/organization-dto';
 import type { ProfileDto } from '~/types/dtos/profile-dto';
 
@@ -40,10 +41,12 @@ export function AppSidebar({
         </ScrollArea>
       </SidebarContent>
       <SidebarFooter className="h-14">
-        <NavUser
-          profile={profile}
-          className="p-0"
-        />
+        <div className="flex items-center gap-1 px-1">
+          <div className="flex-1 min-w-0">
+            <NavUser profile={profile} className="p-0" />
+          </div>
+          <NotificationBellWrapper />
+        </div>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

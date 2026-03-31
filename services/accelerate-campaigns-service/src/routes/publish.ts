@@ -450,8 +450,71 @@ export async function publishRoute(fastify: FastifyInstance) {
     await Promise.all(platformPushPromises);
 
     const anySuccess = platformResults.some((r) => r.success);
+    const anyFailure = platformResults.some((r) => !r.success);
+
     if (anySuccess) {
       await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'PAUSED' } });
+    }
+
+    // Notify org admins of publish outcome
+    try {
+      const org = await prisma.organization.findUnique({
+        where: { id: org_id },
+        select: { slug: true },
+      });
+      const orgSlug = org?.slug ?? '';
+
+      const adminMemberships = await prisma.membership.findMany({
+        where: { organizationId: org_id, OR: [{ isOwner: true }, { role: 'ADMIN' }] },
+        select: { userId: true },
+      });
+      const userIds = adminMemberships.map((m: { userId: string }) => m.userId);
+
+      if (userIds.length > 0) {
+        const successPlatforms = platformResults.filter((r) => r.success).map((r) => r.platform).join(', ');
+        const failedPlatforms = platformResults.filter((r) => !r.success).map((r) => r.platform).join(', ');
+
+        if (anySuccess && !anyFailure) {
+          // Full success
+          await prisma.notification.createMany({
+            data: userIds.map((userId: string) => ({
+              userId,
+              organizationId: org_id,
+              type: 'campaign_published',
+              subject: `"${media_plan.campaignName}" is live`,
+              content: `Campaign published successfully on ${successPlatforms}. Review performance in your dashboard.`,
+              link: `/organizations/${orgSlug}/campaigns`,
+            })),
+          });
+        } else if (anySuccess && anyFailure) {
+          // Partial success
+          await prisma.notification.createMany({
+            data: userIds.map((userId: string) => ({
+              userId,
+              organizationId: org_id,
+              type: 'campaign_failed',
+              subject: `"${media_plan.campaignName}" partially published`,
+              content: `Published on ${successPlatforms}. Failed on ${failedPlatforms}. Tap to review and retry.`,
+              link: `/organizations/${orgSlug}/campaigns?filter=failed`,
+            })),
+          });
+        } else {
+          // Full failure
+          await prisma.notification.createMany({
+            data: userIds.map((userId: string) => ({
+              userId,
+              organizationId: org_id,
+              type: 'campaign_failed',
+              subject: `"${media_plan.campaignName}" failed to publish`,
+              content: `Failed on ${failedPlatforms}. ${platformResults.find((r) => !r.success)?.error ?? 'Check your account connections and retry.'}`,
+              link: `/organizations/${orgSlug}/campaigns?filter=failed`,
+            })),
+          });
+        }
+      }
+    } catch (notifErr) {
+      // Non-critical — log but don't fail the publish response
+      console.error('[publish] notification error:', notifErr);
     }
 
     return reply.send({

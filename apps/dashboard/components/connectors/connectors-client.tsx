@@ -4,10 +4,12 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangleIcon,
+  ArrowRightIcon,
   CheckCircle2Icon,
   ClockIcon,
   Loader2Icon,
   RefreshCwIcon,
+  ScanSearchIcon,
   ZapIcon
 } from 'lucide-react';
 
@@ -639,6 +641,10 @@ export function ConnectorsClient({
   const [pickerPlatform, setPickerPlatform] = React.useState<string | null>(
     initialSelectPlatform ?? null
   );
+  const [auditTeaser, setAuditTeaser] = React.useState<{
+    critical: number; warning: number; opportunity: number;
+  } | null>(null);
+  const [auditLoading, setAuditLoading] = React.useState(false);
 
   // Show toast once on mount for OAuth callback result
   React.useEffect(() => {
@@ -646,6 +652,15 @@ export function ConnectorsClient({
       const label = PLATFORM_LABELS[initialConnected] ?? initialConnected;
       toast.success(`${label} connected successfully`);
       router.replace(`/organizations/${orgSlug}/connectors`, { scroll: false });
+      // Trigger instant audit in background and show teaser
+      setAuditLoading(true);
+      fetch('/api/cmo/audit')
+        .then((r) => r.json() as Promise<{ summary?: { critical: number; warning: number; opportunity: number } }>)
+        .then((data) => {
+          if (data.summary) setAuditTeaser(data.summary);
+        })
+        .catch(() => { /* ignore */ })
+        .finally(() => setAuditLoading(false));
     } else if (initialError) {
       const platformLabel = initialErrorPlatform
         ? (PLATFORM_LABELS[initialErrorPlatform] ?? initialErrorPlatform)
@@ -672,6 +687,46 @@ export function ConnectorsClient({
             router.refresh();
           }}
         />
+      )}
+
+      {/* Audit teaser — shown after successful OAuth connection */}
+      {(auditLoading || auditTeaser) && (
+        <div className="mb-6 max-w-5xl rounded-xl border border-primary/20 bg-primary/5 p-4 flex items-center gap-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+            {auditLoading
+              ? <Loader2Icon className="size-4 text-primary animate-spin" />
+              : <ScanSearchIcon className="size-4 text-primary" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            {auditLoading ? (
+              <p className="text-sm font-medium text-foreground">Scanning your connected accounts...</p>
+            ) : auditTeaser ? (
+              <>
+                <p className="text-sm font-medium text-foreground">Account scan complete</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {auditTeaser.critical > 0 && <span className="text-red-600 font-medium">{auditTeaser.critical} critical</span>}
+                  {auditTeaser.critical > 0 && auditTeaser.warning > 0 && ' · '}
+                  {auditTeaser.warning > 0 && <span className="text-amber-600 font-medium">{auditTeaser.warning} warnings</span>}
+                  {(auditTeaser.critical > 0 || auditTeaser.warning > 0) && auditTeaser.opportunity > 0 && ' · '}
+                  {auditTeaser.opportunity > 0 && <span className="text-blue-600 font-medium">{auditTeaser.opportunity} opportunities</span>}
+                  {auditTeaser.critical === 0 && auditTeaser.warning === 0 && auditTeaser.opportunity === 0 && (
+                    <span className="text-green-600 font-medium">All checks passed</span>
+                  )}
+                </p>
+              </>
+            ) : null}
+          </div>
+          {auditTeaser && (
+            <Button
+              size="sm"
+              className="shrink-0 gap-1.5 text-xs"
+              onClick={() => router.push(`/organizations/${orgSlug}/cmo?tab=deep-analysis`)}
+            >
+              View in AI CMO
+              <ArrowRightIcon className="size-3" />
+            </Button>
+          )}
+        </div>
       )}
 
       <div className="space-y-10 max-w-5xl">
