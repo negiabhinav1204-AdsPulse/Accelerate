@@ -47,6 +47,7 @@ import { ChatRevenueBreakdownCard } from './chat-revenue-breakdown-card';
 import { ChatStrategyCard } from './chat-strategy-card';
 import { ChatWastedSpendCard } from './chat-wasted-spend-card';
 import { JsonRenderBlock } from './json-render-block';
+import { AgenticSidebarPanel } from './AgenticSidebarPanel';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,9 @@ type ToolBlock =
   | { name: 'hitl_request'; input: Record<string, unknown> }
   | { name: 'generated_image'; input: { url: string; alt?: string } }
   | { name: 'campaign_overview'; input: Record<string, unknown> }
-  | { name: 'media_plan'; input: Record<string, unknown> };
+  | { name: 'media_plan'; input: Record<string, unknown> }
+  | { name: 'campaign_details'; input: Record<string, unknown> }
+  | { name: 'budget_approval'; input: Record<string, unknown> };
 
 type HITLFormPart = {
   type: 'hitl';
@@ -270,7 +273,7 @@ function AcceleraAiHomeInner({
   connectedAccounts,
   orgCurrency
 }: AcceleraAiHomeProps): React.JSX.Element {
-  const { openSidebar } = usePanel();
+  const { openSidebar, openModal, closePanel, closeModal } = usePanel();
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [loading, setLoading] = React.useState(false);
@@ -405,11 +408,21 @@ function AcceleraAiHomeInner({
                     })
                   );
                 } else {
+                  const blockValue = c.input as Record<string, unknown>;
+                  const agMeta = (blockValue.__agui_meta ?? {}) as Record<string, unknown>;
+                  const display = agMeta.display as string | undefined;
+                  const inlineTrigger = (agMeta.inline_trigger ?? blockValue) as Record<string, unknown>;
+                  const { __agui_meta: _meta, ...blockData } = blockValue;
+                  if (display === 'sidebar') {
+                    openSidebar(<AgenticSidebarPanel blockType={resolvedName} data={blockData} onClose={closePanel} />);
+                  } else if (display === 'modal') {
+                    openModal(<AgenticSidebarPanel blockType={resolvedName} data={blockData} onClose={closeModal} />);
+                  }
                   setMessages((prev) =>
                     prev.map((m) => {
                       if (m.id !== assistantId || m.role === 'campaign') return m;
                       const cm = m as ChatMessage;
-                      return { ...cm, parts: [...cm.parts, { type: 'tool' as const, tool: { name: resolvedName, input: c.input } as ToolBlock }] };
+                      return { ...cm, parts: [...cm.parts, { type: 'tool' as const, tool: { name: resolvedName, input: display === 'sidebar' || display === 'modal' ? { ...inlineTrigger, __display: display } : blockData } as ToolBlock }] };
                     })
                   );
                 }
@@ -526,7 +539,11 @@ function AcceleraAiHomeInner({
 
         if (sessions.length === 0) return;
 
-        setSessionId(sessions[0]!.id);
+        // Only use the legacy session ID if we don't already have an agentic conv.
+        // If agenticConvId is set, sendMessage should use it — don't overwrite.
+        if (!agenticConvId) {
+          setSessionId(sessions[0]!.id);
+        }
 
         const allMessages = sessions
           .flatMap((s) => s.messages)
@@ -1064,6 +1081,34 @@ function AcceleraAiHomeInner({
                     })
                   );
                 } else {
+                  // Check if this is a sidebar/modal block from __agui_meta
+                  const blockValue = c.input as Record<string, unknown>;
+                  const agMeta = (blockValue.__agui_meta ?? {}) as Record<string, unknown>;
+                  const display = agMeta.display as string | undefined;
+                  const inlineTrigger = (agMeta.inline_trigger ?? blockValue) as Record<string, unknown>;
+                  // Strip __agui_meta from the data passed to components
+                  const { __agui_meta: _meta, ...blockData } = blockValue;
+
+                  if (display === 'sidebar') {
+                    // Open sidebar immediately with the block data
+                    openSidebar(
+                      <AgenticSidebarPanel
+                        blockType={resolvedName}
+                        data={blockData}
+                        onClose={closePanel}
+                      />
+                    );
+                  } else if (display === 'modal') {
+                    openModal(
+                      <AgenticSidebarPanel
+                        blockType={resolvedName}
+                        data={blockData}
+                        onClose={closeModal}
+                      />
+                    );
+                  }
+
+                  // Always add an inline trigger card (for sidebar/modal blocks) or inline block
                   setMessages((prev) =>
                     prev.map((m) => {
                       if (m.id !== assistantId || m.role === 'campaign') return m;
@@ -1076,7 +1121,9 @@ function AcceleraAiHomeInner({
                             type: 'tool' as const,
                             tool: {
                               name: resolvedName,
-                              input: c.input
+                              input: display === 'sidebar' || display === 'modal'
+                                ? { ...inlineTrigger, __display: display }
+                                : blockData
                             } as ToolBlock
                           }
                         ]
@@ -1886,6 +1933,65 @@ function ToolRenderer({
           <p className="text-xs text-muted-foreground mt-1">Click to open preview</p>
         </div>
       );
+
+    case 'campaign_details': {
+      const input = tool.input as Record<string, unknown>;
+      const isDisplayTrigger = input.__display === 'sidebar' || input.__display === 'modal';
+      const label = String(input.campaign_name ?? input.name ?? 'Campaign Details');
+      const platform = input.platform ? String(input.platform) : undefined;
+      if (isDisplayTrigger) {
+        return (
+          <div className="rounded-xl border border-border bg-card px-4 py-3 max-w-sm cursor-pointer hover:bg-accent transition-colors">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+              Campaign Details {platform ? `· ${platform}` : ''}
+            </p>
+            <p className="text-sm text-foreground font-medium">{label}</p>
+            <p className="text-xs text-muted-foreground mt-1">Opened in panel</p>
+          </div>
+        );
+      }
+      return (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 max-w-lg">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Campaign Details
+          </p>
+          <pre className="text-xs text-foreground overflow-x-auto whitespace-pre-wrap break-all">
+            {JSON.stringify(tool.input, null, 2)}
+          </pre>
+        </div>
+      );
+    }
+
+    case 'budget_approval': {
+      const input = tool.input as Record<string, unknown>;
+      const isDisplayTrigger = input.__display === 'sidebar' || input.__display === 'modal';
+      const total = input.total_budget ?? input.budget;
+      if (isDisplayTrigger) {
+        return (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 max-w-sm cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors">
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1">
+              Budget Approval
+            </p>
+            {total !== undefined && (
+              <p className="text-sm font-medium text-foreground">
+                {typeof total === 'number' ? total.toLocaleString() : String(total)}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">Opened in panel</p>
+          </div>
+        );
+      }
+      return (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 max-w-lg">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Budget Approval
+          </p>
+          <pre className="text-xs text-foreground overflow-x-auto whitespace-pre-wrap break-all">
+            {JSON.stringify(tool.input, null, 2)}
+          </pre>
+        </div>
+      );
+    }
 
     default:
       return null;

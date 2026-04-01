@@ -1111,11 +1111,38 @@ export async function POST(request: NextRequest): Promise<Response> {
       return new Response(`Agentic service error: ${upstream.status} ${errBody.slice(0, 200)}`, { status: 502 });
     }
     const encoder = new TextEncoder();
+    // Apply a JSON Patch (RFC 6902) to a deep-cloned object.
+    // Only handles 'replace' / 'add' / 'remove' — sufficient for ACTIVITY_DELTA.
+    function applyJsonPatch(obj: unknown, ops: Array<{ op: string; path: string; value?: unknown }>): unknown {
+      const root = JSON.parse(JSON.stringify(obj)) as Record<string, unknown>;
+      for (const op of ops) {
+        const parts = op.path.split('/').filter(Boolean);
+        if (parts.length === 0) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let node: any = root;
+        for (let i = 0; i < parts.length - 1; i++) {
+          const key = parts[i]!;
+          if (node && typeof node === 'object') node = (node as Record<string, unknown>)[key];
+          else { node = undefined; break; }
+        }
+        const leaf = parts[parts.length - 1]!;
+        if (!node || typeof node !== 'object') continue;
+        if (op.op === 'replace' || op.op === 'add') {
+          if (Array.isArray(node)) node[parseInt(leaf, 10)] = op.value;
+          else (node as Record<string, unknown>)[leaf] = op.value;
+        } else if (op.op === 'remove') {
+          if (Array.isArray(node)) node.splice(parseInt(leaf, 10), 1);
+          else delete (node as Record<string, unknown>)[leaf];
+        }
+      }
+      return root;
+    }
     const readable = new ReadableStream({
       async start(controller) {
         const reader = upstream.body!.getReader();
         const decoder = new TextDecoder();
         let buf = '';
+        let activitySnapshot: Record<string, unknown> | null = null;
         try {
           while (true) {
             const { done, value } = await reader.read();
@@ -1174,12 +1201,18 @@ export async function POST(request: NextRequest): Promise<Response> {
                     }
                   }
                 } else if (eventType === 'ACTIVITY_SNAPSHOT') {
-                  // Map to workflow_progress block; the payload contains the activity snapshot.
-                  // WorkflowProgressBlock / mapActivityToWorkflow expects { steps, title, status, ... }
-                  // The ACTIVITY_SNAPSHOT event from ag-ui has: message_id, activity_type, content
-                  // We forward the `content` if present, otherwise the full payload.
+                  // Save snapshot state so ACTIVITY_DELTA can patch it.
+                  // WorkflowProgressBlock / mapActivityToWorkflow expects the content shape.
                   const snapshotData = (payload.content ?? payload) as Record<string, unknown>;
+                  activitySnapshot = snapshotData;
                   jsonLine = JSON.stringify({ type: 'tool', name: 'workflow_progress', input: snapshotData });
+                } else if (eventType === 'ACTIVITY_DELTA') {
+                  // Apply JSON Patch ops to the running snapshot and re-emit.
+                  const ops = (payload.delta ?? payload.operations ?? payload.patches ?? []) as Array<{ op: string; path: string; value?: unknown }>;
+                  if (activitySnapshot && Array.isArray(ops) && ops.length > 0) {
+                    activitySnapshot = applyJsonPatch(activitySnapshot, ops) as Record<string, unknown>;
+                    jsonLine = JSON.stringify({ type: 'tool', name: 'workflow_progress', input: activitySnapshot });
+                  }
                 } else if (eventType === 'RUN_ERROR') {
                   jsonLine = JSON.stringify({ type: 'error', message: (payload.message as string) ?? 'Unknown error' });
                 }

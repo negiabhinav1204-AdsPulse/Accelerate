@@ -37,6 +37,9 @@ export const BLOCK_TYPE_ALIASES: Record<string, string> = {
   generated_image:      'generated_image',
   campaign_overview:    'campaign_overview',
   media_plan:           'media_plan',
+  // Sidebar/modal blocks — display routing handled by __agui_meta.display
+  campaign_details:     'campaign_details',
+  budget_approval:      'budget_approval',
 };
 
 /**
