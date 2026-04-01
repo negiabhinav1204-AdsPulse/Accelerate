@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest } from 'next/server';
 
+export const maxDuration = 300; // Allow up to 5 min for media plan workflows
+
 import { auth } from '@workspace/auth';
 import { prisma } from '@workspace/database/client';
 import { searchMemory, upsertMemoryNode } from '~/lib/memory/memory-service';
@@ -1104,8 +1106,11 @@ export async function POST(request: NextRequest): Promise<Response> {
       body: JSON.stringify(agUiPayload),
     });
     if (!upstream.ok || !upstream.body) {
-      return new Response(`Agentic service error: ${upstream.status}`, { status: 502 });
+      const errBody = await upstream.text().catch(() => '');
+      console.error('[agentic] upstream error:', upstream.status, errBody.slice(0, 200));
+      return new Response(`Agentic service error: ${upstream.status} ${errBody.slice(0, 200)}`, { status: 502 });
     }
+    console.log('[agentic] stream started for conv:', convId, 'agent:', agentId);
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
@@ -1131,6 +1136,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 const payload = JSON.parse(dataStr) as Record<string, unknown>;
                 // eventType from SSE `event:` header, fallback to `type` field in JSON payload
                 if (!eventType) eventType = (payload.type as string) ?? '';
+                console.log('[agentic] event:', eventType);
                 let jsonLine: string | null = null;
                 if (eventType === 'TEXT_MESSAGE_CONTENT') {
                   const delta = (payload.delta as string) ?? '';
