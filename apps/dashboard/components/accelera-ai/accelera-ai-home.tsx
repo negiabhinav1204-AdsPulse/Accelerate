@@ -465,10 +465,10 @@ function AcceleraAiHomeInner({
         }
 
         if (agenticConvId) {
-          // We have a conversation — set it as the session and load messages
+          // We have an agentic conversation — set session ID for future messages
           setSessionId(agenticConvId);
 
-          // Fetch persisted message history
+          // Try to load agentic message history; if it has content, use it and stop
           try {
             const msgsRes = await fetch(
               `/api/chat/messages?conv_id=${agenticConvId}&organizationId=${organizationId}`
@@ -489,34 +489,34 @@ function AcceleraAiHomeInner({
                     parts: m.parts,
                   }) as ChatMessage)
                 );
+                return; // have agentic history — done
               }
             }
           } catch {
-            // non-fatal — history unavailable, start fresh with this conv id
+            // non-fatal — fall through to load legacy history
           }
-          return;
-        }
-
-        // No agentic conversation yet — create one so it's ready for first message.
-        // We do this silently; if it fails the chat POST will still work (auto-creates).
-        try {
-          const createRes = await fetch('/api/chat/conversation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ organizationId }),
-          });
-          if (createRes.ok) {
-            const createData = (await createRes.json()) as { conversation_id: string | null };
-            if (createData.conversation_id) {
-              setSessionId(createData.conversation_id);
-              return;
+          // Agentic conv exists but no messages yet — fall through to show legacy history
+        } else {
+          // No agentic conversation yet — create one so it's ready for first message.
+          try {
+            const createRes = await fetch('/api/chat/conversation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ organizationId }),
+            });
+            if (createRes.ok) {
+              const createData = (await createRes.json()) as { conversation_id: string | null };
+              if (createData.conversation_id) {
+                setSessionId(createData.conversation_id);
+              }
             }
+          } catch {
+            // non-fatal
           }
-        } catch {
-          // non-fatal
+          // Fall through to load legacy history for display
         }
 
-        // ── Legacy DB session fallback ─────────────────────────────────────────
+        // ── Legacy DB session history (always load for display) ───────────────
         const res = await fetch(`/api/chat/sessions?organizationId=${organizationId}`);
         if (!res.ok) return;
         const sessions = (await res.json()) as Array<{
