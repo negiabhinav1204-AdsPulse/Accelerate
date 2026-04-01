@@ -161,11 +161,15 @@ async def get_latest_conversation(request: Request, agent_id: str):
     user = request.state.user
     agent = _get_agent(request, agent_id)
 
-    conversation = await agent.persistence.get_latest_conversation(
-        user_id=(user.user_id if user else None) or "anonymous",
-        org_id=(user.org_id if user else None) or "",
-    )
-    return {"conversation_id": conversation.get("id") if conversation else None}
+    try:
+        conversation = await agent.persistence.get_latest_conversation(
+            user_id=(user.user_id if user else None) or "anonymous",
+            org_id=(user.org_id if user else None) or "",
+        )
+        return {"conversation_id": conversation.get("id") if conversation else None}
+    except Exception as e:
+        logger.warning("Failed to fetch latest conversation: %s", e)
+        return {"conversation_id": None}
 
 
 @router.post("/agents/{agent_id}/conversations")
@@ -175,9 +179,13 @@ async def create_conversation(request: Request, agent_id: str):
     agent = _get_agent(request, agent_id)
 
     conv_id = str(uuid4())
-    conversation = await agent.persistence.create_conversation(
-        conversation_id=conv_id,
-        user_id=(user.user_id if user else None) or "anonymous",
-        org_id=(user.org_id if user else None) or "default",
-    )
-    return {"conversation_id": conversation.get("id", conv_id)}
+    try:
+        conversation = await agent.persistence.create_conversation(
+            conversation_id=conv_id,
+            user_id=(user.user_id if user else None) or "anonymous",
+            org_id=(user.org_id if user else None) or "default",
+        )
+        return {"conversation_id": conversation.get("id", conv_id)}
+    except Exception as e:
+        logger.warning("Failed to persist conversation creation: %s", e)
+        return {"conversation_id": conv_id}

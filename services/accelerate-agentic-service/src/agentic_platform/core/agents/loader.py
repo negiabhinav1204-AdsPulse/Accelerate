@@ -17,6 +17,8 @@ from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+from psycopg.rows import dict_row
 
 from src.agentic_platform.core.agents.config import AgentConfig
 from src.agentic_platform.core.engine.registry import AgentRegistry
@@ -109,9 +111,21 @@ async def load_all_agents(configs: list[AgentConfig]) -> dict[str, LoadedAgent]:
 
     # Compile each agent with its own DB connections
     for config in configs:
-        checkpointer_ctx = AsyncPostgresSaver.from_conn_string(config.checkpointer_db_url)
-        checkpointer = await checkpointer_ctx.__aenter__()
+        # Use a connection pool with short lifetimes so Neon serverless
+        # connection kills don't leave stale connections in the pool.
+        pool = AsyncConnectionPool(
+            conninfo=config.checkpointer_db_url,
+            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+            min_size=1,
+            max_size=5,
+            max_lifetime=60,    # recycle connections every 60s
+            max_idle=30,        # drop idle connections after 30s
+            open=False,
+        )
+        await pool.open()
+        checkpointer = AsyncPostgresSaver(conn=pool)
         await checkpointer.setup()
+        checkpointer_ctx = pool  # store for cleanup
 
         # Load MCP tools and their middlewares if configured
         mcp_tools, mcp_registry = await _load_mcp_tools(config)
@@ -146,9 +160,9 @@ async def cleanup_agents(agents: dict[str, LoadedAgent]) -> None:
                 await agent._mcp_registry.cleanup()
             except Exception:
                 pass
-        # Cleanup checkpointer
+        # Cleanup checkpointer pool
         if agent._checkpointer_ctx:
             try:
-                await agent._checkpointer_ctx.__aexit__(None, None, None)
+                await agent._checkpointer_ctx.close()
             except Exception:
                 pass

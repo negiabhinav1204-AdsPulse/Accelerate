@@ -50,6 +50,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
             return await call_next(request)
 
+        # Internal service call — bypass JWT if x-internal-api-key matches
+        internal_key = request.headers.get("x-internal-api-key", "")
+        if internal_key and settings.internal_api_key and internal_key == settings.internal_api_key:
+            request_auth_token.set(raw_token)
+            request.state.user = UserContext(
+                user_id=request.headers.get("x-user-id", "internal"),
+                email="internal@accelerate.ai",
+                name="Accelerate Dashboard",
+                org_id=request.headers.get("x-org-id", ""),
+            )
+            return await call_next(request)
+
         # Production — validate JWT
         if not raw_token:
             return JSONResponse(status_code=401, content={"detail": "Missing Authorization header"})
