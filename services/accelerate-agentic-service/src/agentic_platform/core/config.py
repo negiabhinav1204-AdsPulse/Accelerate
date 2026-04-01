@@ -62,6 +62,7 @@ class Settings(BaseSettings):
 
     # ── LLM model selection ──────────────────────────────────────────
     # Use any name from MODELS above. That's it.
+    accelera_agent_model: str = "sonnet"       # accelera AI agent
     campaign_agent_model: str = "sonnet"       # main chat agent
     workflow_analyze_model: str = "haiku"       # 4 analysis agents (fast)
     workflow_plan_model: str = "gpt-pro"        # campaign strategy (GPT-5.x: fast structured output, v2 uses gpt-5.2)
@@ -101,6 +102,20 @@ class Settings(BaseSettings):
     campaign_db_service_url: str = ""
     campaign_service_url: str = "http://localhost:8081"
 
+    # ── Accelerate microservice URLs (used by accelera agent) ────────
+    commerce_service_url: str = ""
+    reporting_service_url: str = ""
+    memory_service_url: str = ""
+    connector_service_url: str = ""
+    shopping_feeds_service_url: str = ""
+    cdp_service_url: str = ""
+    campaigns_service_url: str = ""
+    creative_service_url: str = ""
+    agent_service_url: str = ""
+    personalization_service_url: str = ""
+    leads_service_url: str = ""
+    analytics_service_url: str = ""
+
     # ── Local dev: override org/user context ─────────────────────────
     # Skips JWT auth, uses the configured identity for all requests.
     local_override_org_context: bool = False
@@ -129,6 +144,16 @@ class Settings(BaseSettings):
     gcs_cdn_base_url: str = ""
     gcs_path_prefix: str = ""
 
+    # ── Checkpointer connection pool ─────────────────────────────────
+    # TCP keepalives detect dead connections before the pool hands them out.
+    # Without these, idle connections closed server-side cause OperationalError.
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 10
+    db_keepalives: int = 1               # enable TCP keepalives
+    db_keepalives_idle: int = 30         # seconds idle before first probe
+    db_keepalives_interval: int = 10     # seconds between probes
+    db_keepalives_count: int = 5         # failed probes before declaring dead
+
     # ── HTTP client ──────────────────────────────────────────────────
     http_client_timeout: float = 30
     http_client_connect_timeout: float = 10
@@ -152,29 +177,14 @@ class Settings(BaseSettings):
     bigquery_project: str = "accelerate-nonprod-4e59"
     bigquery_dataset: str = "accelerate_ingestion_store"
 
-    # ── Accelera AI downstream microservices ─────────────────────────
-    # Internal service auth (x-internal-api-key header)
-    internal_api_key: str = ""
-
-    # Downstream service URLs (match Accelerate platform service-router.ts)
-    commerce_service_url: str = "http://localhost:8082"
-    reporting_service_url: str = "http://localhost:8083"
-    memory_service_url: str = "http://localhost:8084"
-    connector_service_url: str = "http://localhost:8085"
-    shopping_feeds_service_url: str = "http://localhost:8086"
-    cdp_service_url: str = "http://localhost:8087"
-    campaigns_service_url: str = "http://localhost:8088"   # new campaigns microservice
-    creative_service_url: str = "http://localhost:8089"    # accelerate-creative-service
-    agent_service_url: str = "http://localhost:8090"        # accelerate-agent-service (media planner)
-    personalization_service_url: str = "http://localhost:8091"  # accelerate-personalization-service (A/B)
-    leads_service_url: str = "http://localhost:8092"           # accelerate-leads-service
-    analytics_service_url: str = "http://localhost:8093"       # accelerate-analytics-service
-
-    # Web scraping for campaign creation workflow
+    # ── Web scraping ─────────────────────────────────────────────────
     firecrawl_api_key: str = ""
 
-    # Accelera AI agent model (Sonnet 4.6 — upgraded from Haiku 4.5)
-    accelera_agent_model: str = "sonnet"
+    # ── Accelerate internal tools proxy ──────────────────────────────────────
+    # The Next.js dashboard exposes /api/internal/tools for server-side data tools.
+    # Set ACCELERATE_INTERNAL_URL to the dashboard base URL (no trailing slash).
+    accelerate_internal_url: str = "http://localhost:3001"
+    internal_api_key: str = ""  # must match INTERNAL_API_KEY in the Next.js env
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

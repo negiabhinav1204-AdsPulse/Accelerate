@@ -10,7 +10,8 @@ def get_all_agent_configs():
     from src.agentic_platform.app.campaigns.agent import config as campaigns_config
     configs.append(campaigns_config)
 
-    from src.agentic_platform.app.accelera.agent import config as accelera_config
-    configs.append(accelera_config)
+    # accelera agent disabled — uses ToolTag.CAMPAIGN not in this engine version
+    # from src.agentic_platform.app.accelera.agent import config as accelera_config
+    # configs.append(accelera_config)
 
     return configs
