@@ -216,6 +216,17 @@ const inputCls =
   'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/30 outline-none transition-colors placeholder:text-muted-foreground'
 
 function FormCard({ data, onAction }: HITLCardProps) {
+  // Campaign config form: fields=[] but payload has platform_campaign_types
+  const isCampaignConfig =
+    (data.fields ?? []).length === 0 &&
+    !!data.payload &&
+    typeof data.payload.platform_campaign_types === 'object' &&
+    data.payload.platform_campaign_types !== null
+
+  if (isCampaignConfig) {
+    return <CampaignConfigForm data={data} onAction={onAction} />
+  }
+
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const defaults: Record<string, unknown> = {}
     for (const f of data.fields ?? []) {
@@ -250,6 +261,229 @@ function FormCard({ data, onAction }: HITLCardProps) {
         onAction={onAction}
         extraPayload={{ modifications: values }}
       />
+    </div>
+  )
+}
+
+// ── Campaign Config Form ──────────────────────────────────────────────
+
+interface PlatformCampaignTypeOption { value: string; label: string }
+interface PlatformCampaignTypes { label: string; types: PlatformCampaignTypeOption[] }
+
+function CampaignConfigForm({ data, onAction }: HITLCardProps) {
+  const payload = data.payload as {
+    url?: string
+    website?: string
+    currency?: string
+    platform_campaign_types: Record<string, PlatformCampaignTypes>
+    defaults?: {
+      start_date?: string
+      end_date?: string
+      total_budget?: number | null
+      selected_types?: Record<string, string[]>
+      goal?: string | null
+    }
+  }
+  const defaults = payload.defaults ?? {}
+  const platforms = Object.keys(payload.platform_campaign_types)
+
+  // Which platforms are enabled (at least one type selected)
+  const [enabledPlatforms, setEnabledPlatforms] = useState<Set<string>>(() => {
+    const selected = defaults.selected_types ?? {}
+    const enabled = new Set<string>()
+    for (const p of platforms) {
+      if ((selected[p]?.length ?? 0) > 0) enabled.add(p)
+    }
+    if (enabled.size === 0) platforms.forEach(p => enabled.add(p))
+    return enabled
+  })
+
+  // Selected campaign types per platform
+  const [selectedTypes, setSelectedTypes] = useState<Record<string, Set<string>>>(() => {
+    const init: Record<string, Set<string>> = {}
+    for (const p of platforms) {
+      init[p] = new Set(defaults.selected_types?.[p] ?? [])
+    }
+    return init
+  })
+
+  const [totalBudget, setTotalBudget] = useState<string>(
+    defaults.total_budget != null ? String(defaults.total_budget) : ''
+  )
+  const [startDate, setStartDate] = useState(defaults.start_date ?? '')
+  const [endDate, setEndDate] = useState(defaults.end_date ?? '')
+  const [goal, setGoal] = useState(defaults.goal ?? '')
+
+  const togglePlatform = (platform: string) => {
+    setEnabledPlatforms(prev => {
+      const next = new Set(prev)
+      if (next.has(platform)) next.delete(platform)
+      else next.add(platform)
+      return next
+    })
+  }
+
+  const toggleType = (platform: string, type: string) => {
+    setSelectedTypes(prev => {
+      const next = { ...prev }
+      const set = new Set(next[platform])
+      if (set.has(type)) set.delete(type)
+      else set.add(type)
+      next[platform] = set
+      return next
+    })
+  }
+
+  const handleSubmit = (action: string) => {
+    const platformSelections: Record<string, string[]> = {}
+    const activePlatforms: string[] = []
+    for (const p of platforms) {
+      if (enabledPlatforms.has(p)) {
+        activePlatforms.push(p)
+        platformSelections[p] = Array.from(selectedTypes[p] ?? [])
+      }
+    }
+    onAction?.({
+      hitl_id: data.hitl_id,
+      action,
+      modifications: {
+        platforms: activePlatforms,
+        platform_selections: platformSelections,
+        total_budget: totalBudget ? Number(totalBudget) : null,
+        start_date: startDate,
+        end_date: endDate,
+        goal: goal || null,
+      },
+    })
+  }
+
+  const PLATFORM_COLORS: Record<string, string> = {
+    GOOGLE: 'text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950',
+    BING: 'text-teal-600 dark:text-teal-400 border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950',
+    META: 'text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950',
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-card p-4 dark:border-primary/30">
+      <h3 className="text-sm font-semibold text-foreground">{data.title}</h3>
+      {data.description && (
+        <p className="mt-1 text-sm text-muted-foreground">{data.description}</p>
+      )}
+
+      <div className="mt-4 space-y-4">
+        {/* Platform + campaign type selection */}
+        <div className="space-y-2">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Platforms & Campaign Types</label>
+          {platforms.map(platform => {
+            const info = payload.platform_campaign_types[platform]!
+            const isEnabled = enabledPlatforms.has(platform)
+            const color = PLATFORM_COLORS[platform] ?? 'text-gray-600 border-gray-200 bg-gray-50'
+            return (
+              <div key={platform} className={cn('rounded-lg border p-3 transition-colors', isEnabled ? color : 'border-border bg-muted/20 opacity-60')}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold">{info.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => togglePlatform(platform)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                      isEnabled ? 'bg-primary' : 'bg-muted',
+                    )}
+                  >
+                    <span className={cn(
+                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                      isEnabled ? 'translate-x-4' : 'translate-x-0',
+                    )} />
+                  </button>
+                </div>
+                {isEnabled && info.types.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {info.types.map(t => {
+                      const checked = selectedTypes[platform]?.has(t.value) ?? false
+                      return (
+                        <button
+                          key={t.value}
+                          type="button"
+                          onClick={() => toggleType(platform, t.value)}
+                          className={cn(
+                            'px-2 py-0.5 rounded text-[11px] font-medium border transition-colors',
+                            checked
+                              ? 'bg-foreground text-background border-foreground'
+                              : 'bg-background text-muted-foreground border-border hover:border-foreground/40',
+                          )}
+                        >
+                          {t.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Budget */}
+        <div>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            Total Budget {payload.currency ? `(${payload.currency})` : ''}
+          </label>
+          <input
+            type="number"
+            value={totalBudget}
+            placeholder="e.g. 5000"
+            min={0}
+            onChange={e => setTotalBudget(e.target.value)}
+            className={inputCls}
+          />
+        </div>
+
+        {/* Date range */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Start Date</label>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">End Date</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={inputCls} />
+          </div>
+        </div>
+
+        {/* Goal */}
+        <div>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Campaign Goal <span className="normal-case font-normal text-muted-foreground/60">(optional)</span></label>
+          <input
+            type="text"
+            value={goal}
+            placeholder="e.g. Increase product sales"
+            onChange={e => setGoal(e.target.value)}
+            className={inputCls}
+          />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="mt-4 flex gap-2">
+        {(data.actions ?? []).map(a => {
+          const isPrimary = a.style === 'primary'
+          return (
+            <button
+              key={a.action}
+              type="button"
+              onClick={() => handleSubmit(a.action)}
+              className={cn(
+                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
+                isPrimary
+                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  : 'border border-border text-foreground hover:bg-accent',
+              )}
+            >
+              {a.label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
