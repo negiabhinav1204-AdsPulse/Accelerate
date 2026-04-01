@@ -314,14 +314,51 @@ function AcceleraAiHomeInner({
       return;
     }
 
-    const assistantId = crypto.randomUUID();
-    const assistantMsg: ChatMessage = {
-      id: assistantId,
-      role: 'assistant',
-      parts: [],
-      streaming: true
-    };
-    setMessages((prev) => [...prev, assistantMsg]);
+    // Find the message that owns this hitl_request and reuse it so the resumed
+    // workflow updates the SAME card instead of spawning a duplicate.
+    let targetMsgId: string | null = null;
+    const isRejection = decision.action === 'cancel' || decision.action === 'reject';
+
+    setMessages((prev) => {
+      for (const m of prev) {
+        if (m.role === 'campaign') continue;
+        const cm = m as ChatMessage;
+        for (const p of cm.parts) {
+          if (p.type === 'hitl_request' && (p.data as Record<string, unknown>)['hitl_id'] === decision.hitl_id) {
+            targetMsgId = cm.id;
+            break;
+          }
+        }
+        if (targetMsgId) break;
+      }
+
+      if (!targetMsgId) {
+        // Fallback: create new message if we can't find the originating one
+        targetMsgId = crypto.randomUUID();
+        return [...prev, { id: targetMsgId, role: 'assistant' as const, parts: [], streaming: true } as ChatMessage];
+      }
+
+      // Mark hitl_request resolved (so HITLCard returns null) and set streaming
+      return prev.map((m) => {
+        if (m.id !== targetMsgId || m.role === 'campaign') return m;
+        const cm = m as ChatMessage;
+        return {
+          ...cm,
+          streaming: true,
+          parts: cm.parts.map((p) => {
+            if (p.type === 'hitl_request') {
+              const d = p.data as Record<string, unknown>;
+              if (d['hitl_id'] === decision.hitl_id) {
+                return { type: 'hitl_request' as const, data: { ...d, status: isRejection ? 'rejected' : 'approved' } } as HITLRequestPart;
+              }
+            }
+            return p;
+          }),
+        };
+      });
+    });
+
+    const assistantId = targetMsgId!;
     setLoading(true);
 
     void (async () => {
