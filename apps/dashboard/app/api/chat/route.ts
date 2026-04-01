@@ -1047,8 +1047,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
   }
 
-  // Forward to agentic service if enabled (AG-UI SSE → JSON-lines translation)
-  if (SERVICES.agentic.enabled) {
+  // Forward to agentic service — check env var directly (bypasses module-load caching)
+  const agenticUrl = process.env.AGENTIC_SERVICE_URL;
+  if (agenticUrl) {
     const membership = await prisma.membership.findFirst({
       where: { userId: session.user.id, organizationId: body.organizationId ?? '' },
       select: { organization: { select: { id: true } } },
@@ -1083,7 +1084,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       };
     }
 
-    const upstream = await fetch(`${SERVICES.agentic.url}/api/v1/agents/${agentId}/chat/${convId}`, {
+    const upstream = await fetch(`${agenticUrl}/api/v1/agents/${agentId}/chat/${convId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
