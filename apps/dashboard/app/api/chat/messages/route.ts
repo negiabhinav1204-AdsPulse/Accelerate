@@ -92,7 +92,8 @@ function transformMessage(msg: AgentMessage): TransformedMessage {
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
-  if (!SERVICES.agentic.enabled) {
+  const agenticUrl = process.env.AGENTIC_SERVICE_URL;
+  if (!agenticUrl) {
     return Response.json({ messages: [] });
   }
 
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   };
 
   const upstream = await fetch(
-    `${SERVICES.agentic.url}/api/v1/agents/${agentId()}/conversations/${convId}/messages`,
+    `${agenticUrl}/api/v1/agents/${agentId()}/conversations/${convId}/messages`,
     { method: 'GET', headers },
   );
 
