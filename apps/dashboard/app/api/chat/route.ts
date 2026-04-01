@@ -1126,9 +1126,11 @@ export async function POST(request: NextRequest): Promise<Response> {
                 if (line.startsWith('event: ')) eventType = line.slice(7).trim();
                 else if (line.startsWith('data: ')) dataStr = line.slice(6).trim();
               }
-              if (!eventType || !dataStr) continue;
+              if (!dataStr) continue;
               try {
                 const payload = JSON.parse(dataStr) as Record<string, unknown>;
+                // eventType from SSE `event:` header, fallback to `type` field in JSON payload
+                if (!eventType) eventType = (payload.type as string) ?? '';
                 let jsonLine: string | null = null;
                 if (eventType === 'TEXT_MESSAGE_CONTENT') {
                   const delta = (payload.delta as string) ?? '';
