@@ -1064,6 +1064,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     let agUiPayload: Record<string, unknown>;
     if (body.hitlResponse) {
       agUiPayload = {
+        runId: crypto.randomUUID(),
         thread_id: convId,
         messages: [],
         state: {
@@ -1074,13 +1075,21 @@ export async function POST(request: NextRequest): Promise<Response> {
             ...(body.hitlResponse.user_input ? { user_input: body.hitlResponse.user_input } : {}),
           },
         },
+        tools: [],
+        context: [],
+        forwardedProps: {},
       };
     } else {
       const lastUserMsg = [...body.messages].reverse().find((m) => m.role === 'user');
       if (!lastUserMsg) return new Response('No user message', { status: 400 });
       agUiPayload = {
+        runId: crypto.randomUUID(),
         thread_id: convId,
-        messages: [{ role: 'user', content: lastUserMsg.content }],
+        messages: [{ id: crypto.randomUUID(), role: 'user', content: lastUserMsg.content }],
+        state: {},
+        tools: [],
+        context: [],
+        forwardedProps: {},
       };
     }
 
