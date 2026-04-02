@@ -898,7 +898,7 @@ export function CampaignListClient({ orgSlug, orgId }: { orgSlug: string; orgId:
                 <MenuItem
                   icon={<span className="size-3 inline-block" />}
                   label="Edit"
-                  href={`/organizations/${orgSlug}/campaign/${c.id}/edit`}
+                  href={`/organizations/${orgSlug}/campaigns/${c.id}/edit`}
                 />
               )}
               {permissions.canManageCampaigns && (

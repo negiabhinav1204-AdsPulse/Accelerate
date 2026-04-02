@@ -6,6 +6,7 @@ interface AgenticSidebarPanelProps {
   blockType: string
   data: Record<string, unknown>
   onClose: () => void
+  orgSlug?: string
 }
 
 function formatValue(value: unknown): string {
@@ -170,7 +171,7 @@ function FallbackPanel({ blockType, data, onClose }: { blockType: string; data: 
   )
 }
 
-function MediaPlanPanel({ data, onClose }: { data: Record<string, unknown>; onClose: () => void }) {
+function MediaPlanPanel({ data, onClose, orgSlug }: { data: Record<string, unknown>; onClose: () => void; orgSlug?: string }) {
   const planName = (data['plan_name'] ?? data['plan_id'] ?? 'Media Plan') as string
   const campaignCount = (data['campaign_count'] ?? data['count']) as number | undefined
   const platforms = data['platforms'] as string[] | undefined
@@ -218,9 +219,9 @@ function MediaPlanPanel({ data, onClose }: { data: Record<string, unknown>; onCl
         )}
       </div>
 
-      {planId && (
+      {orgSlug && (
         <a
-          href={`/organizations/${planId}/campaigns`}
+          href={planId ? `/organizations/${orgSlug}/campaigns/${planId}` : `/organizations/${orgSlug}/campaigns`}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
         >
           View in Campaign Manager
@@ -241,14 +242,14 @@ function MediaPlanPanel({ data, onClose }: { data: Record<string, unknown>; onCl
  * AgenticSidebarPanel — routes block data to the right panel component
  * based on blockType. Used by openSidebar() and openModal() in accelera-ai-home.
  */
-export function AgenticSidebarPanel({ blockType, data, onClose }: AgenticSidebarPanelProps) {
+export function AgenticSidebarPanel({ blockType, data, onClose, orgSlug }: AgenticSidebarPanelProps) {
   switch (blockType) {
     case 'campaign_details':
       return <CampaignDetailPanel data={data} onClose={onClose} />
     case 'budget_approval':
       return <BudgetApprovalPanel data={data} onClose={onClose} />
     case 'media_plan':
-      return <MediaPlanPanel data={data} onClose={onClose} />
+      return <MediaPlanPanel data={data} onClose={onClose} orgSlug={orgSlug} />
     default:
       return <FallbackPanel blockType={blockType} data={data} onClose={onClose} />
   }

@@ -1078,7 +1078,7 @@ function AcceleraAiHomeInner({
                   );
                   // Open a plan summary panel in the sidebar
                   openSidebar(
-                    <AgenticSidebarPanel blockType="media_plan" data={planData} onClose={closePanel} />
+                    <AgenticSidebarPanel blockType="media_plan" data={planData} onClose={closePanel} orgSlug={orgSlug} />
                   );
                 } else if (resolvedName === 'generated_image') {
                   const imgData = c.input as { url: string; alt?: string };
@@ -1948,10 +1948,10 @@ function ToolRenderer({
           role="button"
           tabIndex={0}
           onClick={() => openSidebar(
-            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} />
+            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} orgSlug={orgSlug} />
           )}
           onKeyDown={(e) => e.key === 'Enter' && openSidebar(
-            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} />
+            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} orgSlug={orgSlug} />
           )}
           className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3 max-w-sm cursor-pointer hover:bg-primary/10 transition-colors"
         >
