@@ -1088,16 +1088,14 @@ function AcceleraAiHomeInner({
                   // Open a plan summary panel in the sidebar
                   const planId = planData['plan_id'] as string | undefined;
                   const planName = planData['plan_name'] as string | undefined;
-                  if (planId) {
-                    openSidebar(
-                      <MediaPlanSidebarPanel
-                        planId={planId}
-                        planName={planName}
-                        planData={planData}
-                        orgSlug={orgSlug}
-                      />
-                    );
-                  }
+                  openSidebar(
+                    <MediaPlanSidebarPanel
+                      planId={planId ?? ''}
+                      planName={planName}
+                      planData={planData}
+                      orgSlug={orgSlug}
+                    />
+                  );
                 } else if (resolvedName === 'generated_image') {
                   const imgData = c.input as { url: string; alt?: string };
                   setMessages((prev) =>
@@ -1700,6 +1698,7 @@ function ToolRenderer({
   tool: ToolBlock;
   orgSlug: string;
 }) {
+  const { openSidebar } = usePanel();
   switch (tool.name) {
     case 'show_metrics':
       return (
@@ -1956,20 +1955,42 @@ function ToolRenderer({
         </div>
       );
 
-    case 'media_plan':
-      // Media plan trigger — the full preview uses the CampaignPreviewPanel.
-      // Render a clickable summary card here that can be extended in Phase 3.
+    case 'media_plan': {
+      const planInput = tool.input as Record<string, unknown>;
+      const planId = planInput['plan_id'] as string | undefined;
+      const planName = planInput['plan_name'] as string | undefined;
       return (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3 max-w-sm cursor-pointer hover:bg-primary/10 transition-colors">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => openSidebar(
+            <MediaPlanSidebarPanel
+              planId={planId ?? ''}
+              planName={planName}
+              planData={planInput}
+              orgSlug={orgSlug}
+            />
+          )}
+          onKeyDown={(e) => e.key === 'Enter' && openSidebar(
+            <MediaPlanSidebarPanel
+              planId={planId ?? ''}
+              planName={planName}
+              planData={planInput}
+              orgSlug={orgSlug}
+            />
+          )}
+          className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3 max-w-sm cursor-pointer hover:bg-primary/10 transition-colors"
+        >
           <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">
             Media Plan Ready
           </p>
           <p className="text-sm text-foreground">
-            {String((tool.input as Record<string, unknown>)['campaignName'] ?? 'View campaign plan')}
+            {String(planName ?? planInput['campaignName'] ?? 'View campaign plan')}
           </p>
           <p className="text-xs text-muted-foreground mt-1">Click to open preview</p>
         </div>
       );
+    }
 
     case 'campaign_details': {
       const input = tool.input as Record<string, unknown>;
@@ -2240,8 +2261,11 @@ function MediaPlanSidebarPanel({
   orgSlug: string;
 }) {
   const { closePanel } = usePanel();
-  const campaignCount = planData['campaign_count'] as number | undefined;
+  const campaignCount = (planData['campaign_count'] ?? planData['count']) as number | undefined;
   const platforms = planData['platforms'] as string[] | undefined;
+  const currencyTotals = planData['currency_totals'] as Record<string, number> | undefined;
+  const totalDailyBudget = planData['total_daily_budget'] as number | undefined;
+  const currency = planData['currency'] as string | undefined;
   const displayName = planName ?? String(planData['plan_name'] ?? 'Media Plan');
 
   return (
@@ -2260,26 +2284,44 @@ function MediaPlanSidebarPanel({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        <div className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-4 space-y-2">
+        <div className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-4 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-primary">Campaign Plan</p>
           <p className="text-base font-medium text-foreground">{displayName}</p>
           {campaignCount !== undefined && (
             <p className="text-sm text-muted-foreground">{campaignCount} campaign{campaignCount !== 1 ? 's' : ''}</p>
           )}
+          {/* Budget summary */}
+          {currencyTotals && Object.entries(currencyTotals).map(([cur, total]) => (
+            <div key={cur} className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Daily Budget</span>
+              <span className="text-sm font-semibold text-foreground">{cur} {Number(total).toLocaleString()}</span>
+            </div>
+          ))}
+          {!currencyTotals && totalDailyBudget !== undefined && currency && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Daily Budget</span>
+              <span className="text-sm font-semibold text-foreground">{currency} {Number(totalDailyBudget).toLocaleString()}</span>
+            </div>
+          )}
           {platforms && platforms.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1">
+            <div className="flex flex-wrap gap-1.5">
               {platforms.map((p) => (
-                <span key={p} className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground capitalize">{p}</span>
+                <span key={p} className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground">{p}</span>
               ))}
             </div>
           )}
         </div>
-        <a
-          href={`/organizations/${orgSlug}/campaigns`}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          View in Campaign Manager
-        </a>
+        {planId && (
+          <a
+            href={`/organizations/${orgSlug}/campaigns`}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            View in Campaign Manager
+          </a>
+        )}
+        {!planId && (
+          <p className="text-xs text-muted-foreground text-center">Campaign plan generated — connect your ad accounts to publish</p>
+        )}
       </div>
     </div>
   );
