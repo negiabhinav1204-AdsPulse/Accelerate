@@ -444,6 +444,15 @@ function AcceleraAiHomeInner({
                       return { ...cm, parts: [...cm.parts, { type: 'tool' as const, tool: { name: 'media_plan', input: planData } as ToolBlock }] };
                     })
                   );
+                  // Auto-open sidebar with plan summary
+                  openSidebar(
+                    <MediaPlanSidebarPanel
+                      planId={(planData['plan_id'] as string | undefined) ?? ''}
+                      planName={planData['plan_name'] as string | undefined}
+                      planData={planData}
+                      orgSlug={orgSlug}
+                    />
+                  );
                 } else {
                   const blockValue = c.input as Record<string, unknown>;
                   const agMeta = (blockValue.__agui_meta ?? {}) as Record<string, unknown>;
