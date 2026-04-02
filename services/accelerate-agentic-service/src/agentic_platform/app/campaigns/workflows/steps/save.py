@@ -87,6 +87,7 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
     plan_id = mp.get("id") or mp.get("data", {}).get("id")
 
     requests = []
+    campaign_blocks: list[dict] = []
     for i, built in enumerate(build_data.campaigns):
         c = V2CampaignConfig(**built.campaign)
         s = _uid()
@@ -141,6 +142,36 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
             assetGroups=asset_groups, targeting=camp_tgt,
         ))
 
+        # Collect rich block data (targeting + creatives) for the RHS preview panel
+        kws = [
+            kw.get("text", "").strip()
+            for kw in (built.keywords or [])
+            if not kw.get("is_negative", False) and kw.get("text", "").strip()
+        ] or targeting_dict.get("keywords", [])[:30]
+        bn = slot_data.get("businessName", "")
+        campaign_blocks.append({
+            "name": c.name,
+            "platform": c.platform,
+            "campaign_type": c.campaign_type,
+            "daily_budget": c.daily_budget,
+            "currency": c.budget_currency,
+            "targeting": {
+                "locations": targeting_dict.get("target_countries", []),
+                "languages": targeting_dict.get("target_languages", []),
+                "age_ranges": [a for a in targeting_dict.get("target_age_ranges", []) if a],
+                "genders": [g for g in targeting_dict.get("target_genders", []) if g],
+                "keywords": kws[:30],
+            },
+            "creatives": {
+                "headlines": slot_data.get("headlines", [])[:15],
+                "descriptions": slot_data.get("descriptions", [])[:4],
+                "long_headlines": slot_data.get("longHeadlines", [])[:5],
+                "images": (slot_data.get("images", []) + slot_data.get("squareImages", []))[:3],
+                "business_name": (bn[0] if isinstance(bn, list) else bn) or "",
+                "call_to_action": (slot_data.get("callToAction") or [""])[0] if isinstance(slot_data.get("callToAction"), list) else (slot_data.get("callToAction") or ""),
+            },
+        })
+
     dicts = [r.model_dump(mode="json", exclude_none=True) for r in requests]
 
     saved_to_dashboard = False
@@ -165,6 +196,7 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
             "data": {
                 "plan_id": plan_id,
                 "plan_name": campaign_plan.plan_name,
+                "url": url,
                 "campaign_count": len(requests),
                 "platforms": sorted({r.platformType.value for r in requests}),
                 "total_daily_budget": sum(r.budget.amount for r in requests),
@@ -173,16 +205,7 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
                     cur: sum(r.budget.amount for r in requests if r.budget.currency == cur)
                     for cur in {r.budget.currency for r in requests}
                 },
-                "campaigns": [
-                    {
-                        "name": r.name.removeprefix(f"{_PREFIX} - ").rsplit("_", 1)[0] if "_" in r.name else r.name,
-                        "platform": r.platformType.value,
-                        "campaign_type": r.campaignType.value,
-                        "daily_budget": r.budget.amount,
-                        "currency": r.budget.currency,
-                    }
-                    for r in requests
-                ],
+                "campaigns": campaign_blocks,
             },
         }],
     )
