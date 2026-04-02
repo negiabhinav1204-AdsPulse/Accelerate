@@ -1078,7 +1078,8 @@ function AcceleraAiHomeInner({
                   );
                   // Open a plan summary panel in the sidebar
                   openSidebar(
-                    <AgenticSidebarPanel blockType="media_plan" data={planData} onClose={closePanel} orgSlug={orgSlug} />
+                    <AgenticSidebarPanel blockType="media_plan" data={planData} onClose={closePanel} orgSlug={orgSlug} />,
+                    'Campaign Preview'
                   );
                 } else if (resolvedName === 'generated_image') {
                   const imgData = c.input as { url: string; alt?: string };
@@ -1941,27 +1942,90 @@ function ToolRenderer({
 
     case 'media_plan': {
       const planInput = tool.input as Record<string, unknown>;
-      const planId = planInput['plan_id'] as string | undefined;
-      const planName = planInput['plan_name'] as string | undefined;
+      const planName = (planInput['plan_name'] as string | undefined) ?? 'Media Plan';
+      const campaigns = (planInput['campaigns'] ?? []) as Array<{
+        platform: string; campaign_type: string; daily_budget: number; currency: string;
+      }>;
+      const currencyTotals = planInput['currency_totals'] as Record<string, number> | undefined;
+      const totalDailyBudget = planInput['total_daily_budget'] as number | undefined;
+      const currency = planInput['currency'] as string | undefined;
+
+      const openPanel = () => openSidebar(
+        <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} orgSlug={orgSlug} />,
+        'Campaign Preview'
+      );
+
+      // Compute per-platform stats
+      const platformStats: Record<string, { budget: number; currency: string; adTypes: Set<string>; count: number }> = {};
+      for (const c of campaigns) {
+        if (!platformStats[c.platform]) platformStats[c.platform] = { budget: 0, currency: c.currency, adTypes: new Set(), count: 0 };
+        platformStats[c.platform].budget += c.daily_budget;
+        platformStats[c.platform].adTypes.add(c.campaign_type);
+        platformStats[c.platform].count++;
+      }
+      const totalBudget = Object.values(platformStats).reduce((s, p) => s + p.budget, 0) || totalDailyBudget || 0;
+
+      const PLATFORM_LABEL: Record<string, string> = { GOOGLE: 'Google Ads', BING: 'Microsoft Ads', META: 'Meta Ads' };
+      const PLATFORM_DOT: Record<string, string> = { GOOGLE: 'bg-blue-500', BING: 'bg-teal-500', META: 'bg-indigo-500' };
+      const TYPE_LABEL: Record<string, string> = { SEARCH: 'Search', DISPLAY: 'Display', PERFORMANCE_MAX: 'P.Max' };
+
       return (
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => openSidebar(
-            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} orgSlug={orgSlug} />
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden max-w-sm w-full">
+          {/* Plan header */}
+          <div className="px-4 pt-4 pb-3">
+            <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-widest mb-1">Media Plan Ready</p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[15px] font-bold text-gray-900 leading-snug">{planName}</p>
+              <div className="text-right flex-shrink-0">
+                {currencyTotals
+                  ? Object.entries(currencyTotals).map(([cur, tot]) => (
+                    <p key={cur} className="text-[15px] font-bold text-gray-900">{cur} {Number(tot).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                  ))
+                  : totalBudget > 0 && currency && (
+                    <p className="text-[15px] font-bold text-gray-900">{currency} {Number(totalBudget).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                  )
+                }
+                <p className="text-[11px] text-gray-400">/day</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-gray-500 mt-1">{campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''}</p>
+          </div>
+
+          {/* Platform breakdown */}
+          {Object.keys(platformStats).length > 0 && (
+            <div className="border-t border-gray-100 divide-y divide-gray-50">
+              {Object.entries(platformStats).map(([platform, stats]) => {
+                const pct = totalBudget > 0 ? Math.round((stats.budget / totalBudget) * 100) : 0;
+                const adTypeLabels = Array.from(stats.adTypes).map(t => TYPE_LABEL[t] ?? t).join(' · ');
+                return (
+                  <button
+                    key={platform}
+                    onClick={openPanel}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${PLATFORM_DOT[platform] ?? 'bg-gray-400'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-gray-800">{PLATFORM_LABEL[platform] ?? platform}</p>
+                      <p className="text-[11px] text-gray-400 truncate">{pct}% of total · {adTypeLabels}</p>
+                    </div>
+                    <span className="text-[13px] font-semibold text-gray-900 flex-shrink-0">
+                      {stats.currency} {Number(stats.budget).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           )}
-          onKeyDown={(e) => e.key === 'Enter' && openSidebar(
-            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} orgSlug={orgSlug} />
-          )}
-          className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3 max-w-sm cursor-pointer hover:bg-primary/10 transition-colors"
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">
-            Media Plan Ready
-          </p>
-          <p className="text-sm text-foreground">
-            {String(planName ?? planInput['campaignName'] ?? 'View campaign plan')}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">Click to open preview</p>
+
+          {/* CTA */}
+          <div className="px-4 pb-4 pt-3">
+            <button
+              onClick={openPanel}
+              className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+            >
+              Preview Campaign
+            </button>
+          </div>
         </div>
       );
     }

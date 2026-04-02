@@ -16,7 +16,7 @@ import { usePanel } from './PanelContext'
  * Place this outside the message list, as a sibling to the chat column.
  */
 export function SidebarPanel() {
-  const { panelContent, closePanel } = usePanel()
+  const { panelContent, panelTitle, closePanel } = usePanel()
   const isOpen = panelContent !== null
 
   return (
@@ -27,7 +27,7 @@ export function SidebarPanel() {
       >
         <SheetHeader className="flex flex-row items-center justify-between border-b px-5 py-3 shrink-0">
           <SheetTitle className="text-sm font-semibold text-foreground">
-            Details
+            {panelTitle}
           </SheetTitle>
           <button
             type="button"
@@ -38,7 +38,8 @@ export function SidebarPanel() {
             <X className="h-4 w-4" />
           </button>
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        {/* p-0: each panel component manages its own padding and scroll */}
+        <div className="flex-1 overflow-y-auto">
           {panelContent}
         </div>
       </SheetContent>

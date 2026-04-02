@@ -429,7 +429,7 @@ function MediaPlanPanel({ data, onClose, orgSlug }: { data: Record<string, unkno
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col">
       {/* Header */}
       <div className="px-5 pt-5 pb-3 border-b border-gray-100">
         <span className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wider">Media Plan Ready</span>
@@ -498,8 +498,8 @@ function MediaPlanPanel({ data, onClose, orgSlug }: { data: Record<string, unkno
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto px-5 pt-4">
+      {/* Tab content — parent SidebarPanel handles outer scroll */}
+      <div className="px-5 pt-4">
         {selectedCampaign ? (
           activeTab === 'targeting' ? (
             selectedCampaign.targeting
@@ -522,7 +522,7 @@ function MediaPlanPanel({ data, onClose, orgSlug }: { data: Record<string, unkno
       </div>
 
       {/* Footer CTA */}
-      <div className="px-5 pb-5 pt-3 border-t border-gray-100 mt-auto">
+      <div className="px-5 pb-5 pt-3 border-t border-gray-100 mt-4">
         <a href={campaignsUrl} className="flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
           View in Campaign Manager
         </a>

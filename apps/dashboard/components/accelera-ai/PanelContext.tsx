@@ -12,7 +12,7 @@ import {
 
 interface PanelState {
   /** Open a slide-in sidebar panel with arbitrary React content */
-  openSidebar: (content: ReactNode) => void
+  openSidebar: (content: ReactNode, title?: string) => void
   /** Open a modal overlay with arbitrary React content */
   openModal: (content: ReactNode) => void
   /** Close the sidebar panel */
@@ -23,6 +23,8 @@ interface PanelState {
   panelContent: ReactNode | null
   /** Current modal content (null = closed) */
   modalContent: ReactNode | null
+  /** Title for the sidebar panel header */
+  panelTitle: string
 }
 
 // ── Context ───────────────────────────────────────────────────────────
@@ -40,9 +42,11 @@ export function usePanel(): PanelState {
 export function PanelProvider({ children }: { children: ReactNode }) {
   const [panelContent, setPanelContent] = useState<ReactNode | null>(null)
   const [modalContent, setModalContent] = useState<ReactNode | null>(null)
+  const [panelTitle, setPanelTitle] = useState('Details')
 
-  const openSidebar = useCallback((content: ReactNode) => {
+  const openSidebar = useCallback((content: ReactNode, title = 'Details') => {
     setPanelContent(content)
+    setPanelTitle(title)
   }, [])
 
   const openModal = useCallback((content: ReactNode) => {
@@ -59,7 +63,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
 
   return (
     <PanelContext.Provider
-      value={{ openSidebar, openModal, closePanel, closeModal, panelContent, modalContent }}
+      value={{ openSidebar, openModal, closePanel, closeModal, panelContent, modalContent, panelTitle }}
     >
       {children}
     </PanelContext.Provider>
