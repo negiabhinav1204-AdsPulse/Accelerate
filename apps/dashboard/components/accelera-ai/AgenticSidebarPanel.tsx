@@ -170,6 +170,73 @@ function FallbackPanel({ blockType, data, onClose }: { blockType: string; data: 
   )
 }
 
+function MediaPlanPanel({ data, onClose }: { data: Record<string, unknown>; onClose: () => void }) {
+  const planName = (data['plan_name'] ?? data['plan_id'] ?? 'Media Plan') as string
+  const campaignCount = (data['campaign_count'] ?? data['count']) as number | undefined
+  const platforms = data['platforms'] as string[] | undefined
+  const currencyTotals = data['currency_totals'] as Record<string, number> | undefined
+  const totalDailyBudget = data['total_daily_budget'] as number | undefined
+  const currency = data['currency'] as string | undefined
+  const planId = data['plan_id'] as string | undefined
+
+  return (
+    <div className="flex flex-col gap-5 p-5">
+      <div>
+        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">Media Plan Ready</span>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">{planName}</h2>
+        {campaignCount !== undefined && (
+          <p className="text-sm text-gray-500 mt-0.5">{campaignCount} campaign{campaignCount !== 1 ? 's' : ''}</p>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
+        {currencyTotals && Object.entries(currencyTotals).map(([cur, total]) => (
+          <div key={cur} className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-gray-500">Daily Budget</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {cur} {Number(total).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        ))}
+        {!currencyTotals && totalDailyBudget !== undefined && currency && (
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-gray-500">Daily Budget</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {currency} {Number(totalDailyBudget).toLocaleString()}
+            </span>
+          </div>
+        )}
+        {platforms && platforms.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-gray-500">Platforms</span>
+            <div className="flex gap-1.5 flex-wrap justify-end">
+              {platforms.map((p) => (
+                <span key={p} className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-800 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-300">{p}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {planId && (
+        <a
+          href={`/organizations/${planId}/campaigns`}
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+        >
+          View in Campaign Manager
+        </a>
+      )}
+      {!planId && (
+        <p className="text-xs text-gray-400 text-center">Campaigns are built and ready to publish once your ad accounts are connected.</p>
+      )}
+
+      <button onClick={onClose} className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+        Close
+      </button>
+    </div>
+  )
+}
+
 /**
  * AgenticSidebarPanel — routes block data to the right panel component
  * based on blockType. Used by openSidebar() and openModal() in accelera-ai-home.
@@ -180,6 +247,8 @@ export function AgenticSidebarPanel({ blockType, data, onClose }: AgenticSidebar
       return <CampaignDetailPanel data={data} onClose={onClose} />
     case 'budget_approval':
       return <BudgetApprovalPanel data={data} onClose={onClose} />
+    case 'media_plan':
+      return <MediaPlanPanel data={data} onClose={onClose} />
     default:
       return <FallbackPanel blockType={blockType} data={data} onClose={onClose} />
   }

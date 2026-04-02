@@ -435,24 +435,6 @@ function AcceleraAiHomeInner({
                       return { ...cm, parts: [...cm.parts, { type: 'hitl_request' as const, data: c.input as Record<string, unknown> } as HITLRequestPart] };
                     })
                   );
-                } else if (resolvedName === 'media_plan') {
-                  const planData = c.input as Record<string, unknown>;
-                  setMessages((prev) =>
-                    prev.map((m) => {
-                      if (m.id !== assistantId || m.role === 'campaign') return m;
-                      const cm = m as ChatMessage;
-                      return { ...cm, parts: [...cm.parts, { type: 'tool' as const, tool: { name: 'media_plan', input: planData } as ToolBlock }] };
-                    })
-                  );
-                  // Auto-open sidebar with plan summary
-                  openSidebar(
-                    <MediaPlanSidebarPanel
-                      planId={(planData['plan_id'] as string | undefined) ?? ''}
-                      planName={planData['plan_name'] as string | undefined}
-                      planData={planData}
-                      orgSlug={orgSlug}
-                    />
-                  );
                 } else {
                   const blockValue = c.input as Record<string, unknown>;
                   const agMeta = (blockValue.__agui_meta ?? {}) as Record<string, unknown>;
@@ -1095,15 +1077,8 @@ function AcceleraAiHomeInner({
                     })
                   );
                   // Open a plan summary panel in the sidebar
-                  const planId = planData['plan_id'] as string | undefined;
-                  const planName = planData['plan_name'] as string | undefined;
                   openSidebar(
-                    <MediaPlanSidebarPanel
-                      planId={planId ?? ''}
-                      planName={planName}
-                      planData={planData}
-                      orgSlug={orgSlug}
-                    />
+                    <AgenticSidebarPanel blockType="media_plan" data={planData} onClose={closePanel} />
                   );
                 } else if (resolvedName === 'generated_image') {
                   const imgData = c.input as { url: string; alt?: string };
@@ -1707,7 +1682,7 @@ function ToolRenderer({
   tool: ToolBlock;
   orgSlug: string;
 }) {
-  const { openSidebar } = usePanel();
+  const { openSidebar, closePanel } = usePanel();
   switch (tool.name) {
     case 'show_metrics':
       return (
@@ -1973,20 +1948,10 @@ function ToolRenderer({
           role="button"
           tabIndex={0}
           onClick={() => openSidebar(
-            <MediaPlanSidebarPanel
-              planId={planId ?? ''}
-              planName={planName}
-              planData={planInput}
-              orgSlug={orgSlug}
-            />
+            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} />
           )}
           onKeyDown={(e) => e.key === 'Enter' && openSidebar(
-            <MediaPlanSidebarPanel
-              planId={planId ?? ''}
-              planName={planName}
-              planData={planInput}
-              orgSlug={orgSlug}
-            />
+            <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} />
           )}
           className="rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3 max-w-sm cursor-pointer hover:bg-primary/10 transition-colors"
         >
