@@ -173,6 +173,16 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
                     cur: sum(r.budget.amount for r in requests if r.budget.currency == cur)
                     for cur in {r.budget.currency for r in requests}
                 },
+                "campaigns": [
+                    {
+                        "name": r.name.removeprefix(f"{_PREFIX} - ").rsplit("_", 1)[0] if "_" in r.name else r.name,
+                        "platform": r.platformType.value,
+                        "campaign_type": r.campaignType.value,
+                        "daily_budget": r.budget.amount,
+                        "currency": r.budget.currency,
+                    }
+                    for r in requests
+                ],
             },
         }],
     )

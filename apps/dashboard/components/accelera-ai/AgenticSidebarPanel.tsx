@@ -171,29 +171,44 @@ function FallbackPanel({ blockType, data, onClose }: { blockType: string; data: 
   )
 }
 
+const PLATFORM_COLORS: Record<string, string> = {
+  GOOGLE: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  META: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+  BING: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  SEARCH: 'Search', DISPLAY: 'Display', PERFORMANCE_MAX: 'Performance Max',
+  AWARENESS: 'Awareness', TRAFFIC: 'Traffic', ENGAGEMENT: 'Engagement',
+  LEADS: 'Lead Gen', SALES: 'Sales',
+}
+
 function MediaPlanPanel({ data, onClose, orgSlug }: { data: Record<string, unknown>; onClose: () => void; orgSlug?: string }) {
   const planName = (data['plan_name'] ?? data['plan_id'] ?? 'Media Plan') as string
-  const campaignCount = (data['campaign_count'] ?? data['count']) as number | undefined
-  const platforms = data['platforms'] as string[] | undefined
   const currencyTotals = data['currency_totals'] as Record<string, number> | undefined
   const totalDailyBudget = data['total_daily_budget'] as number | undefined
   const currency = data['currency'] as string | undefined
   const planId = data['plan_id'] as string | undefined
+  const campaigns = (data['campaigns'] ?? []) as Array<{ name: string; platform: string; campaign_type: string; daily_budget: number; currency: string }>
+
+  const campaignsUrl = orgSlug
+    ? (planId ? `/organizations/${orgSlug}/campaigns/${planId}` : `/organizations/${orgSlug}/campaigns`)
+    : '/campaigns'
 
   return (
     <div className="flex flex-col gap-5 p-5">
+      {/* Header */}
       <div>
-        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">Media Plan Ready</span>
+        <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Media Plan Ready</span>
         <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">{planName}</h2>
-        {campaignCount !== undefined && (
-          <p className="text-sm text-gray-500 mt-0.5">{campaignCount} campaign{campaignCount !== 1 ? 's' : ''}</p>
-        )}
+        <p className="text-sm text-gray-500 mt-0.5">{campaigns.length || data['campaign_count']} campaigns built</p>
       </div>
 
+      {/* Budget summary */}
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
         {currencyTotals && Object.entries(currencyTotals).map(([cur, total]) => (
           <div key={cur} className="flex items-center justify-between px-4 py-3">
-            <span className="text-sm text-gray-500">Daily Budget</span>
+            <span className="text-sm text-gray-500">Total Daily Budget</span>
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {cur} {Number(total).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
             </span>
@@ -201,35 +216,46 @@ function MediaPlanPanel({ data, onClose, orgSlug }: { data: Record<string, unkno
         ))}
         {!currencyTotals && totalDailyBudget !== undefined && currency && (
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-sm text-gray-500">Daily Budget</span>
+            <span className="text-sm text-gray-500">Total Daily Budget</span>
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {currency} {Number(totalDailyBudget).toLocaleString()}
             </span>
           </div>
         )}
-        {platforms && platforms.length > 0 && (
-          <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-sm text-gray-500">Platforms</span>
-            <div className="flex gap-1.5 flex-wrap justify-end">
-              {platforms.map((p) => (
-                <span key={p} className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-800 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-300">{p}</span>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
-      {orgSlug && (
-        <a
-          href={planId ? `/organizations/${orgSlug}/campaigns/${planId}` : `/organizations/${orgSlug}/campaigns`}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-        >
-          View in Campaign Manager
-        </a>
+      {/* Per-campaign list */}
+      {campaigns.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Campaigns</h3>
+          <div className="flex flex-col gap-2">
+            {campaigns.map((c, i) => (
+              <div key={i} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2.5 flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{c.name}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{TYPE_LABELS[c.campaign_type] ?? c.campaign_type}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${PLATFORM_COLORS[c.platform] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {c.platform}
+                  </span>
+                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 tabular-nums">
+                    {c.currency} {Number(c.daily_budget).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
-      {!planId && (
-        <p className="text-xs text-gray-400 text-center">Campaigns are built and ready to publish once your ad accounts are connected.</p>
-      )}
+
+      {/* CTA */}
+      <a
+        href={campaignsUrl}
+        className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+      >
+        View in Campaign Manager
+      </a>
 
       <button onClick={onClose} className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
         Close

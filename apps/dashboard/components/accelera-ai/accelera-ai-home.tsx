@@ -442,9 +442,9 @@ function AcceleraAiHomeInner({
                   const inlineTrigger = (agMeta.inline_trigger ?? blockValue) as Record<string, unknown>;
                   const { __agui_meta: _meta, ...blockData } = blockValue;
                   if (display === 'sidebar') {
-                    openSidebar(<AgenticSidebarPanel blockType={resolvedName} data={blockData} onClose={closePanel} />);
+                    openSidebar(<AgenticSidebarPanel blockType={resolvedName} data={blockData} onClose={closePanel} orgSlug={orgSlug} />);
                   } else if (display === 'modal') {
-                    openModal(<AgenticSidebarPanel blockType={resolvedName} data={blockData} onClose={closeModal} />);
+                    openModal(<AgenticSidebarPanel blockType={resolvedName} data={blockData} onClose={closeModal} orgSlug={orgSlug} />);
                   }
                   setMessages((prev) =>
                     prev.map((m) => {
