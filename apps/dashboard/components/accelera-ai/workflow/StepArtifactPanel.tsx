@@ -191,27 +191,40 @@ function CompetitorsRenderer({ data }: { data: Record<string, unknown> }) {
 }
 
 function BudgetAllocationRenderer({ data }: { data: Record<string, unknown> }) {
-  const platforms = arr<Record<string, unknown>>(data.platforms)
-  const currency = str(data.currency)
+  // Backend emits: { currency_totals: { "USD": 76.0 }, campaigns: [{ name, platform, daily_budget, currency, percentage }] }
+  const campaigns = arr<Record<string, unknown>>(data.campaigns)
+  const currencyTotals = (data.currency_totals ?? {}) as Record<string, number>
+  const totalEntries = Object.entries(currencyTotals)
   return (
     <div className="space-y-2">
-      {data.total_budget != null && (
-        <div className="flex items-center justify-between py-1">
-          <span className="text-[12px] text-gray-400">Total Budget</span>
+      {totalEntries.map(([cur, total]) => (
+        <div key={cur} className="flex items-center justify-between py-1">
+          <span className="text-[12px] text-gray-400">Total Daily Budget</span>
           <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">
-            {currency} {Number(data.total_budget).toLocaleString()}
-          </span>
-        </div>
-      )}
-      {platforms.map((p, i) => (
-        <div key={i} className="flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-1.5">
-          <span className="text-[12px] text-gray-600 dark:text-gray-400">{str(p['platform'])}</span>
-          <span className="text-[12px] font-medium text-gray-700 dark:text-gray-300">
-            {currency} {Number(p['budget'] ?? 0).toLocaleString()}
-            {p['percent'] != null ? ` (${str(p['percent'])}%)` : ''}
+            {cur} {Number(total).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
           </span>
         </div>
       ))}
+      {campaigns.map((c, i) => {
+        const platform = str(c['platform'])
+        const platformColor =
+          platform === 'GOOGLE' ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300' :
+          platform === 'META' ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300' :
+          platform === 'BING' ? 'bg-teal-50 dark:bg-teal-950 text-teal-600 dark:text-teal-300' :
+          'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
+        return (
+          <div key={i} className="flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${platformColor}`}>{platform}</span>
+              <span className="text-[12px] text-gray-600 dark:text-gray-400 truncate max-w-[120px]">{str(c['name'])}</span>
+            </div>
+            <span className="text-[12px] font-medium text-gray-700 dark:text-gray-300 shrink-0 ml-2">
+              {str(c['currency'])} {Number(c['daily_budget'] ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              {c['percentage'] != null ? ` (${Number(c['percentage']).toFixed(0)}%)` : ''}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }

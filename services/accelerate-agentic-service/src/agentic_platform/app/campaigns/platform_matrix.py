@@ -92,6 +92,33 @@ class PlatformCapabilityMatrix:
                 supported=False,
             ),
         },
+        PlatformType.META: {
+            CampaignType.AWARENESS: CampaignTypeConfig(
+                available_templates={TemplateType.META_SINGLE_IMAGE_AD, TemplateType.META_VIDEO_AD},
+                supported_templates={TemplateType.META_SINGLE_IMAGE_AD},
+                supported=True,
+            ),
+            CampaignType.TRAFFIC: CampaignTypeConfig(
+                available_templates={TemplateType.META_SINGLE_IMAGE_AD, TemplateType.META_CAROUSEL_AD},
+                supported_templates={TemplateType.META_SINGLE_IMAGE_AD},
+                supported=True,
+            ),
+            CampaignType.ENGAGEMENT: CampaignTypeConfig(
+                available_templates={TemplateType.META_CAROUSEL_AD, TemplateType.META_VIDEO_AD},
+                supported_templates={TemplateType.META_CAROUSEL_AD},
+                supported=True,
+            ),
+            CampaignType.LEADS: CampaignTypeConfig(
+                available_templates={TemplateType.META_SINGLE_IMAGE_AD, TemplateType.META_CAROUSEL_AD},
+                supported_templates={TemplateType.META_SINGLE_IMAGE_AD},
+                supported=True,
+            ),
+            CampaignType.SALES: CampaignTypeConfig(
+                available_templates={TemplateType.META_COLLECTION_AD, TemplateType.META_CAROUSEL_AD},
+                supported_templates={TemplateType.META_COLLECTION_AD},
+                supported=True,
+            ),
+        },
     }
 
     @classmethod

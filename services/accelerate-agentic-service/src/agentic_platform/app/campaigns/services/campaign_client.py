@@ -25,8 +25,14 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=1)
 def _get_client() -> ServiceClient:
-    logger.info("[campaign-client] init → %s", settings.campaign_service_url)
-    return ServiceClient("campaign-service", base_url=settings.campaign_service_url)
+    # Use accelerate_internal_url (the Next.js dashboard) as the campaign-service backend.
+    # CAMPAIGN_SERVICE_URL is kept for future dedicated microservice; if it points to localhost
+    # (the default), fall back to the internal dashboard URL to avoid circuit-breaker trips.
+    base_url = settings.campaign_service_url
+    if not base_url or "localhost" in base_url:
+        base_url = settings.accelerate_internal_url
+    logger.info("[campaign-client] init → %s", base_url)
+    return ServiceClient("campaign-service", base_url=base_url)
 
 
 def _build_headers(
@@ -42,7 +48,10 @@ def _build_headers(
         headers["X-Google-Account-Id"] = google_account_id
     if bing_account_id:
         headers["X-Bing-Account-Id"] = bing_account_id
-    # Auto-inject auth token from request context
+    # Internal API key — allows the Next.js dashboard to trust service-to-service calls
+    if settings.internal_api_key:
+        headers["X-Internal-Api-Key"] = settings.internal_api_key
+    # Auto-inject auth token from request context (if present)
     token = request_auth_token.get()
     if token:
         headers["Authorization"] = f"Bearer {token}"

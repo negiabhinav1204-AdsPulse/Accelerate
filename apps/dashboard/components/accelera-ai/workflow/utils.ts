@@ -51,11 +51,16 @@ export function getStepCountText(workflow: Workflow): string {
 export function mapStepStatus(backendStatus: string): StepStatus {
   switch (backendStatus) {
     case 'active': return 'running'
+    case 'running': return 'running'
+    case 'in_progress': return 'running'
     case 'done': return 'complete'
     case 'completed': return 'complete'
+    case 'complete': return 'complete'
     case 'review': return 'waiting_hitl'
     case 'error': return 'failed'
+    case 'failed': return 'failed'
     case 'cancelled': return 'skipped'
+    case 'skipped': return 'skipped'
     case 'pending': return 'pending'
     default: return 'pending'
   }

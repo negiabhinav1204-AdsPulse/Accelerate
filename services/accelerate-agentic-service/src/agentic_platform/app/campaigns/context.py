@@ -29,7 +29,7 @@ async def hydrate_campaign_context(user) -> None:
                 account_name=settings.local_dev_google_account_name, timezone=tz,
             ),
             ConnectedPlatform(
-                platform="BING", account_id=settings.local_dev_bing_account_id,
+                platform="META", account_id=settings.local_dev_bing_account_id,
                 customer_id=settings.local_dev_bing_customer_id,
                 currency=settings.local_dev_bing_currency,
                 account_name=settings.local_dev_bing_account_name, timezone=tz,

@@ -2,7 +2,7 @@
 
 import logging
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Dict, List
 
 from src.agentic_platform.core.engine.models import NodeResponse
 from src.agentic_platform.core.engine.hitl import (
@@ -96,7 +96,11 @@ async def configure(ctx: WorkflowContext) -> NodeResponse:
 
     # Build platform options from connected platforms
     _PLATFORM_LABELS = {"GOOGLE": "Google Ads", "BING": "Microsoft Ads (Bing)", "META": "Meta Ads"}
-    _TYPE_LABELS = {"SEARCH": "Search", "DISPLAY": "Display", "PERFORMANCE_MAX": "Performance Max"}
+    _TYPE_LABELS = {
+        "SEARCH": "Search", "DISPLAY": "Display", "PERFORMANCE_MAX": "Performance Max",
+        "AWARENESS": "Awareness", "TRAFFIC": "Traffic", "ENGAGEMENT": "Engagement",
+        "LEADS": "Lead Generation", "SALES": "Sales",
+    }
 
     connected_names = campaign_ctx.supported_platform_names
 
@@ -133,10 +137,14 @@ async def configure(ctx: WorkflowContext) -> NodeResponse:
                 # Platform not mentioned by user → deselect
                 pre_selected[p] = []
     else:
-        # No user preference — AI-recommended types on all platforms
-        active_types = recommended_types
+        # No user preference — AI-recommended types intersected with each platform's supported types
         for p in connected_names:
-            pre_selected[p] = list(active_types)
+            supported_for_platform = {
+                ct.value for ct in PlatformCapabilityMatrix.get_supported_campaign_types(PlatformType(p))
+            }
+            intersection = [t for t in recommended_types if t in supported_for_platform]
+            # Fall back to all supported types for this platform if no intersection
+            pre_selected[p] = intersection if intersection else list(supported_for_platform)
 
     payload = CampaignConfigPayload(
         url=args.url,
