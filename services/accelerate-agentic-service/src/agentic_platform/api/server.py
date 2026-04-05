@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from src.agentic_platform.core.infra.sentry import init_sentry, capture_exception
 from src.agentic_platform.core.infra.http_client import AsyncHTTPClient
 from src.agentic_platform.api.chat.persistence import Persistence
+from src.agentic_platform.core.infra.db.local_persistence import LocalPersistence
 from src.agentic_platform.api.chat.routes import router as chat_router
 from src.agentic_platform.api.middleware import AuthMiddleware
 from src.agentic_platform.core.agents.loader import load_all_agents, cleanup_agents
@@ -51,9 +52,18 @@ async def lifespan(app: FastAPI):
     configs = get_all_agent_configs()
     agents = await load_all_agents(configs)
 
-    # Attach chat persistence (API-layer concern) to each loaded agent
+    # Attach chat persistence (API-layer concern) to each loaded agent.
+    # Use LocalPersistence (direct Postgres) when db_service_url is not a real external service.
+    _local_persistence = LocalPersistence()
+    await _local_persistence.setup()
     for agent in agents.values():
-        agent.persistence = Persistence(agent.config.db_service_url)
+        db_url = agent.config.db_service_url
+        if not db_url or "localhost" in db_url or "127.0.0.1" in db_url:
+            agent.persistence = _local_persistence
+            logger.info("Agent '%s': using LocalPersistence (direct Postgres)", agent.config.agent_id)
+        else:
+            agent.persistence = Persistence(db_url)
+            logger.info("Agent '%s': using remote db-service at %s", agent.config.agent_id, db_url)
 
     app.state.agents = agents
 

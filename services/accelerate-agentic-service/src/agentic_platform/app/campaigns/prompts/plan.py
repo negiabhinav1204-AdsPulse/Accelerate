@@ -103,7 +103,10 @@ Offers: {offers}
         # User constraints
         constraints = []
         if total_budget:
-            constraints.append(f"- TOTAL budget across all campaigns: {currency} {total_budget} — distribute daily budgets proportionally")
+            constraints.append(
+                f"- TOTAL DAILY BUDGET: {currency} {total_budget}/day — the sum of all campaign daily_budget values MUST equal exactly {total_budget}. "
+                f"Distribute proportionally by campaign value (e.g. PMAX>Display>Search for awareness; Search>PMAX for direct response)."
+            )
         if fixed_campaigns:
             combo_list = ", ".join(f"{p} {ct}" for p, ct in fixed_campaigns)
             constraints.append(

@@ -287,6 +287,8 @@ function AcceleraAiHomeInner({
   const campaignAbortRef = React.useRef<AbortController | null>(null);
   // Ref to always have latest sessionId in stale closures
   const sessionIdRef = React.useRef<string | null>(null);
+  // localStorage key scoped to this org so different orgs don't share sessions
+  const _lsKey = `accelera-conv-${organizationId}`;
   // Tracks partial text from the last interrupted response so the next message can resume it
   const interruptedContextRef = React.useRef<string | null>(null);
 
@@ -299,8 +301,14 @@ function AcceleraAiHomeInner({
   } | null>(null);
   const [publishing, setPublishing] = React.useState(false);
 
-  // Keep sessionIdRef in sync so stale closures always see the latest value
-  React.useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  // Keep sessionIdRef in sync so stale closures always see the latest value.
+  // Also persist to localStorage so the conversation survives page reloads.
+  React.useEffect(() => {
+    sessionIdRef.current = sessionId;
+    if (sessionId) {
+      try { localStorage.setItem(_lsKey, sessionId); } catch { /* private browsing */ }
+    }
+  }, [sessionId, _lsKey]);
 
   /**
    * Handle HITL decisions from HITLCard.
@@ -493,16 +501,25 @@ function AcceleraAiHomeInner({
         // Try to load from agentic service first. We probe by calling the
         // conversation proxy; if it returns null or fails, fall through to legacy.
         let agenticConvId: string | null = null;
+
+        // 1. Check localStorage first (fastest, works even if agentic service is cold)
         try {
-          const latestRes = await fetch(
-            `/api/chat/conversation?latest=true&organizationId=${organizationId}`
-          );
-          if (latestRes.ok) {
-            const latestData = (await latestRes.json()) as { conversation_id: string | null };
-            agenticConvId = latestData.conversation_id ?? null;
+          agenticConvId = localStorage.getItem(_lsKey) ?? null;
+        } catch { /* private browsing */ }
+
+        // 2. If not in localStorage, ask the agentic service for the latest conversation
+        if (!agenticConvId) {
+          try {
+            const latestRes = await fetch(
+              `/api/chat/conversation?latest=true&organizationId=${organizationId}`
+            );
+            if (latestRes.ok) {
+              const latestData = (await latestRes.json()) as { conversation_id: string | null };
+              agenticConvId = latestData.conversation_id ?? null;
+            }
+          } catch {
+            // agentic service unreachable — fall through to legacy
           }
-        } catch {
-          // agentic service unreachable — fall through to legacy
         }
 
         if (agenticConvId) {
@@ -1949,81 +1966,132 @@ function ToolRenderer({
       const currencyTotals = planInput['currency_totals'] as Record<string, number> | undefined;
       const totalDailyBudget = planInput['total_daily_budget'] as number | undefined;
       const currency = planInput['currency'] as string | undefined;
+      const audienceSummary = planInput['audience_summary'] as { age_ranges: string[]; locations: string[] } | undefined;
 
       const openPanel = () => openSidebar(
         <AgenticSidebarPanel blockType="media_plan" data={planInput} onClose={closePanel} orgSlug={orgSlug} />,
         'Campaign Preview'
       );
 
-      // Compute per-platform stats
-      const platformStats: Record<string, { budget: number; currency: string; adTypes: Set<string>; count: number }> = {};
+      // Compute per-platform stats with per-type breakdown
+      const platformStats: Record<string, {
+        budget: number; currency: string; count: number;
+        types: Record<string, { budget: number; count: number }>;
+        expanded: boolean;
+      }> = {};
       for (const c of campaigns) {
-        if (!platformStats[c.platform]) platformStats[c.platform] = { budget: 0, currency: c.currency, adTypes: new Set(), count: 0 };
+        if (!platformStats[c.platform]) platformStats[c.platform] = { budget: 0, currency: c.currency, count: 0, types: {}, expanded: true };
         platformStats[c.platform].budget += c.daily_budget;
-        platformStats[c.platform].adTypes.add(c.campaign_type);
         platformStats[c.platform].count++;
+        if (!platformStats[c.platform].types[c.campaign_type]) platformStats[c.platform].types[c.campaign_type] = { budget: 0, count: 0 };
+        platformStats[c.platform].types[c.campaign_type].budget += c.daily_budget;
+        platformStats[c.platform].types[c.campaign_type].count++;
       }
       const totalBudget = Object.values(platformStats).reduce((s, p) => s + p.budget, 0) || totalDailyBudget || 0;
+      const firstCurrency = currency ?? Object.values(platformStats)[0]?.currency ?? 'USD';
 
       const PLATFORM_LABEL: Record<string, string> = { GOOGLE: 'Google Ads', BING: 'Microsoft Ads', META: 'Meta Ads' };
-      const PLATFORM_DOT: Record<string, string> = { GOOGLE: 'bg-blue-500', BING: 'bg-teal-500', META: 'bg-indigo-500' };
-      const TYPE_LABEL: Record<string, string> = { SEARCH: 'Search', DISPLAY: 'Display', PERFORMANCE_MAX: 'P.Max' };
+      const PLATFORM_LOGO: Record<string, string> = { GOOGLE: 'G', BING: '⊞', META: 'f' };
+      const PLATFORM_BG: Record<string, string> = { GOOGLE: 'bg-yellow-50 border-yellow-100', BING: 'bg-blue-50 border-blue-100', META: 'bg-indigo-50 border-indigo-100' };
+      const TYPE_LABEL: Record<string, string> = { SEARCH: 'Search Ads', DISPLAY: 'Display Ads', PERFORMANCE_MAX: 'Performance Max' };
+      const TYPE_ICON: Record<string, string> = { SEARCH: '🔍', DISPLAY: '🖼️', PERFORMANCE_MAX: '🎯' };
+
+      // Audience summary chips
+      const ageLabel = audienceSummary?.age_ranges?.length
+        ? audienceSummary.age_ranges.join('-').replace(/-(\d{2})-(\d{2})/g, '-$2')
+        : '';
+      const locLabel = audienceSummary?.locations?.slice(0, 4).join(', ') ?? '';
+      const hasAudience = ageLabel || locLabel;
 
       return (
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden max-w-sm w-full">
-          {/* Plan header */}
-          <div className="px-4 pt-4 pb-3">
-            <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-widest mb-1">Media Plan Ready</p>
-            <div className="flex items-start justify-between gap-2">
-              <p className="text-[15px] font-bold text-gray-900 leading-snug">{planName}</p>
+        <div className="rounded-2xl overflow-hidden shadow-sm max-w-sm w-full" style={{ border: '1px solid rgba(0,0,0,0.08)' }}>
+          {/* Gradient header */}
+          <div className="px-5 pt-5 pb-4" style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)' }}>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🎯</span>
+                <div>
+                  <p className="text-[15px] font-bold text-white leading-snug">{planName}</p>
+                  <p className="text-[11px] text-blue-200 mt-0.5">Campaign Goal · 30 days</p>
+                </div>
+              </div>
               <div className="text-right flex-shrink-0">
                 {currencyTotals
                   ? Object.entries(currencyTotals).map(([cur, tot]) => (
-                    <p key={cur} className="text-[15px] font-bold text-gray-900">{cur} {Number(tot).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                    <p key={cur} className="text-[18px] font-bold text-white">{cur} {Number(tot).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
                   ))
-                  : totalBudget > 0 && currency && (
-                    <p className="text-[15px] font-bold text-gray-900">{currency} {Number(totalBudget).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-                  )
+                  : <p className="text-[18px] font-bold text-white">{firstCurrency} {Number(totalBudget).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
                 }
-                <p className="text-[11px] text-gray-400">/day</p>
+                <p className="text-[11px] text-blue-200">
+                  {firstCurrency} {(totalBudget / 30).toFixed(0)}/day
+                </p>
               </div>
             </div>
-            <p className="text-[12px] text-gray-500 mt-1">{campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''}</p>
+            {hasAudience && (
+              <div className="flex items-center gap-2 mt-2 text-blue-100 text-[12px]">
+                {ageLabel && <span>👥 {ageLabel}</span>}
+                {locLabel && <span className="truncate">📍 {locLabel}{(audienceSummary?.locations?.length ?? 0) > 4 ? '...' : ''}</span>}
+              </div>
+            )}
           </div>
 
           {/* Platform breakdown */}
-          {Object.keys(platformStats).length > 0 && (
-            <div className="border-t border-gray-100 divide-y divide-gray-50">
-              {Object.entries(platformStats).map(([platform, stats]) => {
-                const pct = totalBudget > 0 ? Math.round((stats.budget / totalBudget) * 100) : 0;
-                const adTypeLabels = Array.from(stats.adTypes).map(t => TYPE_LABEL[t] ?? t).join(' · ');
-                return (
-                  <button
-                    key={platform}
-                    onClick={openPanel}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${PLATFORM_DOT[platform] ?? 'bg-gray-400'}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-semibold text-gray-800">{PLATFORM_LABEL[platform] ?? platform}</p>
-                      <p className="text-[11px] text-gray-400 truncate">{pct}% of total · {adTypeLabels}</p>
+          <div className="bg-white divide-y divide-gray-100">
+            <p className="px-5 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Platforms</p>
+            {Object.entries(platformStats).map(([platform, stats]) => {
+              const pct = totalBudget > 0 ? Math.round((stats.budget / totalBudget) * 100) : 0;
+              return (
+                <div key={platform} className={`mx-3 mb-2 rounded-xl border overflow-hidden ${PLATFORM_BG[platform] ?? 'bg-gray-50 border-gray-100'}`}>
+                  {/* Platform header row */}
+                  <div className="flex items-center justify-between px-3.5 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-bold">{PLATFORM_LOGO[platform]}</span>
+                      <div>
+                        <p className="text-[13px] font-semibold text-gray-800">{PLATFORM_LABEL[platform] ?? platform}</p>
+                        <p className="text-[11px] text-gray-500">{pct}% of total · {stats.count} ad{stats.count !== 1 ? 's' : ''}</p>
+                      </div>
                     </div>
-                    <span className="text-[13px] font-semibold text-gray-900 flex-shrink-0">
-                      {stats.currency} {Number(stats.budget).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[14px] font-bold text-gray-900">
+                        {stats.currency} {Number(stats.budget).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
+                      <button onClick={openPanel} className="text-[11px] text-blue-600 font-medium hover:underline">Hide ↑</button>
+                    </div>
+                  </div>
+                  {/* Per-type rows */}
+                  <div className="border-t border-white/60 divide-y divide-white/60">
+                    {Object.entries(stats.types).map(([type, typeStats]) => (
+                      <button
+                        key={type}
+                        onClick={openPanel}
+                        className="w-full flex items-center justify-between px-3.5 py-2 bg-white/70 hover:bg-white/90 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[12px]">{TYPE_ICON[type] ?? '📢'}</span>
+                          <p className="text-[12px] text-gray-700">{TYPE_LABEL[type] ?? type}</p>
+                          <span className="text-[11px] text-gray-400">{typeStats.count} ad</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[13px] font-semibold text-gray-800">
+                            {stats.currency} {Number(typeStats.budget).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                          <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
           {/* CTA */}
-          <div className="px-4 pb-4 pt-3">
+          <div className="bg-white px-4 pb-4 pt-2">
             <button
               onClick={openPanel}
-              className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+              className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
             >
-              Preview Campaign
+              🚀 Preview &amp; Publish Campaign
             </button>
           </div>
         </div>

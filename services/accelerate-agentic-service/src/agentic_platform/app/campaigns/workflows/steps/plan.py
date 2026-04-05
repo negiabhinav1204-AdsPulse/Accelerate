@@ -126,6 +126,26 @@ async def plan(ctx: WorkflowContext) -> NodeResponse:
     logger.info("[plan] LLM returned %d campaigns (%.1fs)", len(slim_plan.campaigns), time.perf_counter() - t0)
 
     # ── Enforce: strip any LLM-hallucinated campaigns not in fixed_combos ──
+    # Normalise daily budgets so they sum exactly to user's total_budget
+    def _normalise_budgets(campaigns, target: float) -> None:
+        if not campaigns or target <= 0:
+            return
+        total = sum(c.daily_budget for c in campaigns)
+        if total <= 0:
+            per = round(target / len(campaigns), 2)
+            for c in campaigns:
+                c.daily_budget = per
+            return
+        scale = target / total
+        for c in campaigns:
+            c.daily_budget = round(c.daily_budget * scale, 2)
+        # Fix rounding drift: add remainder to largest campaign
+        drift = round(target - sum(c.daily_budget for c in campaigns), 2)
+        if drift:
+            largest = max(campaigns, key=lambda c: c.daily_budget)
+            largest.daily_budget = round(largest.daily_budget + drift, 2)
+
+    # ── Enforce: strip any LLM-hallucinated campaigns not in fixed_combos ──
     if fixed_combos:
         allowed = {(p.upper(), ct.upper()) for p, ct in fixed_combos}
         before = len(slim_plan.campaigns)
@@ -145,10 +165,15 @@ async def plan(ctx: WorkflowContext) -> NodeResponse:
                     name=f"{analysis.brand.name} {ct.replace('_', ' ').title()}",
                     platform=PT(plat),
                     campaign_type=CT(ct),
-                    daily_budget=round(user_input.total_budget / max(len(fixed_combos), 1) / 30, 2) if user_input.total_budget else 100,
+                    daily_budget=round(user_input.total_budget / max(len(fixed_combos), 1), 2) if user_input.total_budget else 10,
                     target_audience="General audience",
                     key_message=analysis.brand.value_proposition or "",
                 ))
+
+    # Normalise budgets BEFORE enrichment so skeleton/LLM budgets both get corrected
+    if user_input.total_budget:
+        _normalise_budgets(slim_plan.campaigns, user_input.total_budget)
+        logger.info("[plan] budgets normalised to %.2f/day", user_input.total_budget)
 
     # Enrich: derive template_type, resolve audience/products → ad_context
     campaign_plan = enrich_slim_plan(

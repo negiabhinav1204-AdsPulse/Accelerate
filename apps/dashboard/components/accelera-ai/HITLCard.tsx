@@ -426,7 +426,7 @@ function CampaignConfigForm({ data, onAction }: HITLCardProps) {
         {/* Budget */}
         <div>
           <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-            Total Budget {payload.currency ? `(${payload.currency})` : ''}
+            Daily Budget {payload.currency ? `(${payload.currency}/day)` : '(/day)'}
           </label>
           <input
             type="number"

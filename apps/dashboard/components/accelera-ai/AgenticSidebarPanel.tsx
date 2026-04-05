@@ -16,6 +16,7 @@ interface CampaignTargeting {
   age_ranges: string[]
   genders: string[]
   keywords: string[]
+  negative_keywords: string[]
 }
 
 interface CampaignCreatives {
@@ -25,6 +26,7 @@ interface CampaignCreatives {
   images: string[]
   business_name: string
   call_to_action: string
+  primary_text?: string
 }
 
 interface MediaPlanCampaign {
@@ -216,42 +218,105 @@ function extractDomain(url: string): string {
 }
 
 function SearchAdPreview({ creatives, url }: { creatives: CampaignCreatives; url: string }) {
-  const headlines = creatives.headlines.slice(0, 3)
-  const description = creatives.descriptions[0] ?? ''
   const domain = extractDomain(url)
-  if (!headlines.length && !description) return null
+  const shortDomain = domain.split('/')[0]
+  // Show up to 3 ad variants (each headline paired with its description)
+  const previews = creatives.headlines.slice(0, 3).map((h, i) => ({
+    headline: h,
+    description: creatives.descriptions[i] ?? creatives.descriptions[0] ?? '',
+  })).filter(p => p.headline)
+  if (!previews.length) return null
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm">
-      <p className="text-[11px] text-gray-400 mb-1 font-medium uppercase tracking-wide">Ad Preview</p>
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">Ad</span>
-        <span className="text-[12px] text-gray-500 truncate">{domain}</span>
-      </div>
-      <p className="text-[14px] text-blue-600 font-medium leading-snug mb-1 line-clamp-2">
-        {headlines.join(' · ')}
-      </p>
-      <p className="text-[12px] text-gray-600 leading-relaxed line-clamp-2">{description}</p>
+    <div className="space-y-3">
+      {previews.map((p, i) => (
+        <div key={i} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+          {/* SERP-style ad preview */}
+          <div className="p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 border border-gray-200">Ad</span>
+              <span className="text-[12px] text-green-700 truncate">{shortDomain}</span>
+            </div>
+            <p className="text-[15px] text-blue-600 font-medium leading-snug mb-1.5 hover:underline cursor-pointer">
+              {p.headline}
+            </p>
+            <p className="text-[13px] text-gray-600 leading-relaxed line-clamp-2">{p.description}</p>
+            {url && <p className="text-[11px] text-green-700 mt-1.5 truncate">{url.replace(/^https?:\/\//, '')}</p>}
+          </div>
+          <div className="border-t border-gray-100 px-4 py-2 bg-gray-50">
+            <p className="text-[11px] text-gray-400">Creative #{i + 1} · Search text ad</p>
+          </div>
+        </div>
+      ))}
+      {/* Show all headlines + descriptions as lists */}
+      {creatives.headlines.length > 3 && (
+        <div>
+          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">All Headlines ({creatives.headlines.length})</p>
+          <div className="space-y-1.5">
+            {creatives.headlines.map((h, i) => (
+              <div key={i} className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-[13px] text-gray-800">{h}</div>
+            ))}
+          </div>
+        </div>
+      )}
+      {creatives.descriptions.length > 0 && (
+        <div>
+          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">Descriptions ({creatives.descriptions.length})</p>
+          <div className="space-y-1.5">
+            {creatives.descriptions.map((d, i) => (
+              <div key={i} className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-[13px] text-gray-800">{d}</div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function DisplayAdPreview({ creatives }: { creatives: CampaignCreatives }) {
+function DisplayAdPreview({ creatives, url }: { creatives: CampaignCreatives; url: string }) {
   const image = creatives.images[0]
   const headline = creatives.headlines[0] ?? creatives.long_headlines[0] ?? ''
   const description = creatives.descriptions[0] ?? ''
+  const cta = creatives.call_to_action || 'Shop now'
+  const domain = extractDomain(url)
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden text-sm">
-      <p className="text-[11px] text-gray-400 px-4 pt-3 pb-1 font-medium uppercase tracking-wide">Ad Preview</p>
-      {image && (
-        <div className="mx-4 mb-3 rounded-lg overflow-hidden bg-gray-100 h-36">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={image} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+    <div className="space-y-3">
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        {image ? (
+          <div className="w-full bg-gray-100 overflow-hidden" style={{ maxHeight: '260px' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image} alt="" className="w-full object-cover" style={{ maxHeight: '260px' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          </div>
+        ) : (
+          <div className="w-full h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+            <ImageIcon className="w-8 h-8 text-gray-300" />
+          </div>
+        )}
+        <div className="p-4">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 border border-gray-200">Ad</span>
+            <span className="text-[12px] text-gray-500">{domain}</span>
+          </div>
+          {headline && <p className="text-[15px] font-bold text-gray-900 leading-snug mb-1.5">{headline}</p>}
+          {description && <p className="text-[13px] text-gray-600 leading-relaxed mb-3 line-clamp-2">{description}</p>}
+          <div className="w-full rounded-lg bg-gray-500 py-2.5 text-center text-[13px] font-semibold text-white">{cta}</div>
+        </div>
+        <div className="border-t border-gray-100 px-4 py-2 bg-gray-50">
+          <p className="text-[11px] text-gray-400">Creative #1 · Display ad</p>
+        </div>
+      </div>
+      {creatives.images.length > 1 && (
+        <div>
+          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">All Images</p>
+          <div className="flex gap-2 flex-wrap">
+            {creatives.images.map((img, i) => (
+              <div key={i} className="rounded-lg overflow-hidden bg-gray-100 w-24 h-24 flex-shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
-      <div className="px-4 pb-4">
-        {headline && <p className="text-[14px] font-semibold text-gray-900 leading-snug mb-1 line-clamp-2">{headline}</p>}
-        {description && <p className="text-[12px] text-gray-600 leading-relaxed line-clamp-2">{description}</p>}
-      </div>
     </div>
   )
 }
@@ -306,6 +371,93 @@ function PMaxPreview({ creatives }: { creatives: CampaignCreatives }) {
   )
 }
 
+function MetaAdPreview({ creatives, url }: { creatives: CampaignCreatives; url: string }) {
+  const image = creatives.images[0]
+  const primaryText = creatives.primary_text || creatives.descriptions[0] || ''
+  const headline = creatives.headlines[0] || ''
+  const description = creatives.descriptions[0] || ''
+  const cta = creatives.call_to_action || 'Shop Now'
+  const businessName = creatives.business_name || extractDomain(url)
+  const ctaLabel = cta.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+
+  return (
+    <div className="space-y-3">
+      {/* Facebook-style ad card */}
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        {/* Post header */}
+        <div className="flex items-center gap-2.5 px-4 py-3">
+          <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-xs font-bold text-indigo-600">{businessName.slice(0, 2).toUpperCase()}</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-gray-900 truncate">{businessName}</p>
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-gray-400">Sponsored</span>
+              <span className="text-[11px] text-gray-300">·</span>
+              <Globe className="w-2.5 h-2.5 text-gray-400" />
+            </div>
+          </div>
+          <span className="text-[11px] rounded bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 font-semibold">Ad</span>
+        </div>
+
+        {/* Primary text */}
+        {primaryText && (
+          <div className="px-4 pb-2">
+            <p className="text-[13px] text-gray-800 leading-relaxed line-clamp-3">{primaryText}</p>
+          </div>
+        )}
+
+        {/* Ad image */}
+        {image ? (
+          <div className="w-full bg-gray-100 overflow-hidden" style={{ maxHeight: '240px' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image} alt="" className="w-full object-cover" style={{ maxHeight: '240px' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          </div>
+        ) : (
+          <div className="w-full h-44 bg-gradient-to-br from-indigo-50 to-indigo-100 flex items-center justify-center">
+            <ImageIcon className="w-10 h-10 text-indigo-200" />
+          </div>
+        )}
+
+        {/* Headline + CTA row */}
+        <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 border-t border-gray-100">
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-gray-400 truncate uppercase tracking-wide">{extractDomain(url)}</p>
+            {headline && <p className="text-[13px] font-semibold text-gray-900 leading-snug truncate">{headline}</p>}
+            {description && <p className="text-[11px] text-gray-500 truncate">{description}</p>}
+          </div>
+          <button className="flex-shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white whitespace-nowrap">
+            {ctaLabel}
+          </button>
+        </div>
+      </div>
+
+      {/* All images strip */}
+      {creatives.images.length > 1 && (
+        <div>
+          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">All Images ({creatives.images.length})</p>
+          <div className="flex gap-2 flex-wrap">
+            {creatives.images.map((img, i) => (
+              <div key={i} className="rounded-lg overflow-hidden bg-gray-100 w-20 h-20 flex-shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Primary text full */}
+      {primaryText && (
+        <div>
+          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">Primary Text</p>
+          <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2.5 text-[13px] text-gray-800 leading-relaxed">{primaryText}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TargetingView({ targeting, campaignType }: { targeting: CampaignTargeting; campaignType: string }) {
   const [expandedKw, setExpandedKw] = useState(false)
   const items = [
@@ -350,9 +502,25 @@ function TargetingView({ targeting, campaignType }: { targeting: CampaignTargeti
                 onClick={() => setExpandedKw(v => !v)}
                 className="mt-2 text-[12px] font-medium text-blue-600 hover:underline"
               >
-                {expandedKw ? 'Show less' : `+${targeting.keywords.length - 12} more`}
+                {expandedKw ? 'Show less' : `View more (${targeting.keywords.length - 12} more)`}
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {(targeting.negative_keywords ?? []).length > 0 && campaignType === 'SEARCH' && (
+        <div className="flex items-start gap-3 px-1 py-3 rounded-xl hover:bg-gray-50 transition-colors">
+          <div className="mt-0.5 flex-shrink-0"><Search className="w-4 h-4 text-red-300" /></div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              NEGATIVE KEYWORDS ({targeting.negative_keywords.length})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {targeting.negative_keywords.map((kw, i) => (
+                <span key={i} className="inline-flex items-center rounded-full bg-red-50 border border-red-200 px-2.5 py-0.5 text-[12px] text-red-600">-{kw}</span>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -508,9 +676,11 @@ function MediaPlanPanel({ data, onClose, orgSlug }: { data: Record<string, unkno
           ) : (
             selectedCampaign.creatives ? (
               selectedCampaign.campaign_type === 'SEARCH'
-                ? <div className="space-y-4 pb-4"><SearchAdPreview creatives={selectedCampaign.creatives} url={siteUrl} />{selectedCampaign.creatives.headlines.length > 3 && <div><p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">All Headlines ({selectedCampaign.creatives.headlines.length})</p><div className="space-y-1.5">{selectedCampaign.creatives.headlines.map((h, i) => <div key={i} className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-800">{h}</div>)}</div></div>}{selectedCampaign.creatives.descriptions.length > 0 && <div><p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-2">All Descriptions</p><div className="space-y-1.5">{selectedCampaign.creatives.descriptions.map((d, i) => <div key={i} className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-800">{d}</div>)}</div></div>}</div>
+                ? <div className="pb-4"><SearchAdPreview creatives={selectedCampaign.creatives} url={siteUrl} /></div>
                 : selectedCampaign.campaign_type === 'DISPLAY'
-                ? <div className="pb-4"><DisplayAdPreview creatives={selectedCampaign.creatives} /></div>
+                ? <div className="pb-4"><DisplayAdPreview creatives={selectedCampaign.creatives} url={siteUrl} /></div>
+                : selectedCampaign.platform === 'META'
+                ? <div className="pb-4"><MetaAdPreview creatives={selectedCampaign.creatives} url={siteUrl} /></div>
                 : <div className="pb-4"><PMaxPreview creatives={selectedCampaign.creatives} /></div>
             ) : (
               <p className="text-sm text-gray-400 text-center py-8">No creative data available</p>

@@ -31,7 +31,7 @@ from typing import Annotated
 
 from src.agentic_platform.core.config import settings
 from src.agentic_platform.core.auth import request_auth_token
-from src.agentic_platform.core.engine.models import AgenticTool, ToolResponse, ToolTag
+from src.agentic_platform.core.engine.models import AgenticTool, ToolResponse, ToolTag, UIBlock
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,7 @@ def make_accelerate_tool(
     thinking_messages: list[str] | None = None,
     tags: list[ToolTag] | None = None,
     timeout: int = 60,
+    post_processor=None,  # Optional callable(result: dict) -> tuple[str, list[UIBlock]]
 ) -> AgenticTool:
     """Factory: create an AgenticTool that proxies one Accelerate data tool.
 
@@ -158,6 +159,12 @@ def make_accelerate_tool(
     async def _run(**kwargs: Any) -> dict:
         config = kwargs.pop("config", None)
         result = await _call_accelerate_tool(_name, kwargs, config)
+        if post_processor and isinstance(result, dict) and "error" not in result:
+            try:
+                summary, ui_blocks = post_processor(result)
+                return ToolResponse(summary=summary, data=result, ui_blocks=ui_blocks).model_dump()
+            except Exception:
+                pass  # fall through to plain response
         return ToolResponse(data=result).model_dump()
 
     # StructuredTool.from_function lets us supply a custom Pydantic schema

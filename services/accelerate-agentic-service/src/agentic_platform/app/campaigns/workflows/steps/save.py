@@ -148,7 +148,43 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
             for kw in (built.keywords or [])
             if not kw.get("is_negative", False) and kw.get("text", "").strip()
         ] or targeting_dict.get("keywords", [])[:30]
+        neg_kws = [
+            kw.get("text", "").strip()
+            for kw in (built.keywords or [])
+            if kw.get("is_negative", False) and kw.get("text", "").strip()
+        ]
         bn = slot_data.get("businessName", "")
+        # longHeadline is singular in all schemas; guard against both forms
+        long_h = slot_data.get("longHeadline", slot_data.get("longHeadlines", []))
+        if isinstance(long_h, str):
+            long_h = [long_h]
+        # Image slots vary by platform/template:
+        # Google/Bing: marketingImages, squareMarketingImages, portraitMarketingImages
+        # Bing Display: images, squareImages
+        # Meta: marketingImages, squareMarketingImages, storyImages, carouselImages, coverImage
+        all_images = (
+            slot_data.get("marketingImages", [])
+            + slot_data.get("squareMarketingImages", [])
+            + slot_data.get("portraitMarketingImages", [])
+            + slot_data.get("storyImages", [])
+            + slot_data.get("carouselImages", [])
+            + slot_data.get("coverImage", [])
+            + slot_data.get("images", [])
+            + slot_data.get("squareImages", [])
+        )
+        # Headlines: Google uses "headlines" (list), Meta uses "headline" (str)
+        headlines = (
+            slot_data.get("headlines", [])[:15]
+            or ([slot_data["headline"]] if slot_data.get("headline") else [])
+        )
+        # Descriptions: Google uses "descriptions" (list), Meta uses "description"/"message"
+        descriptions = (
+            slot_data.get("descriptions", [])[:4]
+            or ([slot_data["description"]] if slot_data.get("description") else [])
+            or ([slot_data["message"]] if slot_data.get("message") else [])
+        )
+        cta_raw = slot_data.get("callToAction", "")
+        cta = (cta_raw[0] if isinstance(cta_raw, list) else cta_raw) or ""
         campaign_blocks.append({
             "name": c.name,
             "platform": c.platform,
@@ -161,14 +197,17 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
                 "age_ranges": [a for a in targeting_dict.get("target_age_ranges", []) if a],
                 "genders": [g for g in targeting_dict.get("target_genders", []) if g],
                 "keywords": kws[:30],
+                "negative_keywords": neg_kws[:20],
             },
             "creatives": {
-                "headlines": slot_data.get("headlines", [])[:15],
-                "descriptions": slot_data.get("descriptions", [])[:4],
-                "long_headlines": slot_data.get("longHeadlines", [])[:5],
-                "images": (slot_data.get("images", []) + slot_data.get("squareImages", []))[:3],
+                "headlines": headlines,
+                "descriptions": descriptions,
+                "long_headlines": long_h[:5],
+                "images": all_images[:5],
                 "business_name": (bn[0] if isinstance(bn, list) else bn) or "",
-                "call_to_action": (slot_data.get("callToAction") or [""])[0] if isinstance(slot_data.get("callToAction"), list) else (slot_data.get("callToAction") or ""),
+                "call_to_action": cta,
+                # Meta-specific body copy preserved separately for rich preview
+                "primary_text": slot_data.get("message", ""),
             },
         })
 
@@ -206,6 +245,15 @@ async def save(ctx: WorkflowContext) -> NodeResponse:
                     for cur in {r.budget.currency for r in requests}
                 },
                 "campaigns": campaign_blocks,
+                # Audience summary for inline card header
+                "audience_summary": {
+                    "age_ranges": sorted({
+                        a for b in campaign_blocks for a in b.get("targeting", {}).get("age_ranges", []) if a
+                    }),
+                    "locations": sorted({
+                        loc for b in campaign_blocks for loc in b.get("targeting", {}).get("locations", []) if loc
+                    })[:6],
+                },
             },
         }],
     )

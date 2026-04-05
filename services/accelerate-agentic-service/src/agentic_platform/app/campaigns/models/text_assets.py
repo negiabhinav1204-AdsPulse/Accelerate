@@ -127,6 +127,16 @@ class BingPerformanceMaxTextAssets(TextAssetBase):
     finalUrlSuffix: str | None = Field(default=None, max_length=500)
 
 
+# ── Meta text assets ─────────────────────────────────────────────
+
+class MetaSingleImageAdTextAssets(TextAssetBase):
+    """Meta feed ad (Single Image, Carousel, Collection) — Facebook & Instagram."""
+    message: str = Field(..., max_length=125, description="Primary ad text / body copy shown above the image")
+    headline: str = Field(..., max_length=40, description="Short headline shown below the image")
+    description: str = Field(default="", max_length=30, description="Link description below the headline")
+    callToAction: str = Field(default="SHOP_NOW", description="CTA button: SHOP_NOW, LEARN_MORE, SIGN_UP, etc.")
+
+
 # ── Template → schema registry ───────────────────────────────────
 
 TEMPLATE_TEXT_ASSET_MAP: Dict[str, Type[TextAssetBase]] = {
@@ -136,6 +146,10 @@ TEMPLATE_TEXT_ASSET_MAP: Dict[str, Type[TextAssetBase]] = {
     TemplateType.BING_RESPONSIVE_SEARCH_AD: BingResponsiveSearchAdTextAssets,
     TemplateType.BING_RESPONSIVE_DISPLAY_AD: BingResponsiveDisplayAdTextAssets,
     TemplateType.BING_PERFORMANCE_MAX: BingPerformanceMaxTextAssets,
+    # Meta — reuse same schema for Single Image, Carousel, Collection
+    TemplateType.META_SINGLE_IMAGE_AD: MetaSingleImageAdTextAssets,
+    TemplateType.META_CAROUSEL_AD: MetaSingleImageAdTextAssets,
+    TemplateType.META_COLLECTION_AD: MetaSingleImageAdTextAssets,
 }
 
 # Image slot specs per template — maps template → list of (slot_name, aspect_ratio, max_count)

@@ -1208,7 +1208,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                   jsonLine = JSON.stringify({ type: 'tool', name: 'workflow_progress', input: snapshotData });
                 } else if (eventType === 'ACTIVITY_DELTA') {
                   // Apply JSON Patch ops to the running snapshot and re-emit.
-                  const ops = (payload.delta ?? payload.operations ?? payload.patches ?? []) as Array<{ op: string; path: string; value?: unknown }>;
+                  const ops = (payload.delta ?? payload.patch ?? payload.operations ?? payload.patches ?? []) as Array<{ op: string; path: string; value?: unknown }>;
                   if (activitySnapshot && Array.isArray(ops) && ops.length > 0) {
                     activitySnapshot = applyJsonPatch(activitySnapshot, ops) as Record<string, unknown>;
                     jsonLine = JSON.stringify({ type: 'tool', name: 'workflow_progress', input: activitySnapshot });
