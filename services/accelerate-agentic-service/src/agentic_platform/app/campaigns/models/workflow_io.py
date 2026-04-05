@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .context import CampaignContext
 from .enums import PlatformType, CampaignType
@@ -132,6 +132,18 @@ class CampaignConfigFormInput(BaseModel):
     campaign_types: list[str] = Field(default_factory=list)
     platform_selections: dict[str, list[str]] = Field(default_factory=dict)
     goal: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_nulls(cls, data: Any) -> Any:
+        """Frontend sends null for empty optional fields — coerce to defaults."""
+        if isinstance(data, dict):
+            if data.get("total_budget") is None:
+                data["total_budget"] = 0
+            for key in ("goal", "start_date", "end_date"):
+                if data.get(key) is None:
+                    data[key] = ""
+        return data
 
 
 class CampaignConfigDefaults(BaseModel):
