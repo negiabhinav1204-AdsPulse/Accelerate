@@ -30,7 +30,8 @@ export function encryptField(plaintext: string): string {
 
 export function decryptField(stored: string): string {
   if (!isEncrypted(stored)) return stored; // legacy plaintext
-  const [, ivHex, tagHex, ctHex] = stored.split(':');
+  const [, ivHex, tagHex, ...rest] = stored.split(':');
+  const ctHex = rest.join(':');
   const decipher = crypto.createDecipheriv(ALGO, getKey(), Buffer.from(ivHex, 'hex'));
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
   return Buffer.concat([
