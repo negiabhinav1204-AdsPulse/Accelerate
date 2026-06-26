@@ -26,6 +26,7 @@
   "exports": {
     "./keys": "./keys.ts",
     "./app": "./src/app.ts",
+    "./context": "./src/context.ts",
     "./crypto": "./src/crypto.ts",
     "./errors": "./src/errors.ts",
     "./http": "./src/http.ts",
