@@ -786,6 +786,7 @@ model Campaign {
   targetAudience     Json?
   agentOutputs       Json?
   mediaPlan          Json?
+  version            Int                  @default(1)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   organization       Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -808,6 +809,8 @@ model PlatformCampaign {
   status             String    @default("draft") @db.VarChar(50)
   platformCampaignId String?   @db.VarChar(255)
   settings           Json?
+  version            Int       @default(1)
+  lastAppliedState   Json?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   campaign           Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -825,6 +828,8 @@ model AdGroup {
   bidStrategy        String?          @db.VarChar(100)
   status             String           @default("draft") @db.VarChar(50)
   platformAdGroupId  String?          @db.VarChar(255)
+  version            Int              @default(1)
+  lastAppliedState   Json?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   platformCampaign   PlatformCampaign @relation(fields: [platformCampaignId], references: [id], onDelete: Cascade)
@@ -845,10 +850,12 @@ model Ad {
   destinationUrl String?   @db.VarChar(2048)
   status         String    @default("draft") @db.VarChar(50)
   platformAdId   String?   @db.VarChar(255)
-  metadata       Json?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  adGroup        AdGroup   @relation(fields: [adGroupId], references: [id], onDelete: Cascade)
+  metadata         Json?
+  version          Int       @default(1)
+  lastAppliedState Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  adGroup          AdGroup   @relation(fields: [adGroupId], references: [id], onDelete: Cascade)
 
   @@index([adGroupId])
 }
@@ -1496,4 +1503,22 @@ model OrgMemoryNode {
   @@index([orgId, type])
   @@index([orgId, userId, type])
   @@map("OrgMemoryNode")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String?  @db.Uuid
+  actorId        String?  @db.Uuid
+  actorType      String   @default("user") @db.VarChar(16)
+  entityType     String   @db.VarChar(64)
+  entityId       String   @db.Uuid
+  operation      String   @db.VarChar(16)
+  diff           Json
+  fromVersion    Int?
+  toVersion      Int?
+  requestId      String?  @db.VarChar(64)
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, entityType, entityId])
+  @@index([createdAt])
 }
