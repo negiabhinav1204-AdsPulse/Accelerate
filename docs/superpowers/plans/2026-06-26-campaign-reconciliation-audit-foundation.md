@@ -24,7 +24,7 @@
 
 # Phase A — Foundation (audit + optimistic locking + encryption)
 
-## Task A0: Vitest tooling
+## Task 1 (A0): Vitest tooling
 
 **Files:**
 - Create: `vitest.workspace.ts` (repo root)
@@ -90,7 +90,7 @@ git commit -m "chore: add vitest test runner to common, database, campaigns-serv
 
 ---
 
-## Task A1: Field encryption util (`@workspace/common/crypto`)
+## Task 2 (A1): Field encryption util (`@workspace/common/crypto`)
 
 **Files:**
 - Create: `packages/common/src/crypto.ts`
@@ -209,7 +209,7 @@ git commit -m "feat(common): AES-256-GCM field encryption util with versioned fo
 
 ---
 
-## Task A2: Request context (`@workspace/common/context`)
+## Task 3 (A2): Request context (`@workspace/common/context`)
 
 **Files:**
 - Create: `packages/common/src/context.ts`
@@ -295,7 +295,7 @@ git commit -m "feat(common): AsyncLocalStorage request context for audit actor p
 
 ---
 
-## Task A3: Schema migration — AuditLog + version + lastAppliedState
+## Task 4 (A3): Schema migration — AuditLog + version + lastAppliedState
 
 **Files:**
 - Modify: `packages/database/prisma/schema.prisma`
@@ -358,7 +358,7 @@ git commit -m "feat(database): AuditLog model + version/lastAppliedState on camp
 
 ---
 
-## Task A4: Diff helper for audit
+## Task 5 (A4): Diff helper for audit
 
 **Files:**
 - Create: `packages/database/src/audit/diff.ts`
@@ -439,7 +439,7 @@ git commit -m "feat(database): field-level diff helper for audit logging"
 
 ---
 
-## Task A5: Audited/encrypted Prisma client extension
+## Task 6 (A5): Audited/encrypted Prisma client extension
 
 **Files:**
 - Create: `packages/database/src/audit/config.ts`
@@ -732,7 +732,7 @@ git commit -m "feat(database): audit + optimistic-lock + field-encryption Prisma
 
 ---
 
-## Task A6: Backfill script for existing plaintext tokens
+## Task 7 (A6): Backfill script for existing plaintext tokens
 
 **Files:**
 - Create: `packages/database/scripts/encrypt-existing-secrets.ts`
@@ -864,7 +864,7 @@ git commit -m "feat(database): idempotent backfill to encrypt existing plaintext
 
 ---
 
-## Task A7: Seed request context in services
+## Task 8 (A7): Seed request context in services
 
 **Files:**
 - Modify: `services/accelerate-campaigns-service/src/auth.ts`
@@ -916,7 +916,7 @@ git commit -m "feat(campaigns-service): seed request context from headers for au
 
 # Phase B — Reconciliation Engine
 
-## Task B1: Run-log schema (CampaignRun + CampaignRunItem)
+## Task 9 (B1): Run-log schema (CampaignRun + CampaignRunItem)
 
 **Files:**
 - Modify: `packages/database/prisma/schema.prisma`
@@ -972,7 +972,7 @@ git commit -m "feat(database): CampaignRun + CampaignRunItem run-log models"
 
 ---
 
-## Task B2: Engine types + resource graph builder
+## Task 10 (B2): Engine types + resource graph builder
 
 **Files:**
 - Create: `services/accelerate-campaigns-service/src/reconcile/types.ts`
@@ -1085,7 +1085,7 @@ git commit -m "feat(campaigns-service): reconcile resource-graph builder + types
 
 ---
 
-## Task B3: Diff function (2-way, 3-way-ready)
+## Task 11 (B3): Diff function (2-way, 3-way-ready)
 
 **Files:**
 - Create: `services/accelerate-campaigns-service/src/reconcile/diff.ts`
@@ -1168,7 +1168,7 @@ git commit -m "feat(campaigns-service): 2-way diff (3-way-ready) for resource no
 
 ---
 
-## Task B4: Planner (topological sort)
+## Task 12 (B4): Planner (topological sort)
 
 **Files:**
 - Create: `services/accelerate-campaigns-service/src/reconcile/planner.ts`
@@ -1251,7 +1251,7 @@ git commit -m "feat(campaigns-service): topological planner for reconcile graph"
 
 ---
 
-## Task B5: Platform adapter interface + adapters (refactor from publish.ts)
+## Task 13 (B5): Platform adapter interface + adapters (refactor from publish.ts)
 
 **Files:**
 - Create: `services/accelerate-campaigns-service/src/reconcile/adapters/types.ts`
@@ -1334,7 +1334,7 @@ git commit -m "feat(campaigns-service): platform adapter interface + meta/google
 
 ---
 
-## Task B6: Executor (per-platform isolation + rollback + run log)
+## Task 14 (B6): Executor (per-platform isolation + rollback + run log)
 
 **Files:**
 - Create: `services/accelerate-campaigns-service/src/reconcile/executor.ts`
@@ -1518,7 +1518,7 @@ git commit -m "feat(campaigns-service): reconcile executor with per-platform rol
 
 ---
 
-## Task B7: Rewrite publish route + add edit route
+## Task 15 (B7): Rewrite publish route + add edit route
 
 **Files:**
 - Modify: `services/accelerate-campaigns-service/src/routes/publish.ts`
@@ -1657,7 +1657,7 @@ git commit -m "feat(campaigns-service): reconcile-engine publish + edit/apply ro
 
 ---
 
-## Task B8: Integration test — engine end-to-end with mocked adapters
+## Task 16 (B8): Integration test — engine end-to-end with mocked adapters
 
 **Files:**
 - Create: `services/accelerate-campaigns-service/src/reconcile/integration.test.ts`
