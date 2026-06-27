@@ -5,7 +5,6 @@ import { campaignsRoute } from './routes/campaigns.js';
 import { publishRoute } from './routes/publish.js';
 import { applyRoute } from './routes/apply.js';
 import { registerRequestContext } from './request-context-hook.js';
-import { assertEncryptionKey } from '@workspace/common/crypto';
 
 const server = Fastify({ logger: true });
 
@@ -18,14 +17,6 @@ server.register(publishRoute);
 server.register(applyRoute);
 
 const start = async () => {
-  // Fail-fast: ensure FIELD_ENCRYPTION_KEY is present and valid before accepting traffic.
-  try {
-    assertEncryptionKey();
-  } catch (err) {
-    server.log.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  }
-
   try {
     const port = parseInt(process.env.PORT ?? '8088', 10);
     await server.listen({ port, host: '0.0.0.0' });

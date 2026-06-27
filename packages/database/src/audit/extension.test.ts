@@ -6,18 +6,13 @@ import { runWithContext } from '@workspace/common/context';
 const base = new PrismaClient();
 const prisma = withAuditAndEncryption(base);
 let orgId: string;
-let commerceConnectorId: string;
 
 beforeAll(async () => {
-  process.env.FIELD_ENCRYPTION_KEY = '0'.repeat(64);
   const org = await base.organization.create({ data: { name: 'audit-test-org', slug: `audit-${Date.now()}` } as any });
   orgId = org.id;
 });
 
 afterAll(async () => {
-  if (commerceConnectorId) {
-    await base.commerceConnector.delete({ where: { id: commerceConnectorId } }).catch(() => {});
-  }
   await base.auditLog.deleteMany({ where: { organizationId: orgId } });
   await base.campaign.deleteMany({ where: { organizationId: orgId } });
   await base.organization.delete({ where: { id: orgId } });
@@ -49,18 +44,6 @@ test('optimistic lock conflict throws OptimisticLockError', async () => {
   ).rejects.toBeInstanceOf(OptimisticLockError);
 });
 
-test('extension does NOT re-encrypt ConnectedAdAccount.accessToken (app-layer encrypted)', async () => {
-  // The app already encrypts tokens with symmetricEncrypt (AUTH_SECRET).
-  // The extension must pass the value through untouched.
-  const acct = await prisma.connectedAdAccount.create({
-    data: { organizationId: orgId, platform: 'meta', accountId: 'a2', accountName: 'n2', accessToken: 'plain-token-no-v1' },
-  });
-  const raw = await base.$queryRawUnsafe<any[]>(`select "accessToken" from "ConnectedAdAccount" where id = $1::uuid`, acct.id);
-  // Must NOT be wrapped with v1: prefix by the extension
-  expect(raw[0].accessToken).toBe('plain-token-no-v1');
-  await base.connectedAdAccount.delete({ where: { id: acct.id } });
-});
-
 test('updating a non-existent id throws P2025, not OptimisticLockError', async () => {
   const nonExistentId = '00000000-0000-0000-0000-000000000000';
   await expect(
@@ -73,28 +56,6 @@ test('optimistic lock conflict still throws OptimisticLockError (version mismatc
   await expect(
     prisma.campaign.update({ where: { id: c.id, version: 999 } as any, data: { name: 'x' } }),
   ).rejects.toBeInstanceOf(OptimisticLockError);
-});
-
-test('CommerceConnector credentials: encrypts json at rest, decrypts to object on read', async () => {
-  const credentials = { apiKey: 'k', storeUrl: 'https://x' };
-  const connector = await prisma.commerceConnector.create({
-    data: {
-      organizationId: orgId,
-      platform: 'SHOPIFY',
-      name: 'test-store',
-      credentials,
-    },
-  });
-  commerceConnectorId = connector.id;
-  const raw = await base.$queryRawUnsafe<any[]>(
-    `select credentials from "CommerceConnector" where id = $1::uuid`,
-    connector.id,
-  );
-  // stored value should be a v1:-prefixed encrypted string (stored as JSON string in the Json column)
-  const storedValue = raw[0].credentials;
-  expect(typeof storedValue === 'string' ? storedValue : JSON.stringify(storedValue)).toMatch(/v1:/);
-  const read = await prisma.commerceConnector.findUnique({ where: { id: connector.id } });
-  expect(read!.credentials).toEqual({ apiKey: 'k', storeUrl: 'https://x' });
 });
 
 test('platformCampaign.updateMany bumps version and writes one UPDATE_MANY AuditLog', async () => {

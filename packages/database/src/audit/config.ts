@@ -18,7 +18,8 @@ export const AUDITED_MODELS: Record<string, { fields: string[]; hasLastApplied: 
 };
 
 export type EncryptedFieldType = 'string' | 'json';
-// ConnectedAdAccount tokens are encrypted at the application layer (symmetricEncrypt) — do NOT re-encrypt here.
-export const ENCRYPTED_FIELDS: Record<string, Record<string, EncryptedFieldType>> = {
-  CommerceConnector: { credentials: 'json' },
-};
+// Secret fields are encrypted at their owning application layers:
+//   - ConnectedAdAccount tokens: dashboard symmetricEncrypt (AUTH_SECRET)
+//   - CommerceConnector credentials: Python commerce-service CREDENTIALS_ENCRYPTION_KEY
+// The DB extension intentionally does not field-encrypt — no double-encryption.
+export const ENCRYPTED_FIELDS: Record<string, Record<string, EncryptedFieldType>> = {};

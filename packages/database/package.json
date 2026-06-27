@@ -12,7 +12,6 @@
     "studio": "prisma studio --port 3003 --browser none",
     "postinstall": "prisma generate",
     "seed:dev": "dotenv -e ../../apps/dashboard/.env -- tsx prisma/seed-dev.ts",
-    "backfill:secrets": "dotenv -e ../../apps/dashboard/.env -- tsx scripts/encrypt-existing-secrets.ts",
     "test": "vitest run"
   },
   "dependencies": {

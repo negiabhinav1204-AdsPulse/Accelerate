@@ -17,8 +17,8 @@ function getKey(): Buffer {
 }
 
 /**
- * Fail-fast check for FIELD_ENCRYPTION_KEY.
- * Call this in service start() / Next.js register() before accepting traffic.
+ * Fail-fast check for FIELD_ENCRYPTION_KEY. Available for future DB-layer encryption.
+ * Currently uncalled — secret fields are encrypted by their owning application layers.
  * Do NOT call at module import time.
  */
 export function assertEncryptionKey(): void {
