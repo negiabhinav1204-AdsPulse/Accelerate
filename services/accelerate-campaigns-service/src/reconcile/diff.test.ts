@@ -18,3 +18,9 @@ test('UPDATE with changed fields', () => {
 test('DELETE when desired empty but lastApplied present', () => {
   expect(diffNode(base({ externalId: 'x', desired: {}, lastApplied: { name: 'A' } })).operation).toBe('DELETE');
 });
+// Fix #10: lastApplied set but no externalId → CREATE (can't update without a platform id)
+test('CREATE when lastApplied set but externalId absent', () => {
+  const op = diffNode(base({ desired: { name: 'A' }, lastApplied: { name: 'A' } }));
+  expect(op.operation).toBe('CREATE');
+  expect(op.changedFields).toEqual(['name']);
+});

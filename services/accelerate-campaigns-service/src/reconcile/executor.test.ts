@@ -6,7 +6,8 @@ import type { ResourceNode } from './types';
 const okAdapter = (): PlatformAdapter => ({
   treeCreate: true,
   create: vi.fn(async () => ({ externalId: 'ext-1' })),
-  update: vi.fn(async () => {}),
+  // Fix #8: update now returns { applied: boolean }
+  update: vi.fn(async () => ({ applied: true })),
   delete: vi.fn(async () => {}),
 });
 
@@ -37,7 +38,7 @@ test('failure on create (immediate throw) records FAILED and returns error', asy
   const adapter: PlatformAdapter = {
     treeCreate: true,
     create: vi.fn(async () => { throw new Error('meta 400'); }),
-    update: vi.fn(async () => {}),
+    update: vi.fn(async () => ({ applied: true })),
     delete: del,
   };
   const items: any[] = [];
@@ -50,6 +51,37 @@ test('failure on create (immediate throw) records FAILED and returns error', asy
   expect(items.some((i) => i.status === 'FAILED')).toBe(true);
 });
 
+test('fix #2: recordItem throwing after successful create must not trigger rollback or delete', async () => {
+  // Simulates a transient DB error when writing the SUCCESS run-item after adapter.create()
+  // already made the campaign live on the platform.
+  const deleteMock = vi.fn(async () => {});
+  const createMock = vi.fn(async () => ({ externalId: 'ext-live' }));
+  let callCount = 0;
+  const adapter: PlatformAdapter = {
+    treeCreate: true,
+    create: createMock,
+    update: vi.fn(async () => ({ applied: true })),
+    delete: deleteMock,
+  };
+  const out = await reconcilePlatform({
+    platform: 'meta',
+    nodes,
+    adapter,
+    ctx: {} as any,
+    runId: 'r-db-blip',
+    recordItem: async () => {
+      callCount++;
+      // Throw on the second call (the SUCCESS record after campaign CREATE).
+      if (callCount === 2) throw new Error('DB connection reset');
+    },
+  });
+  // The run must still report success — the campaign is live on the platform.
+  expect(out.success).toBe(true);
+  expect(out.externalId).toBe('ext-live');
+  // The adapter delete MUST NOT have been called — no rollback of a live campaign.
+  expect(deleteMock).not.toHaveBeenCalled();
+});
+
 test('rollback: CREATE succeeds for budget, fails for campaign → rolls back budget and records ROLLED_BACK', async () => {
   // Use a NON-treeCreate adapter so each node creates independently (per-resource model).
   // With treeCreate, budget CREATE is NOOP so there would be nothing to roll back.
@@ -60,7 +92,7 @@ test('rollback: CREATE succeeds for budget, fails for campaign → rolls back bu
       if (node.type === 'budget') return { externalId: 'ext-budget' };
       throw new Error('campaign create failed');
     }),
-    update: vi.fn(async () => {}),
+    update: vi.fn(async () => ({ applied: true })),
     delete: deleteMock,
   };
   const rollbackNodes: ResourceNode[] = [

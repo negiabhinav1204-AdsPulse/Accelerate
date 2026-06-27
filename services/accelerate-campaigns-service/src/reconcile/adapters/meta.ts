@@ -191,8 +191,10 @@ export const metaAdapter: PlatformAdapter = {
   },
 
   async update(node, externalId, changedFields, ctx) {
+    let applied = false;
     if (changedFields.includes('status')) {
       await metaPost(externalId, { status: (node.desired as any).status }, ctx.account.accessToken);
+      applied = true;
     }
     if (changedFields.includes('budget')) {
       await metaPost(
@@ -200,7 +202,9 @@ export const metaAdapter: PlatformAdapter = {
         { daily_budget: Math.round(Number((node.desired as any).budget) * 100) },
         ctx.account.accessToken
       );
+      applied = true;
     }
+    return { applied };
   },
 
   async delete(externalId, ctx) {

@@ -19,6 +19,9 @@ import { CampaignStatus } from '@workspace/database';
 import { verifyInternalKey } from '../auth.js';
 
 function scoreHealth(roas: number, spend: number): string {
+  // Fix #9: when no real analytics data is available (spend and revenue both 0/absent),
+  // return 'unknown' rather than falsely classifying every campaign as 'learner'.
+  if (spend === 0 && roas === 0) return 'unknown';
   if (spend < 100) return 'learner';
   if (roas >= 3.0) return 'winner';
   if (roas >= 1.0) return 'underperformer';
@@ -28,6 +31,7 @@ function scoreHealth(roas: number, spend: number): string {
 function healthRecommendation(category: string): string {
   switch (category) {
     case 'winner': return 'Scale budget — strong ROAS.';
+    case 'unknown': return 'Performance data not yet available.';
     case 'learner': return 'Allow more spend to gather data before optimizing.';
     case 'underperformer': return 'Review targeting and creatives — ROAS below 3x.';
     case 'bleeder': return 'Pause or significantly reduce budget — negative ROAS.';

@@ -91,12 +91,15 @@ export const bingAdapter: PlatformAdapter = {
         customerId,
         accountId
       );
+      return { applied: true };
     }
     if (changedFields.includes('budget')) {
       // Budget updates require fetching the existing campaign budget resource.
       // Log as unsupported for now — full implementation deferred to a later task.
       console.warn('[bingAdapter.update] budget update not yet supported; skipping', externalId);
     }
+    // No recognized field was applied to the platform API.
+    return { applied: false };
   },
 
   async delete(externalId, ctx) {

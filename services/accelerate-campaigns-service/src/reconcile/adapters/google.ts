@@ -111,12 +111,15 @@ export const googleAdapter: PlatformAdapter = {
         ctx.account.accessToken,
         devToken
       );
+      return { applied: true };
     }
     if (changedFields.includes('budget')) {
       // Budget updates via campaignBudgets:mutate require knowing the budget resource name.
       // Log as unsupported for now — full implementation deferred to a later task.
       console.warn('[googleAdapter.update] budget update not yet supported; skipping', externalId);
     }
+    // No recognized field was applied to the platform API.
+    return { applied: false };
   },
 
   async delete(externalId, ctx) {

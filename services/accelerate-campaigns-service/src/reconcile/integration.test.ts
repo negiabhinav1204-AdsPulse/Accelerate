@@ -34,7 +34,7 @@ const adapter = (fail = false): PlatformAdapter => ({
     if (fail) throw new Error('boom');
     return { externalId: 'EXT' };
   }),
-  update: vi.fn(async () => {}),
+  update: vi.fn(async () => ({ applied: true })),
   delete: vi.fn(async () => {}),
 });
 

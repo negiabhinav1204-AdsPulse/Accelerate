@@ -11,13 +11,15 @@ const isEmpty = (o?: Record<string, unknown> | null) => !o || Object.keys(o).len
 
 export function diffNode(node: ResourceNode, _live?: Record<string, unknown>): PlannedOp {
   // _live reserved for 3-way; 2-way uses lastApplied only.
-  const last = node.lastApplied;
-  if (isEmpty(last) && !node.externalId) {
-    return { node, operation: 'CREATE', changedFields: Object.keys(node.desired) };
+  // Fix #10: missing externalId always means CREATE — you can't UPDATE/DELETE a resource
+  // with no platform id, even if lastApplied is set (e.g. after a failed prior create that
+  // recorded state without persisting the externalId).
+  if (!node.externalId) {
+    return { node, operation: 'CREATE', changedFields: Object.keys(node.desired).sort() };
   }
-  if (isEmpty(node.desired) && !isEmpty(last)) {
+  if (isEmpty(node.desired)) {
     return { node, operation: 'DELETE', changedFields: [] };
   }
-  const fields = changedFields(node.desired, last ?? {});
+  const fields = changedFields(node.desired, node.lastApplied ?? {});
   return { node, operation: fields.length ? 'UPDATE' : 'NOOP', changedFields: fields };
 }

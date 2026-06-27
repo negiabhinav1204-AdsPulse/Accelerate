@@ -73,7 +73,8 @@ export interface PlatformAdapter {
    */
   treeCreate?: boolean;
   create(node: ResourceNode, ctx: AdapterCtx): Promise<{ externalId: string }>;
-  update(node: ResourceNode, externalId: string, changedFields: string[], ctx: AdapterCtx): Promise<void>;
+  /** Returns whether the update actually applied any change to the platform API. */
+  update(node: ResourceNode, externalId: string, changedFields: string[], ctx: AdapterCtx): Promise<{ applied: boolean }>;
   delete(externalId: string, ctx: AdapterCtx): Promise<void>;
   /** Reserved for 3-way reconciliation; leave UNIMPLEMENTED for now. */
   fetchLive?(externalId: string, ctx: AdapterCtx): Promise<Record<string, unknown>>;

@@ -38,26 +38,31 @@ export async function reconcilePlatform(args: ReconcilePlatformArgs): Promise<Pl
       // Tree-create adapters build the whole tree (budget+campaign+adgroups+ads) inside the
       // campaign node's create() call, so only the campaign node performs CREATE; all other
       // node CREATEs are folded into it and recorded NOOP.
+      // Fix #2: use safeRecord so a DB blip here never triggers the catch/rollback path.
       if (adapter.treeCreate && plan.operation === 'CREATE' && node.type !== 'campaign') {
-        await recordItem({ platform, resourceType: node.type, localId: node.localId, operation: 'NOOP', status: 'NOOP' });
+        await safeRecord({ platform, resourceType: node.type, localId: node.localId, operation: 'NOOP', status: 'NOOP' });
         continue;
       }
       const started = Date.now();
       if (plan.operation === 'NOOP') {
-        await recordItem({ platform, resourceType: node.type, localId: node.localId, externalId: node.externalId, operation: 'NOOP', status: 'NOOP' });
+        // Fix #2: safeRecord — logging must never roll back a live campaign.
+        await safeRecord({ platform, resourceType: node.type, localId: node.localId, externalId: node.externalId, operation: 'NOOP', status: 'NOOP' });
         continue;
       }
       if (plan.operation === 'CREATE') {
         const { externalId } = await adapter.create(node, ctx);
         created.push({ externalId, resourceType: node.type });
         if (node.type === 'campaign') campaignExternalId = externalId;
-        await recordItem({ platform, resourceType: node.type, localId: node.localId, externalId, operation: 'CREATE', status: 'SUCCESS', durationMs: Date.now() - started });
+        // Fix #2: safeRecord — a DB blip after a successful create must not delete the live campaign.
+        await safeRecord({ platform, resourceType: node.type, localId: node.localId, externalId, operation: 'CREATE', status: 'SUCCESS', durationMs: Date.now() - started });
       } else if (plan.operation === 'UPDATE') {
-        await adapter.update(node, node.externalId!, plan.changedFields, ctx);
-        await recordItem({ platform, resourceType: node.type, localId: node.localId, externalId: node.externalId, operation: 'UPDATE', status: 'SUCCESS', durationMs: Date.now() - started });
+        // Fix #8: use r.applied to distinguish a real platform call from an unsupported no-op.
+        const r = await adapter.update(node, node.externalId!, plan.changedFields, ctx);
+        await safeRecord({ platform, resourceType: node.type, localId: node.localId, externalId: node.externalId, operation: 'UPDATE', status: r.applied ? 'SUCCESS' : 'NOOP', durationMs: Date.now() - started });
       } else if (plan.operation === 'DELETE') {
         await adapter.delete(node.externalId!, ctx);
-        await recordItem({ platform, resourceType: node.type, localId: node.localId, externalId: node.externalId, operation: 'DELETE', status: 'SUCCESS', durationMs: Date.now() - started });
+        // Fix #2: safeRecord — DB blip after successful delete must not trigger rollback.
+        await safeRecord({ platform, resourceType: node.type, localId: node.localId, externalId: node.externalId, operation: 'DELETE', status: 'SUCCESS', durationMs: Date.now() - started });
       }
     }
     return { platform, success: true, externalId: campaignExternalId };

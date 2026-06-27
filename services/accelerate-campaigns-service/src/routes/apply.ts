@@ -24,17 +24,20 @@ const adapters = { meta: metaAdapter, google: googleAdapter, bing: bingAdapter }
 export async function applyRoute(fastify: FastifyInstance) {
   fastify.post('/campaigns/:id/apply', { preHandler: verifyInternalKey }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { connected_accounts, media_plan } = request.body as {
+    const { org_id, connected_accounts, media_plan } = request.body as {
+      org_id: string;
       connected_accounts: ConnectedAccount[];
       media_plan: MediaPlan;
     };
 
-    if (!connected_accounts || !media_plan) {
-      return reply.status(400).send({ error: 'connected_accounts and media_plan are required' });
+    // Fix #4: require org_id for tenant scoping; guard alongside existing required fields.
+    if (!org_id || !connected_accounts || !media_plan) {
+      return reply.status(400).send({ error: 'org_id, connected_accounts and media_plan are required' });
     }
 
-    const campaign = await prisma.campaign.findUnique({
-      where: { id },
+    // Fix #4: load campaign scoped to the org so cross-tenant access is impossible.
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, organizationId: org_id },
       include: { platformCampaigns: true },
     });
     if (!campaign) return reply.status(404).send({ error: 'campaign not found' });
@@ -72,6 +75,21 @@ export async function applyRoute(fastify: FastifyInstance) {
       trigger: 'edit',
       platforms,
     });
+
+    // Fix #7: write back lastAppliedState for each successful platform so a repeated /apply
+    // with no further edits produces NOOP rather than another UPDATE.
+    await Promise.all(
+      summary.platformResults
+        .filter((r) => r.success)
+        .map((r) => {
+          const pc = campaign.platformCampaigns.find((p) => p.platform === r.platform);
+          if (!pc) return Promise.resolve();
+          return prisma.platformCampaign.update({
+            where: { id: pc.id },
+            data: { lastAppliedState: { name: campaign.name, objective: campaign.objective } },
+          });
+        })
+    );
 
     return reply.send({
       success: summary.status !== 'FAILED',
