@@ -11,11 +11,13 @@
     "push": "prisma db push --skip-generate",
     "studio": "prisma studio --port 3003 --browser none",
     "postinstall": "prisma generate",
-    "seed:dev": "dotenv -e ../../apps/dashboard/.env -- tsx prisma/seed-dev.ts"
+    "seed:dev": "dotenv -e ../../apps/dashboard/.env -- tsx prisma/seed-dev.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@prisma/client": "6.9.0",
     "@t3-oss/env-nextjs": "0.13.6",
+    "@workspace/common": "workspace:*",
     "zod": "3.25.56"
   },
   "devDependencies": {
@@ -25,7 +27,8 @@
     "@workspace/typescript-config": "workspace:*",
     "dotenv-cli": "^11.0.0",
     "prisma": "6.9.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "vitest": "2.1.9"
   },
   "prettier": "@workspace/prettier-config",
   "exports": {

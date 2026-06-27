@@ -1,15 +1,20 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { healthRoute } from './routes/health';
-import { campaignsRoute } from './routes/campaigns';
-import { publishRoute } from './routes/publish';
+import { healthRoute } from './routes/health.js';
+import { campaignsRoute } from './routes/campaigns.js';
+import { publishRoute } from './routes/publish.js';
+import { applyRoute } from './routes/apply.js';
+import { registerRequestContext } from './request-context-hook.js';
 
 const server = Fastify({ logger: true });
+
+registerRequestContext(server);
 
 server.register(cors);
 server.register(healthRoute);
 server.register(campaignsRoute);
 server.register(publishRoute);
+server.register(applyRoute);
 
 const start = async () => {
   try {

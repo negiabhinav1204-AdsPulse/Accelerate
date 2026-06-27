@@ -39,3 +39,6 @@ yarn-error.log*
 
 # Ide
 .idea/
+
+# SDD scratch (briefs, reports, review packages, ledger)
+.superpowers/

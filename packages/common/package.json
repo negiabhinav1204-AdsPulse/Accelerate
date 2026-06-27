@@ -9,6 +9,7 @@
     "format:fix": "prettier --write \"**/*.{js,cjs,mjs,ts,tsx,mdx}\" --ignore-path=\"../../.prettierignore\"",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint --fix .",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,12 +19,15 @@
     "@types/node": "22.15.30",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/prettier-config": "workspace:*",
-    "@workspace/typescript-config": "workspace:*"
+    "@workspace/typescript-config": "workspace:*",
+    "vitest": "2.1.9"
   },
   "prettier": "@workspace/prettier-config",
   "exports": {
     "./keys": "./keys.ts",
     "./app": "./src/app.ts",
+    "./context": "./src/context.ts",
+    "./crypto": "./src/crypto.ts",
     "./errors": "./src/errors.ts",
     "./http": "./src/http.ts",
     "./image": "./src/image.ts",

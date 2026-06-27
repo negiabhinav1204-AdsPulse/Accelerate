@@ -1,4 +1,7 @@
 import { MonitoringProvider } from '@workspace/monitoring/provider';
 
-export const register = MonitoringProvider.register;
+export async function register() {
+  await MonitoringProvider.register();
+}
+
 export const onRequestError = MonitoringProvider.captureRequestError;

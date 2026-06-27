@@ -1,12 +1,13 @@
 import { PrismaClient } from '@prisma/client';
+import { withAuditAndEncryption } from './audit/extension';
 
 declare global {
   // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined;
+  var prismaBase: PrismaClient | undefined;
 }
 
-export const prisma = global.prisma || new PrismaClient();
+const base = global.prismaBase || new PrismaClient();
+if (process.env.NODE_ENV !== 'production') global.prismaBase = base;
 
-if (process.env.NODE_ENV !== 'production') {
-  global.prisma = prisma;
-}
+export const prisma = withAuditAndEncryption(base);
+export type ExtendedPrisma = typeof prisma;
