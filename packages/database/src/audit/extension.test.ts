@@ -49,14 +49,15 @@ test('optimistic lock conflict throws OptimisticLockError', async () => {
   ).rejects.toBeInstanceOf(OptimisticLockError);
 });
 
-test('encrypts ConnectedAdAccount token at rest, decrypts on read', async () => {
+test('extension does NOT re-encrypt ConnectedAdAccount.accessToken (app-layer encrypted)', async () => {
+  // The app already encrypts tokens with symmetricEncrypt (AUTH_SECRET).
+  // The extension must pass the value through untouched.
   const acct = await prisma.connectedAdAccount.create({
-    data: { organizationId: orgId, platform: 'meta', accountId: 'a1', accountName: 'n', accessToken: 'plain-token' },
+    data: { organizationId: orgId, platform: 'meta', accountId: 'a2', accountName: 'n2', accessToken: 'plain-token-no-v1' },
   });
   const raw = await base.$queryRawUnsafe<any[]>(`select "accessToken" from "ConnectedAdAccount" where id = $1::uuid`, acct.id);
-  expect(raw[0].accessToken.startsWith('v1:')).toBe(true);
-  const read = await prisma.connectedAdAccount.findUnique({ where: { id: acct.id } });
-  expect(read!.accessToken).toBe('plain-token');
+  // Must NOT be wrapped with v1: prefix by the extension
+  expect(raw[0].accessToken).toBe('plain-token-no-v1');
   await base.connectedAdAccount.delete({ where: { id: acct.id } });
 });
 
@@ -96,3 +97,50 @@ test('CommerceConnector credentials: encrypts json at rest, decrypts to object o
   expect(read!.credentials).toEqual({ apiKey: 'k', storeUrl: 'https://x' });
 });
 
+test('platformCampaign.updateMany bumps version and writes one UPDATE_MANY AuditLog', async () => {
+  // Create a parent campaign first
+  const c = await prisma.campaign.create({
+    data: { organizationId: orgId, createdBy: orgId, name: 'BulkParent', objective: 'SALES' },
+  });
+
+  // Create two platform campaigns via base (bypass audit to set known initial state)
+  const pc1 = await base.platformCampaign.create({
+    data: { campaignId: c.id, platform: 'meta', adTypes: ['image'], budget: 100, version: 1, status: 'draft' },
+  });
+  const pc2 = await base.platformCampaign.create({
+    data: { campaignId: c.id, platform: 'google', adTypes: ['search'], budget: 200, version: 1, status: 'draft' },
+  });
+
+  const result = await runWithContext({ actorId: orgId, actorType: 'user', orgId }, () =>
+    prisma.platformCampaign.updateMany({
+      where: { campaignId: c.id },
+      data: { status: 'paused' },
+    }),
+  );
+
+  expect(result.count).toBe(2);
+
+  // Verify version was bumped on matched rows
+  const updated1 = await base.platformCampaign.findUnique({ where: { id: pc1.id } });
+  const updated2 = await base.platformCampaign.findUnique({ where: { id: pc2.id } });
+  expect(updated1!.version).toBe(2);
+  expect(updated2!.version).toBe(2);
+
+  // Verify exactly one UPDATE_MANY AuditLog was written
+  const logs = await base.auditLog.findMany({ where: { organizationId: orgId, operation: 'UPDATE_MANY', entityType: 'PlatformCampaign' } });
+  expect(logs).toHaveLength(1);
+  expect((logs[0].diff as any).count).toBe(2);
+
+  // Cleanup
+  await base.platformCampaign.deleteMany({ where: { campaignId: c.id } });
+});
+
+test('upsert on audited model throws audit bypass error', async () => {
+  await expect(
+    (prisma.campaign as any).upsert({
+      where: { id: '00000000-0000-0000-0000-000000000001' },
+      update: { name: 'x' },
+      create: { organizationId: orgId, createdBy: orgId, name: 'x', objective: 'SALES' },
+    }),
+  ).rejects.toThrow('upsert on audited model Campaign is not supported (audit bypass)');
+});

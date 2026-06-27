@@ -5,30 +5,39 @@ import { backfillEncryptedSecrets } from './encrypt-existing-secrets';
 
 const base = new PrismaClient();
 let orgId: string;
-let acctId: string;
+let connectorId: string;
 
 beforeAll(async () => {
   process.env.FIELD_ENCRYPTION_KEY = '0'.repeat(64);
   const org = await base.organization.create({ data: { name: 'bf-org', slug: `bf-${Date.now()}` } as any });
   orgId = org.id;
-  // insert raw plaintext token, bypassing the extension
-  const acct = await base.connectedAdAccount.create({
-    data: { organizationId: orgId, platform: 'meta', accountId: 'a', accountName: 'n', accessToken: 'PLAINTEXT' },
+  // Insert raw plaintext credentials, bypassing the extension
+  const connector = await base.commerceConnector.create({
+    data: {
+      organizationId: orgId,
+      platform: 'SHOPIFY',
+      name: 'backfill-test-store',
+      credentials: JSON.stringify({ apiKey: 'raw-key' }),
+    },
   });
-  acctId = acct.id;
+  connectorId = connector.id;
 });
 
 afterAll(async () => {
-  await base.connectedAdAccount.deleteMany({ where: { organizationId: orgId } });
+  await base.commerceConnector.deleteMany({ where: { organizationId: orgId } });
   await base.organization.delete({ where: { id: orgId } });
   await base.$disconnect();
 });
 
-test('encrypts plaintext tokens and is idempotent', async () => {
+test('encrypts plaintext CommerceConnector credentials and is idempotent', async () => {
   const first = await backfillEncryptedSecrets(base);
-  expect(first.connectedAdAccounts).toBe(1);
-  const raw = await base.$queryRawUnsafe<any[]>(`select "accessToken" from "ConnectedAdAccount" where id = $1::uuid`, acctId);
-  expect(isEncrypted(raw[0].accessToken)).toBe(true);
+  expect(first.commerceConnectors).toBeGreaterThanOrEqual(1);
+  const raw = await base.$queryRawUnsafe<any[]>(
+    `select credentials from "CommerceConnector" where id = $1::uuid`,
+    connectorId,
+  );
+  const storedValue = typeof raw[0].credentials === 'string' ? raw[0].credentials : JSON.stringify(raw[0].credentials);
+  expect(isEncrypted(storedValue)).toBe(true);
   const second = await backfillEncryptedSecrets(base);
-  expect(second.connectedAdAccounts).toBe(0); // nothing left to do
+  expect(second.commerceConnectors).toBe(0); // nothing left to encrypt
 });

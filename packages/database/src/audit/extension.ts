@@ -34,6 +34,8 @@ function decryptResult(model: string, row: any) {
   return row;
 }
 
+const SENTINEL_ID = '00000000-0000-0000-0000-000000000000';
+
 export function withAuditAndEncryption(base: PrismaClient) {
   return base.$extends({
     query: {
@@ -76,12 +78,22 @@ export function withAuditAndEncryption(base: PrismaClient) {
               e.code = 'P2025';
               throw e;
             }
+            // Defensive early check (fast path before hitting DB again)
             if (expected !== undefined && before.version !== expected) {
               throw new OptimisticLockError(model);
             }
-            const where = lookupWhere;
             const data = { ...(args as any).data, version: { increment: 1 } };
-            const after = await (tx as any)[model].update({ where, data });
+            // Atomic: include version in WHERE so concurrent updates race on the same predicate
+            const atomicWhere = expected !== undefined
+              ? { ...lookupWhere, version: expected }
+              : lookupWhere;
+            let after: any;
+            try {
+              after = await (tx as any)[model].update({ where: atomicWhere, data });
+            } catch (err: any) {
+              if (err?.code === 'P2025') throw new OptimisticLockError(model);
+              throw err;
+            }
             const ctx = getContext();
             const diff = computeFieldDiff(before, after, AUDITED_MODELS[model].fields);
             if (Object.keys(diff).length > 0) {
@@ -128,6 +140,62 @@ export function withAuditAndEncryption(base: PrismaClient) {
             }
             return result;
           });
+        },
+
+        async updateMany({ model, args, query }) {
+          if (!AUDITED_MODELS[model]) return query(args);
+          // Inject version bump into data
+          const data = { ...(args as any).data, version: { increment: 1 } };
+          const result = await (base as any)[model].updateMany({ ...args, data });
+          const ctx = getContext();
+          // Strip the injected version increment from the logged diff payload
+          const { version: _v, ...loggedData } = data;
+          await base.auditLog.create({
+            data: {
+              organizationId: ctx.orgId ?? null,
+              actorId: ctx.actorId ?? null,
+              actorType: ctx.actorType,
+              entityType: model,
+              entityId: SENTINEL_ID,
+              operation: 'UPDATE_MANY',
+              diff: {
+                where: (args as any).where ?? {},
+                data: loggedData,
+                count: result.count,
+              } as Prisma.InputJsonValue,
+              requestId: ctx.requestId ?? null,
+            },
+          });
+          return result;
+        },
+
+        async deleteMany({ model, args, query }) {
+          if (!AUDITED_MODELS[model]) return query(args);
+          const result = await query(args);
+          const ctx = getContext();
+          await base.auditLog.create({
+            data: {
+              organizationId: ctx.orgId ?? null,
+              actorId: ctx.actorId ?? null,
+              actorType: ctx.actorType,
+              entityType: model,
+              entityId: SENTINEL_ID,
+              operation: 'DELETE_MANY',
+              diff: {
+                where: (args as any).where ?? {},
+                count: result.count,
+              } as Prisma.InputJsonValue,
+              requestId: ctx.requestId ?? null,
+            },
+          });
+          return result;
+        },
+
+        async upsert({ model, args, query }) {
+          if (AUDITED_MODELS[model]) {
+            throw new Error(`upsert on audited model ${model} is not supported (audit bypass)`);
+          }
+          return query(args);
         },
 
         async findUnique({ model, args, query }) {

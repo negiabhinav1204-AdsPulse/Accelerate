@@ -18,7 +18,7 @@ export const AUDITED_MODELS: Record<string, { fields: string[]; hasLastApplied: 
 };
 
 export type EncryptedFieldType = 'string' | 'json';
+// ConnectedAdAccount tokens are encrypted at the application layer (symmetricEncrypt) — do NOT re-encrypt here.
 export const ENCRYPTED_FIELDS: Record<string, Record<string, EncryptedFieldType>> = {
-  ConnectedAdAccount: { accessToken: 'string', refreshToken: 'string' },
   CommerceConnector: { credentials: 'json' },
 };

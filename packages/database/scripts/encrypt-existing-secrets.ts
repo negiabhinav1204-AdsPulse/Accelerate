@@ -5,45 +5,24 @@ export async function backfillEncryptedSecrets(base: PrismaClient) {
   if (!process.env.FIELD_ENCRYPTION_KEY) {
     throw new Error('FIELD_ENCRYPTION_KEY must be set before running the secrets backfill');
   }
-  let accounts = 0;
-  const rows = await base.$queryRawUnsafe<any[]>(
-    `select id, "accessToken", "refreshToken" from "ConnectedAdAccount"`,
-  );
-  for (const r of rows) {
-    const updates: string[] = [];
-    const params: any[] = [];
-    if (typeof r.accessToken === 'string' && r.accessToken && !isEncrypted(r.accessToken)) {
-      params.push(encryptField(r.accessToken));
-      updates.push(`"accessToken" = $${params.length}`);
-    }
-    if (typeof r.refreshToken === 'string' && r.refreshToken && !isEncrypted(r.refreshToken)) {
-      params.push(encryptField(r.refreshToken));
-      updates.push(`"refreshToken" = $${params.length}`);
-    }
-    if (updates.length) {
-      params.push(r.id);
-      await base.$executeRawUnsafe(
-        `update "ConnectedAdAccount" set ${updates.join(', ')} where id = $${params.length}::uuid`,
-        ...params,
-      );
-      accounts++;
-    }
-  }
+  // ConnectedAdAccount tokens are encrypted at the application layer (symmetricEncrypt) — do NOT re-encrypt here.
 
   let connectors = 0;
   const crows = await base.$queryRawUnsafe<any[]>(`select id, credentials from "CommerceConnector"`);
   for (const r of crows) {
     const cur = typeof r.credentials === 'string' ? r.credentials : JSON.stringify(r.credentials);
     if (cur && !isEncrypted(cur)) {
+      // The credentials column is jsonb; the encrypted ciphertext must be stored as a JSON string value.
+      // Use to_json() to produce a valid jsonb string literal from the ciphertext.
       await base.$executeRawUnsafe(
-        `update "CommerceConnector" set credentials = $1 where id = $2::uuid`,
+        `update "CommerceConnector" set credentials = to_json($1::text)::jsonb where id = $2::uuid`,
         encryptField(cur),
         r.id,
       );
       connectors++;
     }
   }
-  return { connectedAdAccounts: accounts, commerceConnectors: connectors };
+  return { commerceConnectors: connectors };
 }
 
 // CLI entry

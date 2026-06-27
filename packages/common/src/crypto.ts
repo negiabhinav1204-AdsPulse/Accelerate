@@ -16,6 +16,15 @@ function getKey(): Buffer {
   return key;
 }
 
+/**
+ * Fail-fast check for FIELD_ENCRYPTION_KEY.
+ * Call this in service start() / Next.js register() before accepting traffic.
+ * Do NOT call at module import time.
+ */
+export function assertEncryptionKey(): void {
+  getKey(); // throws if missing or wrong length
+}
+
 export function isEncrypted(value: string): boolean {
   return typeof value === 'string' && value.startsWith(`${VERSION}:`);
 }
