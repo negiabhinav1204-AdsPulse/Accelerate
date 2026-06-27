@@ -1,10 +1,22 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { enterContext, type RequestContext } from '@workspace/common/context';
 import { healthRoute } from './routes/health';
 import { campaignsRoute } from './routes/campaigns';
 import { publishRoute } from './routes/publish';
 
 const server = Fastify({ logger: true });
+
+server.addHook('onRequest', (request, _reply, done) => {
+  const ctx: RequestContext = {
+    actorId: (request.headers['x-user-id'] as string) || undefined,
+    orgId: (request.headers['x-org-id'] as string) || undefined,
+    requestId: (request.headers['x-request-id'] as string) || undefined,
+    actorType: request.headers['x-internal-api-key'] ? 'agent' : 'user',
+  };
+  enterContext(ctx);
+  done();
+});
 
 server.register(cors);
 server.register(healthRoute);

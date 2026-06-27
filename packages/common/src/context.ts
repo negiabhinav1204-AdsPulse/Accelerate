@@ -36,3 +36,7 @@ export function runWithContext<T>(ctx: RequestContext, fn: () => T): T {
 export function getContext(): RequestContext {
   return storage.getStore() ?? SYSTEM;
 }
+
+export function enterContext(ctx: RequestContext): void {
+  storage.enterWith(ctx);
+}

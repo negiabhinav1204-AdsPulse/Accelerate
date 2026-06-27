@@ -1044,6 +1044,9 @@ importers:
       '@prisma/client':
         specifier: 6.9.0
         version: 6.9.0(prisma@6.9.0(typescript@5.8.3))(typescript@5.8.3)
+      '@workspace/common':
+        specifier: workspace:*
+        version: link:../../packages/common
       fastify:
         specifier: ^4.28.1
         version: 4.29.1
