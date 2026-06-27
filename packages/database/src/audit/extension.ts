@@ -13,17 +13,23 @@ export class OptimisticLockError extends Error {
 
 function encryptData(model: string, data: Record<string, any> | undefined) {
   if (!data) return;
-  for (const f of ENCRYPTED_FIELDS[model] ?? []) {
+  for (const [f, type] of Object.entries(ENCRYPTED_FIELDS[model] ?? {})) {
     const v = data[f];
-    if (typeof v === 'string' && !isEncrypted(v)) data[f] = encryptField(v);
-    else if (v && typeof v === 'object') data[f] = encryptField(JSON.stringify(v));
+    if (type === 'json') {
+      if (v !== undefined && v !== null) data[f] = encryptField(JSON.stringify(v));
+    } else {
+      if (typeof v === 'string' && !isEncrypted(v)) data[f] = encryptField(v);
+    }
   }
 }
 
 function decryptResult(model: string, row: any) {
   if (!row) return row;
-  for (const f of ENCRYPTED_FIELDS[model] ?? []) {
-    if (typeof row[f] === 'string' && isEncrypted(row[f])) row[f] = decryptField(row[f]);
+  for (const [f, type] of Object.entries(ENCRYPTED_FIELDS[model] ?? {})) {
+    if (typeof row[f] === 'string' && isEncrypted(row[f])) {
+      const plain = decryptField(row[f]);
+      row[f] = type === 'json' ? JSON.parse(plain) : plain;
+    }
   }
   return row;
 }
@@ -61,14 +67,19 @@ export function withAuditAndEncryption(base: PrismaClient) {
           if (!AUDITED_MODELS[model]) return decryptResult(model, await query(args));
 
           return base.$transaction(async (tx) => {
-            const before = await (tx as any)[model].findUnique({ where: (args as any).where });
-            if (!before) throw new OptimisticLockError(model);
-            const expected = (args as any).where?.version;
+            const lookupWhere = { ...(args as any).where };
+            const expected = lookupWhere.version;
+            delete lookupWhere.version;
+            const before = await (tx as any)[model].findUnique({ where: lookupWhere });
+            if (!before) {
+              const e: any = new Error(`Record to update not found for ${model}`);
+              e.code = 'P2025';
+              throw e;
+            }
             if (expected !== undefined && before.version !== expected) {
               throw new OptimisticLockError(model);
             }
-            const where = { ...(args as any).where };
-            delete (where as any).version;
+            const where = lookupWhere;
             const data = { ...(args as any).data, version: { increment: 1 } };
             const after = await (tx as any)[model].update({ where, data });
             const ctx = getContext();

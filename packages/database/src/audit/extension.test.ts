@@ -6,6 +6,7 @@ import { runWithContext } from '@workspace/common/context';
 const base = new PrismaClient();
 const prisma = withAuditAndEncryption(base);
 let orgId: string;
+let commerceConnectorId: string;
 
 beforeAll(async () => {
   process.env.FIELD_ENCRYPTION_KEY = '0'.repeat(64);
@@ -14,6 +15,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (commerceConnectorId) {
+    await base.commerceConnector.delete({ where: { id: commerceConnectorId } }).catch(() => {});
+  }
   await base.auditLog.deleteMany({ where: { organizationId: orgId } });
   await base.campaign.deleteMany({ where: { organizationId: orgId } });
   await base.organization.delete({ where: { id: orgId } });
@@ -55,3 +59,40 @@ test('encrypts ConnectedAdAccount token at rest, decrypts on read', async () => 
   expect(read!.accessToken).toBe('plain-token');
   await base.connectedAdAccount.delete({ where: { id: acct.id } });
 });
+
+test('updating a non-existent id throws P2025, not OptimisticLockError', async () => {
+  const nonExistentId = '00000000-0000-0000-0000-000000000000';
+  await expect(
+    prisma.campaign.update({ where: { id: nonExistentId }, data: { name: 'ghost' } }),
+  ).rejects.toSatisfy((e: any) => e.code === 'P2025' && !(e instanceof OptimisticLockError));
+});
+
+test('optimistic lock conflict still throws OptimisticLockError (version mismatch)', async () => {
+  const c = await prisma.campaign.create({ data: { organizationId: orgId, createdBy: orgId, name: 'C4', objective: 'SALES' } });
+  await expect(
+    prisma.campaign.update({ where: { id: c.id, version: 999 } as any, data: { name: 'x' } }),
+  ).rejects.toBeInstanceOf(OptimisticLockError);
+});
+
+test('CommerceConnector credentials: encrypts json at rest, decrypts to object on read', async () => {
+  const credentials = { apiKey: 'k', storeUrl: 'https://x' };
+  const connector = await prisma.commerceConnector.create({
+    data: {
+      organizationId: orgId,
+      platform: 'SHOPIFY',
+      name: 'test-store',
+      credentials,
+    },
+  });
+  commerceConnectorId = connector.id;
+  const raw = await base.$queryRawUnsafe<any[]>(
+    `select credentials from "CommerceConnector" where id = $1::uuid`,
+    connector.id,
+  );
+  // stored value should be a v1:-prefixed encrypted string (stored as JSON string in the Json column)
+  const storedValue = raw[0].credentials;
+  expect(typeof storedValue === 'string' ? storedValue : JSON.stringify(storedValue)).toMatch(/v1:/);
+  const read = await prisma.commerceConnector.findUnique({ where: { id: connector.id } });
+  expect(read!.credentials).toEqual({ apiKey: 'k', storeUrl: 'https://x' });
+});
+

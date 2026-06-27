@@ -17,7 +17,8 @@ export const AUDITED_MODELS: Record<string, { fields: string[]; hasLastApplied: 
   },
 };
 
-export const ENCRYPTED_FIELDS: Record<string, string[]> = {
-  ConnectedAdAccount: ['accessToken', 'refreshToken'],
-  CommerceConnector: ['credentials'],
+export type EncryptedFieldType = 'string' | 'json';
+export const ENCRYPTED_FIELDS: Record<string, Record<string, EncryptedFieldType>> = {
+  ConnectedAdAccount: { accessToken: 'string', refreshToken: 'string' },
+  CommerceConnector: { credentials: 'json' },
 };
