@@ -2,30 +2,23 @@
  * POST /campaigns/publish
  *
  * Receives a media plan from the agentic service and:
- * 1. Creates campaigns on Meta, Google, and Bing (status=PAUSED)
- * 2. Saves PlatformCampaign records to DB
- * 3. Creates a Campaign record tied to the org
- * 4. Returns { campaign_id, platform_results }
+ * 1. Creates a Campaign record in DB
+ * 2. Creates PlatformCampaign rows (status=draft)
+ * 3. Runs the reconciliation engine to publish on each platform
+ * 4. Updates PlatformCampaign rows with external ids + lastAppliedState
+ * 5. Sends admin notifications for the outcome
+ * 6. Returns { success, campaign_id, run_id, platform_results }
  */
 
 import { FastifyInstance } from 'fastify';
 import { prisma } from '@workspace/database/client';
 import { verifyInternalKey } from '../auth.js';
-import type { MediaPlan, ConnectedAccount } from '../reconcile/adapters/types';
-import { createMetaCampaign } from '../reconcile/adapters/meta';
-import { createGoogleCampaign } from '../reconcile/adapters/google';
-import { createBingCampaign } from '../reconcile/adapters/bing';
-
-// ---------------------------------------------------------------------------
-// Local types (not shared with adapters)
-// ---------------------------------------------------------------------------
-
-type PlatformPublishResult = {
-  platform: string;
-  success: boolean;
-  platformCampaignId?: string;
-  error?: string;
-};
+import type { MediaPlan, ConnectedAccount } from '../reconcile/adapters/types.js';
+import { buildPlatformGraph } from '../reconcile/graph.js';
+import { runReconcile } from '../reconcile/executor.js';
+import { metaAdapter } from '../reconcile/adapters/meta.js';
+import { googleAdapter } from '../reconcile/adapters/google.js';
+import { bingAdapter } from '../reconcile/adapters/bing.js';
 
 // ---------------------------------------------------------------------------
 // Route
@@ -59,64 +52,54 @@ export async function publishRoute(fastify: FastifyInstance) {
       },
     });
 
-    const platformResults: PlatformPublishResult[] = [];
+    const adapters = { meta: metaAdapter, google: googleAdapter, bing: bingAdapter } as const;
+    const platforms: Parameters<typeof runReconcile>[0]['platforms'] = [];
 
-    const platformPushPromises = media_plan.platforms.map(async (platformPlan) => {
-      const { platform } = platformPlan;
-      const account = connected_accounts.find((a) => a.platform === platform);
+    for (const pp of media_plan.platforms) {
+      const account = connected_accounts.find((a) => a.platform === pp.platform);
+      if (!account?.accessToken) continue;
 
-      if (!account?.accessToken) {
-        platformResults.push({ platform, success: false, error: `No connected ${platform} account with access token` });
-        return;
+      const pc = await prisma.platformCampaign.create({
+        data: {
+          campaignId: campaign.id,
+          platform: pp.platform,
+          adTypes: pp.adTypes.map((t) => t.adType),
+          budget: pp.budget,
+          status: 'draft',
+        },
+      });
+
+      const nodes = buildPlatformGraph({
+        platform: pp.platform as 'meta' | 'google' | 'bing',
+        campaignLocalId: pc.id,
+        campaignDesired: { name: media_plan.campaignName, objective: media_plan.objective },
+        budget: { localId: `${pc.id}-budget`, desired: { amount: pp.budget } },
+        adGroups: pp.adTypes.map((t, i) => ({ localId: `${pc.id}-ag${i}`, desired: { name: t.adType }, ads: [] })),
+      });
+
+      const adapter = adapters[pp.platform as keyof typeof adapters];
+      if (!adapter) continue;
+
+      platforms.push({ platform: pp.platform as 'meta' | 'google' | 'bing', nodes, adapter, ctx: { account, mediaPlan: media_plan } });
+    }
+
+    const summary = await runReconcile({ campaignId: campaign.id, organizationId: org_id, trigger: 'publish', platforms });
+
+    // Update PlatformCampaign rows with external ids + lastAppliedState
+    for (const r of summary.platformResults) {
+      if (r.success && r.externalId) {
+        await prisma.platformCampaign.updateMany({
+          where: { campaignId: campaign.id, platform: r.platform },
+          data: {
+            platformCampaignId: r.externalId,
+            status: 'paused',
+            lastAppliedState: { name: media_plan.campaignName, budget: media_plan.totalBudget },
+          },
+        });
       }
+    }
 
-      try {
-        let platformCampaignId: string | undefined;
-
-        if (platform === 'meta') {
-          platformCampaignId = await createMetaCampaign(account.accountId, account.accessToken, media_plan, account.facebookPageId);
-        } else if (platform === 'google') {
-          const devToken = account.developerToken ?? process.env.GOOGLE_DEVELOPER_TOKEN;
-          if (!devToken) {
-            platformResults.push({ platform, success: false, error: 'Google Ads developer token not configured' });
-            return;
-          }
-          platformCampaignId = await createGoogleCampaign(account.accountId, account.accessToken, devToken, media_plan);
-        } else if (platform === 'bing') {
-          const devToken = account.developerToken ?? process.env.BING_DEVELOPER_TOKEN;
-          if (!devToken) {
-            platformResults.push({ platform, success: false, error: 'Microsoft Ads developer token not configured' });
-            return;
-          }
-          const customerId = account.customerId ?? account.accountId;
-          platformCampaignId = await createBingCampaign(account.accountId, customerId, account.accessToken, devToken, media_plan);
-        }
-
-        if (platformCampaignId !== undefined) {
-          await prisma.platformCampaign.create({
-            data: {
-              campaignId: campaign.id,
-              platform,
-              platformCampaignId,
-              adTypes: platformPlan.adTypes.map((at) => at.adType),
-              budget: platformPlan.budget,
-              status: 'paused',
-            },
-          });
-        }
-
-        platformResults.push({ platform, success: true, platformCampaignId });
-      } catch (err) {
-        platformResults.push({ platform, success: false, error: err instanceof Error ? err.message : `${platform} publish failed` });
-      }
-    });
-
-    await Promise.all(platformPushPromises);
-
-    const anySuccess = platformResults.some((r) => r.success);
-    const anyFailure = platformResults.some((r) => !r.success);
-
-    if (anySuccess) {
+    if (summary.status !== 'FAILED') {
       await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'PAUSED' } });
     }
 
@@ -135,8 +118,10 @@ export async function publishRoute(fastify: FastifyInstance) {
       const userIds = adminMemberships.map((m: { userId: string }) => m.userId);
 
       if (userIds.length > 0) {
-        const successPlatforms = platformResults.filter((r) => r.success).map((r) => r.platform).join(', ');
-        const failedPlatforms = platformResults.filter((r) => !r.success).map((r) => r.platform).join(', ');
+        const successPlatforms = summary.platformResults.filter((r) => r.success).map((r) => r.platform).join(', ');
+        const failedPlatforms = summary.platformResults.filter((r) => !r.success).map((r) => r.platform).join(', ');
+        const anySuccess = summary.platformResults.some((r) => r.success);
+        const anyFailure = summary.platformResults.some((r) => !r.success);
 
         if (anySuccess && !anyFailure) {
           // Full success
@@ -163,14 +148,14 @@ export async function publishRoute(fastify: FastifyInstance) {
             })),
           });
         } else {
-          // Full failure
+          // Full failure (or no platforms attempted)
           await prisma.notification.createMany({
             data: userIds.map((userId: string) => ({
               userId,
               organizationId: org_id,
               type: 'campaign_failed',
               subject: `"${media_plan.campaignName}" failed to publish`,
-              content: `Failed on ${failedPlatforms}. ${platformResults.find((r) => !r.success)?.error ?? 'Check your account connections and retry.'}`,
+              content: `Failed on ${failedPlatforms}. ${summary.platformResults.find((r) => !r.success)?.error ?? 'Check your account connections and retry.'}`,
               link: `/organizations/${orgSlug}/campaigns?filter=failed`,
             })),
           });
@@ -182,9 +167,10 @@ export async function publishRoute(fastify: FastifyInstance) {
     }
 
     return reply.send({
-      success: anySuccess,
+      success: summary.status !== 'FAILED',
       campaign_id: campaign.id,
-      platform_results: platformResults,
+      run_id: summary.runId,
+      platform_results: summary.platformResults,
     });
   });
 }

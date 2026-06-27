@@ -4,6 +4,7 @@ import { enterContext, type RequestContext } from '@workspace/common/context';
 import { healthRoute } from './routes/health.js';
 import { campaignsRoute } from './routes/campaigns.js';
 import { publishRoute } from './routes/publish.js';
+import { applyRoute } from './routes/apply.js';
 
 const server = Fastify({ logger: true });
 
@@ -22,6 +23,7 @@ server.register(cors);
 server.register(healthRoute);
 server.register(campaignsRoute);
 server.register(publishRoute);
+server.register(applyRoute);
 
 const start = async () => {
   try {
