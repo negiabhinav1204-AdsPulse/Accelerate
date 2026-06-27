@@ -372,8 +372,8 @@ export async function publishRoute(fastify: FastifyInstance) {
       user_id: string;
     };
 
-    if (!org_id || !media_plan || !connected_accounts) {
-      return reply.status(400).send({ error: 'org_id, media_plan, and connected_accounts are required' });
+    if (!org_id || !media_plan || !connected_accounts || !user_id) {
+      return reply.status(400).send({ error: 'org_id, media_plan, connected_accounts, and user_id are required' });
     }
 
     // Create Campaign record in DB using the shared schema fields
