@@ -85,22 +85,32 @@ export async function publishRoute(fastify: FastifyInstance) {
 
     const summary = await runReconcile({ campaignId: campaign.id, organizationId: org_id, trigger: 'publish', platforms });
 
-    // Update PlatformCampaign rows with external ids + lastAppliedState
+    // I2: Replace updateMany with per-row audited update so the audit extension intercepts
+    // this security-critical state change (campaign went live on a platform).
+    // updateMany bypasses the audit extension; per-row update() does not.
     for (const r of summary.platformResults) {
       if (r.success && r.externalId) {
-        await prisma.platformCampaign.updateMany({
+        const pcs = await prisma.platformCampaign.findMany({
           where: { campaignId: campaign.id, platform: r.platform },
-          data: {
-            platformCampaignId: r.externalId,
-            status: 'paused',
-            lastAppliedState: { name: media_plan.campaignName, objective: media_plan.objective },
-          },
+          select: { id: true },
         });
+        for (const pc of pcs) {
+          await prisma.platformCampaign.update({
+            where: { id: pc.id },
+            data: {
+              platformCampaignId: r.externalId,
+              status: 'paused',
+              lastAppliedState: { name: media_plan.campaignName, objective: media_plan.objective },
+            },
+          });
+        }
       }
     }
 
+    // I1: Remove version guard — the campaign was just created so there can be no concurrent
+    // writer; the guard would throw OptimisticLockError after platforms are already live.
     if (summary.status !== 'FAILED') {
-      await prisma.campaign.update({ where: { id: campaign.id, version: campaign.version }, data: { status: 'PAUSED' } });
+      await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'PAUSED' } });
     }
 
     // Notify org admins of publish outcome
