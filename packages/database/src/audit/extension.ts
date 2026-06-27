@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { getContext } from '@workspace/common/context';
 import { encryptField, decryptField, isEncrypted } from '@workspace/common/crypto';
 import { computeFieldDiff } from './diff';
@@ -53,7 +53,7 @@ export function withAuditAndEncryption(base: PrismaClient) {
                 entityType: model,
                 entityId: created.id,
                 operation: 'CREATE',
-                diff,
+                diff: diff as Prisma.InputJsonValue,
                 toVersion: created.version ?? 1,
                 requestId: ctx.requestId ?? null,
               },
@@ -93,7 +93,7 @@ export function withAuditAndEncryption(base: PrismaClient) {
                   entityType: model,
                   entityId: after.id,
                   operation: 'UPDATE',
-                  diff,
+                  diff: diff as Prisma.InputJsonValue,
                   fromVersion: before.version,
                   toVersion: after.version,
                   requestId: ctx.requestId ?? null,
@@ -120,7 +120,7 @@ export function withAuditAndEncryption(base: PrismaClient) {
                   entityType: model,
                   entityId: before.id,
                   operation: 'DELETE',
-                  diff,
+                  diff: diff as Prisma.InputJsonValue,
                   fromVersion: before.version,
                   requestId: ctx.requestId ?? null,
                 },
