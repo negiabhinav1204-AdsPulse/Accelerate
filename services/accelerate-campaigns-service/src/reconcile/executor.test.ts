@@ -26,7 +26,7 @@ test('clean create returns success + externalId, records items', async () => {
   expect(items.some((i) => i.status === 'SUCCESS')).toBe(true);
 });
 
-test('failure on create rolls back created resources (best-effort) and records', async () => {
+test('failure on create (immediate throw) records FAILED and returns error', async () => {
   const del = vi.fn(async () => {});
   const adapter: PlatformAdapter = {
     treeCreate: true,
@@ -42,4 +42,33 @@ test('failure on create rolls back created resources (best-effort) and records',
   expect(out.success).toBe(false);
   expect(out.error).toContain('meta 400');
   expect(items.some((i) => i.status === 'FAILED')).toBe(true);
+});
+
+test('rollback: CREATE succeeds for budget, fails for campaign → rolls back budget and records ROLLED_BACK', async () => {
+  const deleteMock = vi.fn(async () => {});
+  let callCount = 0;
+  const adapter: PlatformAdapter = {
+    treeCreate: true,
+    create: vi.fn(async (node) => {
+      callCount++;
+      if (node.type === 'budget') return { externalId: 'ext-budget' };
+      throw new Error('campaign create failed');
+    }),
+    update: vi.fn(async () => {}),
+    delete: deleteMock,
+  };
+  const rollbackNodes: ResourceNode[] = [
+    { type: 'budget', localId: 'b', desired: { amount: 1 }, deps: [] },
+    { type: 'campaign', localId: 'c', desired: { name: 'C' }, deps: ['b'] },
+  ];
+  const items: any[] = [];
+  const out = await reconcilePlatform({
+    platform: 'meta', nodes: rollbackNodes, adapter, ctx: {} as any, runId: 'r2',
+    recordItem: async (i) => { items.push(i); },
+  });
+  expect(out.success).toBe(false);
+  expect(items.some((i) => i.status === 'FAILED')).toBe(true);
+  // rollback must have deleted the successfully-created budget
+  expect(deleteMock).toHaveBeenCalledWith('ext-budget', expect.anything());
+  expect(items.some((i) => i.status === 'ROLLED_BACK' && i.externalId === 'ext-budget')).toBe(true);
 });

@@ -21,9 +21,20 @@ export async function reconcilePlatform(args: ReconcilePlatformArgs): Promise<Pl
   const created: { externalId: string; resourceType: string }[] = [];
   let campaignExternalId: string | undefined;
 
+  // Fix 2: non-throwing wrapper so catch/rollback path can never escape and strand the run
+  const safeRecord = async (item: RunItem) => {
+    try { await recordItem(item); } catch (e) { console.error('[reconcile] recordItem failed:', e); }
+  };
+
+  // Fix 1: track currently-executing node + operation outside the loop so the catch block has context
+  let currentNode: ResourceNode | undefined;
+  let currentOp: string = 'unknown';
+
   try {
     for (const node of ordered) {
       const plan = diffNode(node);
+      currentNode = node;
+      currentOp = plan.operation;
       const isChild = node.type === 'adgroup' || node.type === 'ad';
       // Tree-create platforms build children inside the campaign create call.
       if (adapter.treeCreate && isChild && plan.operation === 'CREATE') {
@@ -51,11 +62,15 @@ export async function reconcilePlatform(args: ReconcilePlatformArgs): Promise<Pl
     return { platform, success: true, externalId: campaignExternalId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await recordItem({ platform, resourceType: 'unknown', operation: 'unknown', status: 'FAILED', error: message });
+    // Fix 1: use currentNode/currentOp for real resource context; Fix 2: use safeRecord so this cannot throw
+    await safeRecord({ platform, resourceType: currentNode?.type ?? 'unknown', localId: currentNode?.localId, operation: currentOp, status: 'FAILED', error: message });
     // best-effort rollback in reverse creation order
     for (const c of [...created].reverse()) {
-      try { await adapter.delete(c.externalId, ctx); await recordItem({ platform, resourceType: c.resourceType, externalId: c.externalId, operation: 'DELETE', status: 'ROLLED_BACK' }); }
-      catch (rbErr) { console.error(`[reconcile] rollback failed for ${c.externalId}:`, rbErr); }
+      try {
+        await adapter.delete(c.externalId, ctx);
+        // Fix 2: use safeRecord for rollback records so a DB failure here cannot strand the run
+        await safeRecord({ platform, resourceType: c.resourceType, externalId: c.externalId, operation: 'DELETE', status: 'ROLLED_BACK' });
+      } catch (rbErr) { console.error(`[reconcile] rollback failed for ${c.externalId}:`, rbErr); }
     }
     return { platform, success: false, error: message };
   }
