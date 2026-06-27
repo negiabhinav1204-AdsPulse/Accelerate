@@ -35,9 +35,10 @@ export async function reconcilePlatform(args: ReconcilePlatformArgs): Promise<Pl
       const plan = diffNode(node);
       currentNode = node;
       currentOp = plan.operation;
-      const isChild = node.type === 'adgroup' || node.type === 'ad';
-      // Tree-create platforms build children inside the campaign create call.
-      if (adapter.treeCreate && isChild && plan.operation === 'CREATE') {
+      // Tree-create adapters build the whole tree (budget+campaign+adgroups+ads) inside the
+      // campaign node's create() call, so only the campaign node performs CREATE; all other
+      // node CREATEs are folded into it and recorded NOOP.
+      if (adapter.treeCreate && plan.operation === 'CREATE' && node.type !== 'campaign') {
         await recordItem({ platform, resourceType: node.type, localId: node.localId, operation: 'NOOP', status: 'NOOP' });
         continue;
       }

@@ -17,13 +17,19 @@ const nodes: ResourceNode[] = [
 
 test('clean create returns success + externalId, records items', async () => {
   const items: any[] = [];
+  const adapter = okAdapter();
+  const createMock = adapter.create as ReturnType<typeof vi.fn>;
   const out = await reconcilePlatform({
-    platform: 'meta', nodes, adapter: okAdapter(),
+    platform: 'meta', nodes, adapter,
     ctx: {} as any, runId: 'r1', recordItem: async (i) => { items.push(i); },
   });
   expect(out.success).toBe(true);
   expect(out.externalId).toBe('ext-1');
   expect(items.some((i) => i.status === 'SUCCESS')).toBe(true);
+  // Regression guard: treeCreate adapter must call create EXACTLY ONCE (campaign node only).
+  // Budget node CREATE must be folded into a NOOP to prevent double-create on the platform.
+  expect(createMock).toHaveBeenCalledTimes(1);
+  expect(items.some((i) => i.resourceType === 'budget' && i.status === 'NOOP')).toBe(true);
 });
 
 test('failure on create (immediate throw) records FAILED and returns error', async () => {
@@ -45,12 +51,12 @@ test('failure on create (immediate throw) records FAILED and returns error', asy
 });
 
 test('rollback: CREATE succeeds for budget, fails for campaign → rolls back budget and records ROLLED_BACK', async () => {
+  // Use a NON-treeCreate adapter so each node creates independently (per-resource model).
+  // With treeCreate, budget CREATE is NOOP so there would be nothing to roll back.
   const deleteMock = vi.fn(async () => {});
-  let callCount = 0;
   const adapter: PlatformAdapter = {
-    treeCreate: true,
-    create: vi.fn(async (node) => {
-      callCount++;
+    treeCreate: false,
+    create: vi.fn(async (node: ResourceNode) => {
       if (node.type === 'budget') return { externalId: 'ext-budget' };
       throw new Error('campaign create failed');
     }),
