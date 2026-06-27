@@ -1,3 +1,4 @@
+import { prisma } from '@workspace/database/client';
 import { topoSort } from './planner';
 import { diffNode } from './diff';
 import type { ResourceNode, Platform } from './types';
@@ -17,7 +18,7 @@ export interface ReconcilePlatformArgs {
 export async function reconcilePlatform(args: ReconcilePlatformArgs): Promise<PlatformOutcome> {
   const { platform, adapter, ctx, recordItem } = args;
   const ordered = topoSort(args.nodes);
-  const created: { externalId: string }[] = [];
+  const created: { externalId: string; resourceType: string }[] = [];
   let campaignExternalId: string | undefined;
 
   try {
@@ -36,7 +37,7 @@ export async function reconcilePlatform(args: ReconcilePlatformArgs): Promise<Pl
       }
       if (plan.operation === 'CREATE') {
         const { externalId } = await adapter.create(node, ctx);
-        created.push({ externalId });
+        created.push({ externalId, resourceType: node.type });
         if (node.type === 'campaign') campaignExternalId = externalId;
         await recordItem({ platform, resourceType: node.type, localId: node.localId, externalId, operation: 'CREATE', status: 'SUCCESS', durationMs: Date.now() - started });
       } else if (plan.operation === 'UPDATE') {
@@ -50,17 +51,15 @@ export async function reconcilePlatform(args: ReconcilePlatformArgs): Promise<Pl
     return { platform, success: true, externalId: campaignExternalId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await recordItem({ platform, resourceType: 'campaign', operation: 'CREATE', status: 'FAILED', error: message });
+    await recordItem({ platform, resourceType: 'unknown', operation: 'unknown', status: 'FAILED', error: message });
     // best-effort rollback in reverse creation order
-    for (const c of created.reverse()) {
-      try { await adapter.delete(c.externalId, ctx); await recordItem({ platform, resourceType: 'campaign', externalId: c.externalId, operation: 'DELETE', status: 'ROLLED_BACK' }); }
+    for (const c of [...created].reverse()) {
+      try { await adapter.delete(c.externalId, ctx); await recordItem({ platform, resourceType: c.resourceType, externalId: c.externalId, operation: 'DELETE', status: 'ROLLED_BACK' }); }
       catch (rbErr) { console.error(`[reconcile] rollback failed for ${c.externalId}:`, rbErr); }
     }
     return { platform, success: false, error: message };
   }
 }
-
-import { prisma } from '@workspace/database/client';
 
 export interface RunReconcileArgs {
   campaignId: string; organizationId: string; trigger: 'publish' | 'edit' | 'retry';
