@@ -11,12 +11,10 @@
     "build": "echo 'no build step (runs via tsx)'",
     "start": "tsx src/index.ts",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
-    "postinstall": "prisma generate"
+    "test": "vitest run"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
-    "@prisma/client": "6.9.0",
     "@workspace/common": "workspace:*",
     "@workspace/database": "workspace:*",
     "fastify": "^4.28.1",
@@ -25,7 +23,6 @@
   },
   "devDependencies": {
     "@types/node": "22.15.30",
-    "prisma": "6.9.0",
     "typescript": "5.8.3",
     "vitest": "2.1.9"
   }

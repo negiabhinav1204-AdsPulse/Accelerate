@@ -9,10 +9,8 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
-import { verifyInternalKey } from '../auth';
-
-const prisma = new PrismaClient();
+import { prisma } from '@workspace/database/client';
+import { verifyInternalKey } from '../auth.js';
 
 // ---------------------------------------------------------------------------
 // Types (mirror of dashboard's MediaPlan / AdTypePlan)
@@ -265,9 +263,6 @@ async function googlePost<T>(path: string, body: unknown, accessToken: string, d
 const GOOGLE_CHANNEL_MAP: Record<string, string> = {
   search: 'SEARCH', display: 'DISPLAY', pmax: 'PERFORMANCE_MAX', performance_max: 'PERFORMANCE_MAX', shopping: 'SHOPPING', demand_gen: 'DEMAND_GEN',
 };
-const COUNTRY_CRITERION_IDS: Record<string, string> = {
-  US: '2840', IN: '2356', GB: '2826', AU: '2036', CA: '2124', DE: '2276', FR: '2250', JP: '2392', SG: '2702', AE: '2784',
-};
 
 async function createGoogleCampaign(customerId: string, accessToken: string, developerToken: string, mediaPlan: MediaPlan): Promise<string> {
   const platform = mediaPlan.platforms.find((p) => p.platform === 'google');
@@ -381,15 +376,16 @@ export async function publishRoute(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'org_id, media_plan, and connected_accounts are required' });
     }
 
-    // Create Campaign record in DB
+    // Create Campaign record in DB using the shared schema fields
     const campaign = await prisma.campaign.create({
       data: {
-        orgId: org_id,
+        organizationId: org_id,
+        createdBy: user_id,
         name: media_plan.campaignName,
         status: 'DRAFT',
         objective: media_plan.objective,
-        dailyBudget: media_plan.dailyBudget || null,
-        totalBudget: media_plan.totalBudget || null,
+        totalBudget: media_plan.totalBudget ?? 0,
+        currency: media_plan.currency ?? 'USD',
         startDate: media_plan.startDate ? new Date(media_plan.startDate) : null,
         endDate: media_plan.endDate ? new Date(media_plan.endDate) : null,
       },

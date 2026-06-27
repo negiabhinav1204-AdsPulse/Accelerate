@@ -1,9 +1,9 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { enterContext, type RequestContext } from '@workspace/common/context';
-import { healthRoute } from './routes/health';
-import { campaignsRoute } from './routes/campaigns';
-import { publishRoute } from './routes/publish';
+import { healthRoute } from './routes/health.js';
+import { campaignsRoute } from './routes/campaigns.js';
+import { publishRoute } from './routes/publish.js';
 
 const server = Fastify({ logger: true });
 
