@@ -1543,7 +1543,7 @@ model CampaignRunItem {
   runId        String      @db.Uuid
   platform     String      @db.VarChar(50)
   resourceType String      @db.VarChar(50)
-  localId      String?     @db.Uuid
+  localId      String?     @db.VarChar(255)
   externalId   String?     @db.VarChar(255)
   operation    String      @db.VarChar(16) // CREATE | UPDATE | DELETE | NOOP
   status       String      @db.VarChar(16) // SUCCESS | FAILED | ROLLED_BACK | NOOP

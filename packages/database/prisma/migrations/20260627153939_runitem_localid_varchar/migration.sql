@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "CampaignRunItem" ALTER COLUMN "localId" SET DATA TYPE VARCHAR(255);
