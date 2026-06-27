@@ -93,14 +93,14 @@ export async function publishRoute(fastify: FastifyInstance) {
           data: {
             platformCampaignId: r.externalId,
             status: 'paused',
-            lastAppliedState: { name: media_plan.campaignName, budget: media_plan.totalBudget },
+            lastAppliedState: { name: media_plan.campaignName, objective: media_plan.objective },
           },
         });
       }
     }
 
     if (summary.status !== 'FAILED') {
-      await prisma.campaign.update({ where: { id: campaign.id }, data: { status: 'PAUSED' } });
+      await prisma.campaign.update({ where: { id: campaign.id, version: campaign.version }, data: { status: 'PAUSED' } });
     }
 
     // Notify org admins of publish outcome

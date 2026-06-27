@@ -29,6 +29,10 @@ export async function applyRoute(fastify: FastifyInstance) {
       media_plan: MediaPlan;
     };
 
+    if (!connected_accounts || !media_plan) {
+      return reply.status(400).send({ error: 'connected_accounts and media_plan are required' });
+    }
+
     const campaign = await prisma.campaign.findUnique({
       where: { id },
       include: { platformCampaigns: true },
