@@ -2,6 +2,9 @@ import { PrismaClient } from '@prisma/client';
 import { encryptField, isEncrypted } from '@workspace/common/crypto';
 
 export async function backfillEncryptedSecrets(base: PrismaClient) {
+  if (!process.env.FIELD_ENCRYPTION_KEY) {
+    throw new Error('FIELD_ENCRYPTION_KEY must be set before running the secrets backfill');
+  }
   let accounts = 0;
   const rows = await base.$queryRawUnsafe<any[]>(
     `select id, "accessToken", "refreshToken" from "ConnectedAdAccount"`,
