@@ -6,13 +6,17 @@
  *   ROAS 1.0-3.0 → underperformer
  *   ROAS < 1.0 → bleeder
  *   spend < $100 → learner
+ *
+ * NOTE: PlatformCampaign no longer carries spend/revenue in the shared schema.
+ * Both fields are stubbed to 0 until an analytics ingestion layer is added.
+ * dailyBudget is not in the shared Campaign model; budget endpoint now operates
+ * on totalBudget. External API shape is preserved for dashboard compatibility.
  */
 
 import { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
-import { verifyInternalKey } from '../auth';
-
-const prisma = new PrismaClient();
+import { prisma } from '@workspace/database/client';
+import { CampaignStatus } from '@workspace/database';
+import { verifyInternalKey } from '../auth.js';
 
 function scoreHealth(roas: number, spend: number): string {
   if (spend < 100) return 'learner';
@@ -31,6 +35,13 @@ function healthRecommendation(category: string): string {
   }
 }
 
+/** Map external status strings ('paused'|'active') to CampaignStatus enum values. */
+function mapExternalStatus(status: string): CampaignStatus {
+  if (status === 'paused') return CampaignStatus.PAUSED;
+  if (status === 'active') return CampaignStatus.LIVE;
+  throw new Error(`Unknown status: ${status}`);
+}
+
 export async function campaignsRoute(fastify: FastifyInstance) {
   // ── GET /campaigns ─────────────────────────────────────────────────
   fastify.get('/campaigns', { preHandler: verifyInternalKey }, async (request, reply) => {
@@ -38,8 +49,16 @@ export async function campaignsRoute(fastify: FastifyInstance) {
 
     if (!org_id) return reply.status(400).send({ error: 'org_id required' });
 
-    const where: Record<string, unknown> = { orgId: org_id };
-    if (status && status !== 'all') where.status = status;
+    const where: Record<string, unknown> = { organizationId: org_id };
+    if (status && status !== 'all') {
+      // Accept both external values ('paused','active') and direct enum values
+      try {
+        where.status = mapExternalStatus(status);
+      } catch {
+        // Assume it's already a valid CampaignStatus string (e.g. 'DRAFT')
+        where.status = status;
+      }
+    }
 
     const campaigns = await prisma.campaign.findMany({
       where,
@@ -50,17 +69,18 @@ export async function campaignsRoute(fastify: FastifyInstance) {
     });
 
     const enriched = campaigns.map((c) => {
-      const totalSpend = c.platformCampaigns.reduce((s, p) => s + (p.spend ?? 0), 0);
-      const totalRevenue = c.platformCampaigns.reduce((s, p) => s + (p.revenue ?? 0), 0);
-      const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+      // spend/revenue not stored on PlatformCampaign in shared schema — stub to 0
+      const totalSpend = 0;
+      const totalRevenue = 0;
+      const roas = 0;
       const health = scoreHealth(roas, totalSpend);
 
       return {
         id: c.id,
         name: c.name,
         status: c.status,
-        dailyBudget: c.dailyBudget,
-        totalBudget: c.totalBudget,
+        dailyBudget: null, // not in shared schema
+        totalBudget: Number(c.totalBudget),
         startDate: c.startDate,
         endDate: c.endDate,
         objective: c.objective,
@@ -70,7 +90,10 @@ export async function campaignsRoute(fastify: FastifyInstance) {
         roas,
         health,
         healthRecommendation: healthRecommendation(health),
-        platformCampaigns: c.platformCampaigns,
+        platformCampaigns: c.platformCampaigns.map((p) => ({
+          ...p,
+          budget: Number(p.budget),
+        })),
       };
     });
 
@@ -83,19 +106,26 @@ export async function campaignsRoute(fastify: FastifyInstance) {
     const { org_id } = request.query as { org_id?: string };
 
     const campaign = await prisma.campaign.findFirst({
-      where: { id, ...(org_id ? { orgId: org_id } : {}) },
+      where: { id, ...(org_id ? { organizationId: org_id } : {}) },
       include: { platformCampaigns: true },
     });
 
     if (!campaign) return reply.status(404).send({ error: 'Campaign not found' });
 
-    const totalSpend = campaign.platformCampaigns.reduce((s, p) => s + (p.spend ?? 0), 0);
-    const totalRevenue = campaign.platformCampaigns.reduce((s, p) => s + (p.revenue ?? 0), 0);
-    const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+    // spend/revenue not stored on PlatformCampaign in shared schema — stub to 0
+    const totalSpend = 0;
+    const totalRevenue = 0;
+    const roas = 0;
     const health = scoreHealth(roas, totalSpend);
 
     return reply.send({
       ...campaign,
+      totalBudget: Number(campaign.totalBudget),
+      dailyBudget: null, // not in shared schema
+      platformCampaigns: campaign.platformCampaigns.map((p) => ({
+        ...p,
+        budget: Number(p.budget),
+      })),
       spend: totalSpend,
       revenue: totalRevenue,
       roas,
@@ -113,16 +143,25 @@ export async function campaignsRoute(fastify: FastifyInstance) {
       return reply.status(400).send({ error: "status must be 'paused' or 'active'" });
     }
 
-    const campaign = await prisma.campaign.findFirst({ where: { id, orgId: org_id } });
+    const campaign = await prisma.campaign.findFirst({ where: { id, organizationId: org_id } });
     if (!campaign) return reply.status(404).send({ error: 'Campaign not found' });
 
-    await prisma.campaign.update({ where: { id }, data: { status } });
-    await prisma.platformCampaign.updateMany({ where: { campaignId: id }, data: { status } });
+    const mappedStatus = mapExternalStatus(status);
+
+    await prisma.campaign.update({ where: { id }, data: { status: mappedStatus } });
+    // PlatformCampaign.status is a plain string — keep lowercase values
+    await prisma.platformCampaign.updateMany({
+      where: { campaignId: id },
+      data: { status: status === 'active' ? 'live' : 'paused' },
+    });
 
     return reply.send({ success: true, campaign_id: id, status });
   });
 
   // ── PATCH /campaigns/:id/budget ────────────────────────────────────
+  // NOTE: shared schema has no dailyBudget on Campaign. The field `daily_budget`
+  // in the request is now applied to totalBudget. Response key `new_budget` is
+  // preserved for dashboard compatibility.
   fastify.patch('/campaigns/:id/budget', { preHandler: verifyInternalKey }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { org_id, daily_budget, type = 'absolute' } = request.body as {
@@ -131,16 +170,17 @@ export async function campaignsRoute(fastify: FastifyInstance) {
       type?: string;
     };
 
-    const campaign = await prisma.campaign.findFirst({ where: { id, orgId: org_id } });
+    const campaign = await prisma.campaign.findFirst({ where: { id, organizationId: org_id } });
     if (!campaign) return reply.status(404).send({ error: 'Campaign not found' });
 
+    const currentBudget = Number(campaign.totalBudget);
     const newBudget = type === 'percent'
-      ? (campaign.dailyBudget ?? 0) * (1 + daily_budget / 100)
+      ? currentBudget * (1 + daily_budget / 100)
       : daily_budget;
 
     await prisma.campaign.update({
       where: { id },
-      data: { dailyBudget: newBudget },
+      data: { totalBudget: newBudget },
     });
 
     return reply.send({ success: true, campaign_id: id, new_budget: newBudget });
@@ -151,14 +191,15 @@ export async function campaignsRoute(fastify: FastifyInstance) {
     const { org_id } = request.body as { org_id: string; days?: number };
 
     const campaigns = await prisma.campaign.findMany({
-      where: { orgId: org_id },
+      where: { organizationId: org_id },
       include: { platformCampaigns: true },
     });
 
     const result = campaigns.map((c) => {
-      const totalSpend = c.platformCampaigns.reduce((s, p) => s + (p.spend ?? 0), 0);
-      const totalRevenue = c.platformCampaigns.reduce((s, p) => s + (p.revenue ?? 0), 0);
-      const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+      // spend/revenue not stored on PlatformCampaign in shared schema — stub to 0
+      const totalSpend = 0;
+      const totalRevenue = 0;
+      const roas = 0;
       const health = scoreHealth(roas, totalSpend);
 
       return {
